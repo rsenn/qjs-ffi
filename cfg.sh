@@ -1,6 +1,7 @@
 cfg() {
   : ${build:=`gcc -dumpmachine`}
   : ${VERBOSE:=OFF}
+  : ${SHARED:=ON}
 
   if [ -n "$TOOLCHAIN" ]; then
     toolchain=`basename "$TOOLCHAIN" .cmake`
