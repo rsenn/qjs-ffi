@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.0)
 project(qjs-ffi)
 
- 
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../..
+)
+if(CMAKE_SYSTEM_INCLUDE_PATH)
+  include_directories(${CMAKE_SYSTEM_INCLUDE_PATH})
+endif(CMAKE_SYSTEM_INCLUDE_PATH)
 
 set(DISABLE_WERROR TRUE)
- 
  
 
 function(make_shared_module FNAME)
@@ -36,14 +42,26 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(CheckLibraryExists)
 
-check_library_exists(ffi ffi_call "" HAVE_LIBFFI)
+include(FindPkgConfig)
+if(NOT FFI_FOUND)
+  pkg_check_modules(FFI libffi)
+
+  if(NOT FFI_FOUND)
+    find_library(FFI NAMES libffi ffi PATHS "${CMAKE_INSTALL_PREFIX}/lib")
+  endif(NOT FFI_FOUND)
+endif(NOT FFI_FOUND)
+
+if(FFI_FOUND)
+  set(HAVE_LIBFFI TRUE)
+endif(FFI_FOUND)
+#check_library_exists(ffi ffi_call "" HAVE_LIBFFI)
 
 if(HAVE_LIBFFI)
   link_libraries(ffi)
 endif(HAVE_LIBFFI)
 
 if(BUILD_SHARED_LIBS)
-add_definitions(-DJS_SHARED_LIBRARY)
+  add_definitions(-DJS_SHARED_LIBRARY)
 endif(BUILD_SHARED_LIBS)
 # Main
 add_library(quickjs-ffi MODULE ${JS_BINDINGS_SOURCES})
@@ -56,7 +74,7 @@ set_target_properties(
              # OUTPUT_NAME_DEBUG "ffi-debug"
 )
 target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
-target_link_libraries(quickjs-ffi  quickjs ffi)
+target_link_libraries(quickjs-ffi  quickjs ffi dl)
 
 install(TARGETS quickjs-ffi DESTINATION lib/quickjs)
 
