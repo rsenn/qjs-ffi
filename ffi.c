@@ -8,6 +8,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -37,7 +38,7 @@ ffi_type create_timeval_type(void)
 
   tm_type.size = tm_type.alignment = 0;
   tm_type.type = FFI_TYPE_STRUCT;
-  tm_type.elements = &tm_type_elements;
+  tm_type.elements = tm_type_elements;
  
  
   return tm_type;
@@ -78,13 +79,13 @@ typedef struct typed_argument_s typed_argument;
 static struct ffi_type_s *ffi_type_head = NULL;
 
 
-static void fatal(char *msg) {
+static void fatal(const char *msg) {
     fprintf(stderr, "%s\n", msg);
     exit(2);
 }
 
 
-static void warn(char *msg) {
+static void warn(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
 
@@ -105,7 +106,7 @@ static ffi_type *find_ffi_type(const char *name) {
 
 /* Add new ffi_type to named types
  */
-static void define_ffi_type(char *name, ffi_type *t) {
+static void define_ffi_type(const char *name, ffi_type *t) {
     struct ffi_type_s *p = NULL;
 
     /* ignore if already defined */
@@ -533,7 +534,7 @@ static JSValue js_dlopen(JSContext *ctx, JSValueConst this_val,
                          int argc, JSValueConst *argv) {
     const char *s;
     void *res;
-    int n;
+    uint32_t n;
     if (JS_IsNull(argv[0]))
 	s = NULL;
     else {
@@ -802,11 +803,11 @@ static const JSCFunctionListEntry js_funcs[] = {
 	JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_DEFAULT
-    JS_PROP_INT64_DEF("RTLD_DEFAULT", (long)RTLD_DEFAULT,
+    JS_PROP_INT64_DEF("RTLD_DEFAULT", (size_t)RTLD_DEFAULT,
 	JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NEXT
-    JS_PROP_INT64_DEF("RTLD_NEXT", (long)RTLD_NEXT,
+    JS_PROP_INT64_DEF("RTLD_NEXT", (size_t)RTLD_NEXT,
 	JS_PROP_CONFIGURABLE),
 #endif
 };
