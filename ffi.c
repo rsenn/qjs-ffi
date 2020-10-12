@@ -29,6 +29,21 @@ struct function_s {
     ffi_type           *rtype;
 };
 
+ffi_type create_timeval_type(void) 
+{
+  ffi_type tm_type;
+  ffi_type *tm_type_elements[] = { &ffi_type_uint64, &ffi_type_uint64 , NULL };
+ 
+
+  tm_type.size = tm_type.alignment = 0;
+  tm_type.type = FFI_TYPE_STRUCT;
+  tm_type.elements = &tm_type_elements;
+ 
+ 
+  return tm_type;
+}
+
+ffi_type ffi_type_timeval;
 
 #define TYPE_INTEGRAL 0
 #define TYPE_FLOAT    1
@@ -187,6 +202,8 @@ static void define_types(void) {
      */
     define_ffi_type("string", &ffi_type_pointer);
     define_ffi_type("buffer", &ffi_type_pointer);
+    
+    define_ffi_type("timeval", &ffi_type_timeval);
 }
 
 
@@ -677,7 +694,7 @@ static JSValue js_call(JSContext *ctx, JSValueConst this_val,
 	    if (JS_ToFloat64(ctx, &d, argv[i]))
 		goto error;
 	    args[i - 1].arg.ld = (long double)d;
-	    args[i - 1].type = TYPE_FLOAT;
+        args[i - 1].type = TYPE_FLOAT;
 	} else if (JS_IsString(argv[i])) {
 	    const char *s;
 	    s = JS_ToCString(ctx, argv[i]);
@@ -692,7 +709,7 @@ static JSValue js_call(JSContext *ctx, JSValueConst this_val,
 	    if (!buf)
 		goto error;
 	    args[i - 1].arg.ll = (long long)buf;
-	}
+}
     }
     if (call_function(name,
                       args,
@@ -811,6 +828,9 @@ static int js_init(JSContext *ctx, JSModuleDef *m) {
 __attribute__((visibility("default")))
 JSModuleDef *JS_INIT_MODULE(JSContext *ctx, const char *module_name) {
     JSModuleDef *m;
+
+    ffi_type_timeval = create_timeval_type();
+
     m = JS_NewCModule(ctx, module_name, js_init);
     if (!m)
         return NULL;

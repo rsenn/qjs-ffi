@@ -10,7 +10,7 @@ libffi and libdl are required. This has only been run on Linux x86_64 (Fedora 31
 See test.js for simple example and testing. libdl is needed to link to external shared objects (.so files). See the man pages for dlopen, dlerror, dlclose and dlsym.
 
 ## How to use it? ##
-Use dlopen() and dlsym() to get a function pointer to a desired function, use ffidefine() to create a ffi link to the function, then call() to execute the function:
+Use dlopen() and dlsym() to get a function pointer to a desired function, use ffidefine() to create a ffi link to the function, then call() to +execute the function:
 
 ```
 	import { dlsym,
@@ -25,7 +25,7 @@ Use dlopen() and dlsym() to get a function pointer to a desired function, use ff
 ```
 define(name, function_pointer, abi, ret_type, types...)
 
-name is the name you want to refer to the function as, function_pointer is obtained from dlsym(), abi is abi (if null, use default), ret_type is the return type and types... are the types (prototype).
+name is the name you want to refer to the function as, function_pointer is obtained from dlsym(), abi is abi (if null, use default), ret_type is the r.eturn type and types... are the types (prototype).
 
 n = call(name, params...) calls the function with the parameters.
 
