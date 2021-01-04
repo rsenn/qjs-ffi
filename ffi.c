@@ -8,7 +8,6 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -30,21 +29,6 @@ struct function_s {
     ffi_type           *rtype;
 };
 
-ffi_type create_timeval_type(void) 
-{
-  ffi_type tm_type;
-  ffi_type *tm_type_elements[] = { &ffi_type_uint64, &ffi_type_uint64 , NULL };
- 
-
-  tm_type.size = tm_type.alignment = 0;
-  tm_type.type = FFI_TYPE_STRUCT;
-  tm_type.elements = tm_type_elements;
- 
- 
-  return tm_type;
-}
-
-ffi_type ffi_type_timeval;
 
 #define TYPE_INTEGRAL 0
 #define TYPE_FLOAT    1
@@ -79,13 +63,13 @@ typedef struct typed_argument_s typed_argument;
 static struct ffi_type_s *ffi_type_head = NULL;
 
 
-static void fatal(const char *msg) {
+static void fatal(char *msg) {
     fprintf(stderr, "%s\n", msg);
     exit(2);
 }
 
 
-static void warn(const char *msg) {
+static void warn(char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
 
@@ -106,7 +90,7 @@ static ffi_type *find_ffi_type(const char *name) {
 
 /* Add new ffi_type to named types
  */
-static void define_ffi_type(const char *name, ffi_type *t) {
+static void define_ffi_type(char *name, ffi_type *t) {
     struct ffi_type_s *p = NULL;
 
     /* ignore if already defined */
@@ -203,8 +187,6 @@ static void define_types(void) {
      */
     define_ffi_type("string", &ffi_type_pointer);
     define_ffi_type("buffer", &ffi_type_pointer);
-    
-    define_ffi_type("timeval", &ffi_type_timeval);
 }
 
 
@@ -534,7 +516,7 @@ static JSValue js_dlopen(JSContext *ctx, JSValueConst this_val,
                          int argc, JSValueConst *argv) {
     const char *s;
     void *res;
-    uint32_t n;
+    int n;
     if (JS_IsNull(argv[0]))
 	s = NULL;
     else {
@@ -695,7 +677,7 @@ static JSValue js_call(JSContext *ctx, JSValueConst this_val,
 	    if (JS_ToFloat64(ctx, &d, argv[i]))
 		goto error;
 	    args[i - 1].arg.ld = (long double)d;
-        args[i - 1].type = TYPE_FLOAT;
+	    args[i - 1].type = TYPE_FLOAT;
 	} else if (JS_IsString(argv[i])) {
 	    const char *s;
 	    s = JS_ToCString(ctx, argv[i]);
@@ -710,7 +692,7 @@ static JSValue js_call(JSContext *ctx, JSValueConst this_val,
 	    if (!buf)
 		goto error;
 	    args[i - 1].arg.ll = (long long)buf;
-}
+	}
     }
     if (call_function(name,
                       args,
@@ -759,13 +741,27 @@ static JSValue js_toarraybuffer(JSContext *ctx, JSValueConst this_val,
     return JS_NewArrayBufferCopy(ctx, buf, size);
 }
 
+/* s = toPointer(ArrayBuffer[, offset])
+ *
+ * returns string 0xhhhhhhhh which is the base of the ArrayBuffer plus an optional offset.
+ * A negative offset can be used, indicating an offset from the end of the buffer.
+ */
 static JSValue js_topointer(JSContext *ctx, JSValueConst this_val,
                             int argc, JSValueConst *argv) {
     uint8_t *ptr;
-    uint64_t p;
     size_t size;
-    char buf[sizeof(ptr)*2+2+1];
+    char buf[64];
     ptr = JS_GetArrayBuffer(ctx, &size, argv[0]);
+    if(argc > 1) {
+        int64_t off;
+        if(JS_ToInt64(ctx, &off, argv[1]))
+            return JS_EXCEPTION;
+        if(off < 0)
+            off += size;
+        if(off > size || off < 0)
+            return JS_EXCEPTION;
+        ptr += off;
+    }
     snprintf(buf, sizeof(buf), "%p", ptr);
     return JS_NewString(ctx, buf);
 }
@@ -815,12 +811,17 @@ static const JSCFunctionListEntry js_funcs[] = {
 	JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_DEFAULT
-    JS_PROP_INT64_DEF("RTLD_DEFAULT", (size_t)RTLD_DEFAULT,
+    JS_PROP_INT64_DEF("RTLD_DEFAULT", (long)RTLD_DEFAULT,
 	JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NEXT
-    JS_PROP_INT64_DEF("RTLD_NEXT", (size_t)RTLD_NEXT,
+    JS_PROP_INT64_DEF("RTLD_NEXT", (long)RTLD_NEXT,
 	JS_PROP_CONFIGURABLE),
+#endif
+    JS_PROP_INT32_DEF("argSize", FFI_SIZEOF_ARG, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("ptrSize", sizeof(void*), JS_PROP_CONFIGURABLE),
+#ifdef __BYTE_ORDER__
+    JS_PROP_INT32_DEF("littleEndian", __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__, JS_PROP_CONFIGURABLE),
 #endif
 };
 
@@ -838,12 +839,9 @@ static int js_init(JSContext *ctx, JSModuleDef *m) {
 #define JS_INIT_MODULE js_init_module_ffi
 #endif
 
-__attribute__((visibility("default")))
+
 JSModuleDef *JS_INIT_MODULE(JSContext *ctx, const char *module_name) {
     JSModuleDef *m;
-
-    ffi_type_timeval = create_timeval_type();
-
     m = JS_NewCModule(ctx, module_name, js_init);
     if (!m)
         return NULL;
