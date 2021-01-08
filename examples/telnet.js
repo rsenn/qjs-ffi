@@ -1,7 +1,7 @@
-import * as std from 'std';
-import * as os from 'os';
-import { errno, toString, toArrayBuffer, toPointer, argSize,ptrSize } from 'ffi';
-import { Socket, socket, AF_INET, SOCK_STREAM, ndelay, connect, sockaddr_in, select, fd_set, timeval, FD_SET, FD_CLR, FD_ISSET, FD_ZERO, getError, errnos, strerror, send, recv } from './socket.js';
+import { strerror, err, out, exit, open } from 'std';
+import { read, signal, ttySetRaw, write } from 'os';
+import { errno, toString, toArrayBuffer, toPointer, argSize, ptrSize } from 'ffi';
+import { Socket, socket, AF_INET, SOCK_STREAM, ndelay, connect, sockaddr_in, select, fd_set, timeval, FD_SET, FD_CLR, FD_ISSET, FD_ZERO, errnos, send, recv } from './socket.js';
 import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
 
 function not(n) {
@@ -11,22 +11,26 @@ function not(n) {
 const STDIN_FILENO = 0, STDOUT_FILENO = 1, STDERR_FILENO = 2;
 
 let tattr = new termios();
-let out = std.err;
+let log = err;
 
 function debug(fmt, ...args) {
-    out.printf(fmt + '\n', ...args);
-    out.flush();
+    log.printf(fmt + '\n', ...args);
+    log.flush();
 }
 
 function main(...args) {
     if(/^-o/.test(args[0])) {
         let arg = args[0].length == 2 ? (args.shift(), args.shift()) : args.shift().slice(2);
-        out = std.open(arg, 'a+');
+        log = open(arg, 'a+');
     }
 
-    debug('%s started (%s) [%s]', scriptArgs[0].replace(/.*\//g, ''), args, new Date().toISOString());
+    debug('%s started (%s) [%s]',
+        scriptArgs[0].replace(/.*\//g, ''),
+        args,
+        new Date().toISOString()
+    );
 
-    const SetupTerm = Once(() => { //os.ttySetRaw(STDIN_FILENO);
+    const SetupTerm = Once(() => { //ttySetRaw(STDIN_FILENO);
         ReturnValue(tcgetattr(STDIN_FILENO, tattr), 'tcgetattr');
         debug('tattr: %s', tattr);
         tattr.c_lflag &= not(ISIG | ECHOE | ECHOK | ECHOCTL | ECHOKE);
@@ -71,7 +75,9 @@ function main(...args) {
     const SendTerm = Once(() => Send('\xff\xfa\x18\x00XTERM-256COLOR\xff\xf0'));
     const Send = (a, n) => { const b = a instanceof ArrayBuffer ? a : StringToBuffer(a);
         if(n === undefined) n = b.byteLength;
-        debug('Send -> %s', a instanceof ArrayBuffer ? Dump(b, n) : EscapeString(a));
+        debug('Send -> %s',
+            a instanceof ArrayBuffer ? Dump(b, n) : EscapeString(a)
+        );
         return sock.write(b, 0, n);
     };
     debug('errnos: %s', Object.entries(errnos));
@@ -97,21 +103,24 @@ function main(...args) {
                 if(Send(outBuf, outLen) > 0) {
                     outLen = 0;
                     if(handshake == 0) {
-                        os.ttySetRaw(STDOUT_FILENO);
-                        os.signal(2, function() {
+                        ttySetRaw(STDOUT_FILENO);
+                        signal(2, function() {
                             debug('SIGINT');
-                            [outBuf, outLen] = Append(outBuf, outLen, tattr.c_cc[VINTR]);
+                            [outBuf, outLen] = Append(outBuf,
+                                outLen,
+                                tattr.c_cc[VINTR]
+                            );
                         });
-                        os.signal(21, function() {
+                        signal(21, function() {
                             debug('SIGTTIN');
                         });
-                        os.signal(22, function() {
+                        signal(22, function() {
                             debug('SIGTTOU');
                         });
-                        os.signal(19, function() {
+                        signal(19, function() {
                             debug('SIGSTOP');
                         });
-                        os.signal(18, function() {
+                        signal(18, function() {
                             debug('SIGCONT');
                         });
                     }
@@ -157,7 +166,7 @@ function main(...args) {
                         SendTerm();
                     }
                     debug('Received data from socket: "%s"', EscapeString(str));
-                    os.write(STDOUT_FILENO, data, start, length);
+                    write(STDOUT_FILENO, data, start, length);
                 } else {
                     conn = undefined;
                 }
@@ -167,24 +176,32 @@ function main(...args) {
         if(FD_ISSET(STDIN_FILENO, rfds)) {
             let offset, ret;
             again: offset = inLen;
-            ret = os.read(STDIN_FILENO, inBuf, offset, inBuf.byteLength - offset);
+            ret = read(STDIN_FILENO, inBuf, offset, inBuf.byteLength - offset);
 
             if(ret > 0) {
                 inLen += ret;
                 let chars = new Uint8Array(inBuf, offset, inLen - offset);
 
                 for(let i = 0; i < chars.length; i++) {
-                    //std.err.printf("char '%c'\n", chars[i]);
+                    //err.printf("char '%c'\n", chars[i]);
                     switch (chars[i]) {
                         case 0x11: {
-                            std.out.printf([/*'\x1bc\x1b[?1000l',*/ '\x1b[?25h', '\r\n', 'Exited\n'].join(''));
-                            std.exit(1);
+                            out.printf([
+                                    /*'\x1bc\x1b[?1000l',*/ '\x1b[?25h',
+                                    '\r\n',
+                                    'Exited\n'
+                                ].join('')
+                            );
+                            exit(1);
                             break;
                         }
                         case 0xff: {
                             if(chars[i + 1] == 0xf2 && chars[i + 2] == 0x03) {
                                 i += 2;
-                                [outBuf, outLen] = Append(outBuf, outLen, chars[i]);
+                                [outBuf, outLen] = Append(outBuf,
+                                    outLen,
+                                    chars[i]
+                                );
                                 break;
                             }
                         }
@@ -201,11 +218,13 @@ function main(...args) {
 }
 
 function ReturnValue(ret, ...args) {
-    const r = [-1, 0].indexOf(ret) != -1 ? ret + '' : '0x'+NumberToHex(ret, ptrSize*2);
+    const r = [-1, 0].indexOf(ret) != -1 ? ret + '' : '0x' + NumberToHex(ret, ptrSize * 2);
     debug('%s ret = %s%s%s',
         args,
         r,
-        ...(ret == -1 ? [' errno =', errno(), ' error =', strerror(errno())] : ['', ''])
+        ...(ret == -1
+            ? [' errno =', errno(), ' error =', strerror(errno())]
+            : ['', ''])
     );
 }
 
@@ -224,21 +243,24 @@ function EscapeString(str) {
         else if(code == 0x0d) r += '\\r';
         else if(code == 0x09) r += '\\t';
         else if(code <= 3) r += '\\0';
-        else if(code < 32 || code >= 128) r += `\\${('00' + code.toString(8)).slice(-3)}`;
+        else if(code < 32 || code >= 128)
+            r += `\\${('00' + code.toString(8)).slice(-3)}`;
         else r += str[i];
     }
     return r;
 }
 
 function BufferToArray(buf, offset, length) {
-    let len, arr = new Uint8Array(buf, offset !== undefined ? offset : 0, length !== undefined ? length : buf.byteLength);
+    let len, arr = new Uint8Array( buf, offset !== undefined ? offset : 0, length !== undefined ? length : buf.byteLength );
     //   arr = [...arr];
     if((len = arr.indexOf(0)) != -1) arr = arr.slice(0, len);
     return arr;
 }
 
 function BufferToString(buf, offset, length) {
-    return BufferToArray(buf, offset, length).reduce((s, code) => s + String.fromCharCode(code), '');
+    return BufferToArray(buf, offset, length).reduce((s, code) => s + String.fromCharCode(code),
+        ''
+    );
 }
 
 function ArrayBufToHex(buf, offset = 0, len) {
@@ -249,7 +271,9 @@ function ArrayBufToHex(buf, offset = 0, len) {
 function ArrayToHex(arr, delim = ', ', bytes = 1) {
     return ('[' +
         arr.reduce((s, code) =>
-                (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)),
+                (s != '' ? s + delim : '') +
+                '0x' +
+                ('000000000000000' + code.toString(16)).slice(-(bytes * 2)),
             ''
         ) +
         ']'
@@ -260,7 +284,7 @@ function AvailableBytes(buf, numBytes) {
     return buf.byteLength - numBytes;
 }
 function Append(buf, numBytes, ...chars) {
-    let n = chars.reduce((a, c) => (typeof c == 'number' ? a + 1 : a + c.length), 0);
+    let n = chars.reduce((a, c) => (typeof c == 'number' ? a + 1 : a + c.length), 0 );
     if(AvailableBytes(buf, numBytes) < n) buf = CloneBuf(buf, numBytes + n);
     let a = new Uint8Array(buf, numBytes, n);
     let p = 0;
