@@ -4,10 +4,14 @@ project(qjs-ffi)
 set(DISABLE_WERROR ON)
 
 if(NOT quickjs_libdir)
-  execute_process(COMMAND cc -dumpmachine OUTPUT_VARIABLE HOST_SYSTEM_NAME
-                  OUTPUT_STRIP_TRAILING_WHITESPACE)
-  execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine
-                  OUTPUT_VARIABLE SYSTEM_NAME OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process(
+    COMMAND cc -dumpmachine
+    OUTPUT_VARIABLE HOST_SYSTEM_NAME
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process(
+    COMMAND ${CMAKE_C_COMPILER} -dumpmachine
+    OUTPUT_VARIABLE SYSTEM_NAME
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
 
   if(NOT "${HOST_SYSTEM_NAME}" STREQUAL "${SYSTEM_NAME}")
     string(REGEX REPLACE i686 i386 quickjs_cross_arch "${SYSTEM_NAME}")
@@ -51,9 +55,17 @@ function(make_shared_module FNAME)
       "${CMAKE_BINARY_DIR};${CMAKE_CURRENT_BINARY_DIR};${CMAKE_BINARY_DIR}/quickjs;${CMAKE_CURRENT_BINARY_DIR}/quickjs"
   )
   target_compile_definitions(${TARGET_NAME} PRIVATE -DJS_${UNAME}_MODULE=1)
-  install(TARGETS ${TARGET_NAME} DESTINATION ${quickjs_libdir}/quickjs
-          PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
-                      GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  install(
+    TARGETS ${TARGET_NAME}
+    DESTINATION ${quickjs_libdir}/quickjs
+    PERMISSIONS
+      OWNER_READ
+      OWNER_WRITE
+      OWNER_EXECUTE
+      GROUP_READ
+      GROUP_EXECUTE
+      WORLD_READ
+      WORLD_EXECUTE)
 
 endfunction()
 
@@ -98,9 +110,17 @@ target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1
                                                -DJS_BINDINGS_INIT_MODULE=1)
 target_link_libraries(quickjs-ffi PUBLIC ${FFI_LIBRARIES} dl)
 
-install(TARGETS quickjs-ffi DESTINATION ${quickjs_libdir}/quickjs
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
-                    GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+install(
+  TARGETS quickjs-ffi
+  DESTINATION ${quickjs_libdir}/quickjs
+  PERMISSIONS
+    OWNER_READ
+    OWNER_WRITE
+    OWNER_EXECUTE
+    GROUP_READ
+    GROUP_EXECUTE
+    WORLD_READ
+    WORLD_EXECUTE)
 
 add_library(test MODULE test.c)
 set_target_properties(test PROPERTIES PREFIX "" OUTPUT_NAME "test")
