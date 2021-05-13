@@ -121,6 +121,6 @@ install(
     WORLD_READ
     WORLD_EXECUTE)
 
-add_library(test MODULE test.c)
-set_target_properties(test PROPERTIES PREFIX "" OUTPUT_NAME "test")
-target_link_libraries(test)
+#add_library(test MODULE test.c)
+#set_target_properties(test PROPERTIES PREFIX "" OUTPUT_NAME "test")
+#target_link_libraries(test)
