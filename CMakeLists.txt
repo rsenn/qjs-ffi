@@ -3,6 +3,13 @@ project(qjs-ffi)
 
 set(DISABLE_WERROR ON)
 
+find_library (LIBFFI ffi) 
+
+if(LIBFFI)
+  message(STATUS "Found LIBFFI at ${LIBFFI}")
+  set(FFI_FOUND TRUE)
+endif(LIBFFI)
+
 if(NOT quickjs_libdir)
   execute_process(
     COMMAND cc -dumpmachine
@@ -43,7 +50,7 @@ function(make_shared_module FNAME)
 
   add_library(${TARGET_NAME} SHARED ${FNAME}.c)
 
-  target_link_libraries(${TARGET_NAME} ffi dl)
+  target_link_libraries(${TARGET_NAME} ${LIBFFI} dl)
   set_target_properties(
     ${TARGET_NAME}
     PROPERTIES
@@ -79,15 +86,11 @@ include(FindPkgConfig)
 if(NOT FFI_FOUND)
   pkg_search_module(FFI libffi)
 
-  #[[if(NOT FFI_FOUND)
-    find_library(FFI NAMES libffi ffi PATHS "${CMAKE_INSTALL_PREFIX}/lib")
-  endif(NOT FFI_FOUND)]]
+  if(pkgcfg_lib_FFI_ffi)
+    set(LIBFFI "${pkgcfg_lib_FFI_ffi}")
+    set(FFI_FOUND TRUE)
+  endif(pkgcfg_lib_FFI_ffi)
 endif(NOT FFI_FOUND)
-
-if(pkgcfg_lib_FFI_ffi)
-  set(FFI_LIBRARIES "${pkgcfg_lib_FFI_ffi}")
-  set(FFI_LINK_LIBRARIES "${pkgcfg_lib_FFI_ffi}")
-endif(pkgcfg_lib_FFI_ffi)
 
 if(FFI_FOUND)
   set(HAVE_LIBFFI TRUE)
@@ -95,7 +98,7 @@ endif(FFI_FOUND)
 # check_library_exists(ffi ffi_call "" HAVE_LIBFFI)
 
 if(HAVE_LIBFFI)
-  link_libraries(${FFI_LINK_LIBRARIES})
+  link_libraries(${LIBFFI})
 endif(HAVE_LIBFFI)
 
 if(BUILD_SHARED_LIBS)
