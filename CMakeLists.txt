@@ -17,15 +17,15 @@ if(NOT QUICKJS_LIBRARY_DIR)
                   OUTPUT_STRIP_TRAILING_WHITESPACE)
 
   if(NOT "${HOST_SYSTEM_NAME}" STREQUAL "${SYSTEM_NAME}")
-    string(REGEX REPLACE i686 i386 quickjs_cross_arch "${SYSTEM_NAME}")
-    message("quickjs_cross_arch = ${quickjs_cross_arch}")
+    string(REGEX REPLACE i686 i386 QUICKJS_CROSS_ARCH "${SYSTEM_NAME}")
+    message("QUICKJS_CROSS_ARCH = ${QUICKJS_CROSS_ARCH}")
   endif()
 
-  if(quickjs_cross_arch)
-    set(QUICKJS_LIBRARY_DIR lib/${quickjs_cross_arch})
-  else(quickjs_cross_arch)
+  if(QUICKJS_CROSS_ARCH)
+    set(QUICKJS_LIBRARY_DIR lib/${QUICKJS_CROSS_ARCH})
+  else(QUICKJS_CROSS_ARCH)
     set(QUICKJS_LIBRARY_DIR lib)
-  endif(quickjs_cross_arch)
+  endif(QUICKJS_CROSS_ARCH)
 
 endif()
 
