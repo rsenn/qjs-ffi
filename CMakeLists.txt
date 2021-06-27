@@ -10,7 +10,7 @@ if(LIBFFI)
   set(FFI_FOUND TRUE)
 endif(LIBFFI)
 
-if(NOT quickjs_libdir)
+if(NOT QUICKJS_LIBRARY_DIR)
   execute_process(COMMAND cc -dumpmachine OUTPUT_VARIABLE HOST_SYSTEM_NAME
                   OUTPUT_STRIP_TRAILING_WHITESPACE)
   execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE SYSTEM_NAME
@@ -22,9 +22,9 @@ if(NOT quickjs_libdir)
   endif()
 
   if(quickjs_cross_arch)
-    set(quickjs_libdir lib/${quickjs_cross_arch})
+    set(QUICKJS_LIBRARY_DIR lib/${quickjs_cross_arch})
   else(quickjs_cross_arch)
-    set(quickjs_libdir lib)
+    set(QUICKJS_LIBRARY_DIR lib)
   endif(quickjs_cross_arch)
 
 endif()
@@ -58,7 +58,7 @@ function(make_shared_module FNAME)
       "${CMAKE_BINARY_DIR};${CMAKE_CURRENT_BINARY_DIR};${CMAKE_BINARY_DIR}/quickjs;${CMAKE_CURRENT_BINARY_DIR}/quickjs"
   )
   target_compile_definitions(${TARGET_NAME} PRIVATE -DJS_${UNAME}_MODULE=1)
-  install(TARGETS ${TARGET_NAME} DESTINATION ${quickjs_libdir}/quickjs
+  install(TARGETS ${TARGET_NAME} DESTINATION ${QUICKJS_LIBRARY_DIR}/quickjs
           PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
                       WORLD_EXECUTE)
 
@@ -100,7 +100,7 @@ set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
 target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
 target_link_libraries(quickjs-ffi PUBLIC ${FFI_LIBRARIES} dl)
 
-install(TARGETS quickjs-ffi DESTINATION ${quickjs_libdir}/quickjs
+install(TARGETS quickjs-ffi DESTINATION ${QUICKJS_LIBRARY_DIR}/quickjs
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
                     WORLD_EXECUTE)
 
