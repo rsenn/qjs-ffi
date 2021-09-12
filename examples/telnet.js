@@ -2,35 +2,7 @@ import { strerror, err, out, exit, open } from 'std';
 import { read, signal, ttySetRaw, write } from 'os';
 import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
 import { Socket, socket, AF_INET, SOCK_STREAM, ndelay, connect, sockaddr_in, select, fd_set, timeval, FD_SET, FD_CLR, FD_ISSET, FD_ZERO, errnos, send, recv } from './socket.js';
-import {
-  termios,
-  tcgetattr,
-  tcsetattr,
-  TCSANOW,
-  IGNPAR,
-  IMAXBEL,
-  IUTF8,
-  OPOST,
-  ONLCR,
-  CR0,
-  TAB0,
-  BS0,
-  VT0,
-  FF0,
-  EXTB,
-  CS8,
-  CREAD,
-  ISIG,
-  ECHOE,
-  ECHOK,
-  ECHOCTL,
-  ECHOKE,
-  VINTR,
-  cfgetospeed,
-  cfsetospeed,
-  B57600,
-  B115200
-} from './term.js';
+import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
 
 function not(n) {
   return ~n >>> 0;
@@ -49,7 +21,7 @@ function debug(fmt, ...args) {
 }
 
 function main(...args) {
-  if (/^-o/.test(args[0])) {
+  if(/^-o/.test(args[0])) {
     let arg = args[0].length == 2 ? (args.shift(), args.shift()) : args.shift().slice(2);
     log = open(arg, 'a+');
   }
@@ -79,7 +51,7 @@ function main(...args) {
 
   let ret;
 
-  if (listen) {
+  if(listen) {
     ret = sock.bind(addr, port);
     ReturnValue(ret, `sock.bind(${addr}, ${port})`);
     ret = sock.listen();
@@ -106,7 +78,7 @@ function main(...args) {
   });
   const Send = (a, n) => {
     const b = a instanceof ArrayBuffer ? a : StringToBuffer(a);
-    if (n === undefined) n = b.byteLength;
+    if(n === undefined) n = b.byteLength;
     debug('Send -> %s', a instanceof ArrayBuffer ? Dump(b, n, 40) : EscapeString(a));
     return sock.write(b, 0, n);
   };
@@ -119,48 +91,48 @@ function main(...args) {
 
     FD_SET(+sock, rfds);
 
-    if (sock.connecting || outLen) FD_SET(+sock, wfds);
-    else if (inLen < inBuf.byteLength) FD_SET(STDIN_FILENO, rfds);
+    if(sock.connecting || outLen) FD_SET(+sock, wfds);
+    else if(inLen < inBuf.byteLength) FD_SET(STDIN_FILENO, rfds);
 
     const timeout = new timeval(5, 0);
     //console.log('select:', sock + 1);
 
     ret = select(sock + 1, rfds, wfds, null, timeout);
 
-    if (FD_ISSET(+sock, wfds)) {
-      if (outLen > 0) {
+    if(FD_ISSET(+sock, wfds)) {
+      if(outLen > 0) {
         //console.log('outBuf:', BufferToString(outBuf));
-        if (Send(outBuf, outLen) > 0) {
+        if(Send(outBuf, outLen) > 0) {
           outLen = 0;
-          if (handshake == 0) {
+          if(handshake == 0) {
             ttySetRaw(STDOUT_FILENO);
-            signal(2, function () {
+            signal(2, function() {
               debug('SIGINT');
               [outBuf, outLen] = Append(outBuf, outLen, tattr.c_cc[VINTR]);
             });
-            signal(21, function () {
+            signal(21, function() {
               debug('SIGTTIN');
             });
-            signal(22, function () {
+            signal(22, function() {
               debug('SIGTTOU');
             });
-            signal(19, function () {
+            signal(19, function() {
               debug('SIGSTOP');
             });
-            signal(18, function () {
+            signal(18, function() {
               debug('SIGCONT');
             });
             [outBuf, outLen] = Append(outBuf, outLen, '\x1b[2J');
           }
 
-          if (handshake < 4) handshake++;
+          if(handshake < 4) handshake++;
         }
       } else {
         conn = sock;
       }
     }
-    if (FD_ISSET(+sock, rfds)) {
-      if (listen) {
+    if(FD_ISSET(+sock, rfds)) {
+      if(listen) {
         conn = sock.accept();
 
         ReturnValue(conn, 'sock.accept()');
@@ -169,28 +141,28 @@ function main(...args) {
       }
     }
 
-    if (FD_ISSET(+conn, rfds)) {
+    if(FD_ISSET(+conn, rfds)) {
       let length;
       //debug(`Socket readable handshake=${handshake} ${sock}`);
-      if (handshake < 4) {
+      if(handshake < 4) {
         length = outLen = sock.read(outBuf, 0, outBuf.byteLength);
       } else {
         const data = new ArrayBuffer(1024);
         length = sock.read(data, 0, data.byteLength);
 
-        if (length > 0) {
+        if(length > 0) {
           let start = 0;
           let chars = new Uint8Array(data, 0, length);
-          if (length >= 2 && chars[0] == 0xff && chars[1] == 0xf2) {
+          if(length >= 2 && chars[0] == 0xff && chars[1] == 0xf2) {
             start += 2;
             length -= 2;
           }
-          if (chars[0] == 0xff && chars[1] == 0xfe && chars[2] == 1) {
+          if(chars[0] == 0xff && chars[1] == 0xfe && chars[2] == 1) {
             start += 3;
             length -= 3;
           }
           let str = BufferToString(data, start, length);
-          if (length >= 2 && str.indexOf('\xff\xfe') != -1) {
+          if(length >= 2 && str.indexOf('\xff\xfe') != -1) {
             SendTerm();
           }
           SetCursor(false);
@@ -203,16 +175,16 @@ function main(...args) {
       }
       //console.log(`Received ${length} bytes from socket`);
     }
-    if (FD_ISSET(STDIN_FILENO, rfds)) {
+    if(FD_ISSET(STDIN_FILENO, rfds)) {
       let offset, ret;
       again: offset = inLen;
       ret = read(STDIN_FILENO, inBuf, offset, inBuf.byteLength - offset);
 
-      if (ret > 0) {
+      if(ret > 0) {
         inLen += ret;
         let chars = new Uint8Array(inBuf, offset, inLen - offset);
         SetCursor(true);
-        for (let i = 0; i < chars.length; i++) {
+        for(let i = 0; i < chars.length; i++) {
           //err.printf("char '%c'\n", chars[i]);
           switch (chars[i]) {
             case 0x11: {
@@ -221,7 +193,7 @@ function main(...args) {
               break;
             }
             case 0xff: {
-              if (chars[i + 1] == 0xf2 && chars[i + 2] == 0x03) {
+              if(chars[i + 1] == 0xf2 && chars[i + 2] == 0x03) {
                 i += 2;
                 [outBuf, outLen] = Append(outBuf, outLen, chars[i]);
                 break;
@@ -235,7 +207,7 @@ function main(...args) {
         }
       }
     }
-  } while (!sock.destroyed);
+  } while(!sock.destroyed);
   debug('end');
 }
 
@@ -256,15 +228,15 @@ function NumberToHex(n, b = 2) {
 
 function EscapeString(str) {
   let r = '';
-  let codeAt = typeof str == 'string' ? (i) => str.charCodeAt(i) : (i) => str[i];
-  for (let i = 0; i < str.length; i++) {
+  let codeAt = typeof str == 'string' ? i => str.charCodeAt(i) : i => str[i];
+  for(let i = 0; i < str.length; i++) {
     const code = codeAt(i);
 
-    if (code == 0x0a) r += '\\n';
-    else if (code == 0x0d) r += '\\r';
-    else if (code == 0x09) r += '\\t';
-    else if (code <= 3) r += '\\0';
-    else if (code < 32 || code >= 128) r += `\\${('00' + code.toString(8)).slice(-3)}`;
+    if(code == 0x0a) r += '\\n';
+    else if(code == 0x0d) r += '\\r';
+    else if(code == 0x09) r += '\\t';
+    else if(code <= 3) r += '\\0';
+    else if(code < 32 || code >= 128) r += `\\${('00' + code.toString(8)).slice(-3)}`;
     else r += str[i];
   }
   return r;
@@ -274,7 +246,7 @@ function BufferToArray(buf, offset, length) {
   let len,
     arr = new Uint8Array(buf, offset !== undefined ? offset : 0, length !== undefined ? length : buf.byteLength);
   //   arr = [...arr];
-  if ((len = arr.indexOf(0)) != -1) arr = arr.slice(0, len);
+  if((len = arr.indexOf(0)) != -1) arr = arr.slice(0, len);
   return arr;
 }
 
@@ -293,10 +265,10 @@ function ArrayToBytes(arr, delim = ', ', bytes = 1, limit = Infinity) {
   delim = typeof delim == 'string' ? delim : ', ';
   bytes = typeof bytes == 'number' ? bytes : 1;
 
-  if (limit !== Infinity) {
+  if(limit !== Infinity) {
     let len = Math.min(arr.length, limit);
     arr = arr.slice(0, len);
-    if (len < arr.length) trail = `... ${arr.length - len} more bytes ...`;
+    if(len < arr.length) trail = `... ${arr.length - len} more bytes ...`;
   }
   let str = arr.reduce((s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)), '');
   return '[' + str + trail + ']';
@@ -308,16 +280,16 @@ function AvailableBytes(buf, numBytes) {
 
 function Append(buf, numBytes, ...chars) {
   let n = chars.reduce((a, c) => (typeof c == 'number' ? a + 1 : a + c.length), 0);
-  if (AvailableBytes(buf, numBytes) < n) buf = CloneBuf(buf, numBytes + n);
+  if(AvailableBytes(buf, numBytes) < n) buf = CloneBuf(buf, numBytes + n);
   let a = new Uint8Array(buf, numBytes, n);
   let p = 0;
-  for (let i = 0; i < chars.length; i++) {
-    if (typeof chars[i] == 'number') {
+  for(let i = 0; i < chars.length; i++) {
+    if(typeof chars[i] == 'number') {
       a[p++] = chars[i];
-    } else if (typeof chars[i] == 'string') {
+    } else if(typeof chars[i] == 'string') {
       const s = chars[i];
       const m = s.length;
-      for (let j = 0; j < m; j++) a[p++] = s[j].charCodeAt(0);
+      for(let j = 0; j < m; j++) a[p++] = s[j].charCodeAt(0);
     }
   }
   return [buf, numBytes + n];
@@ -337,8 +309,8 @@ function Once(fn, thisArg) {
   let ran = false;
   let ret;
 
-  return function (...args) {
-    if (!ran) {
+  return function(...args) {
+    if(!ran) {
       ret = fn.call(thisArg, ...args);
       ran = true;
     }
@@ -347,7 +319,7 @@ function Once(fn, thisArg) {
 }
 
 function StringToBuffer(str) {
-  return Uint8Array.from(str.split('').map((ch) => ch.charCodeAt(0))).buffer;
+  return Uint8Array.from(str.split('').map(ch => ch.charCodeAt(0))).buffer;
 }
 
 main(...scriptArgs.slice(1));
