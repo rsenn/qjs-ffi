@@ -1,8 +1,9 @@
 import { strerror, err, out, exit, open, loadFile } from 'std';
 import { read, signal, ttySetRaw, write } from 'os';
 import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
-import { Socket, socket, socklen_t, AF_INET, SOCK_STREAM, IPPROTO_UDP, ndelay, connect, sockaddr_in, select, fd_set, timeval, FD_SET, FD_CLR, FD_ISSET, FD_ZERO, errnos, send, recv } from './socket.js';
+import { Socket, socket, socklen_t, AF_INET, SOCK_STREAM, IPPROTO_UDP, /*ndelay, */ SockAddr, select,  timeval,  errnos, send, recv } from './socket.js';
 import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
+import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from './ /fd_set.js';
 
 function not(n) {
   return ~n >>> 0;
@@ -66,7 +67,7 @@ function main(...args) {
         ReturnValue(ret, `sock.connect(${addr}, ${port})`);*/
 
     let inLen = 0,
-      inBuf = new ArrayBuffer(128);
+      inBuf = new ArrayBuffer(128); 
     let outLen = 0,
       outBuf = new ArrayBuffer(1024);
 
