@@ -1,9 +1,14 @@
 import { strerror, err, out, exit, open, loadFile } from 'std';
 import { read, signal, ttySetRaw, write } from 'os';
 import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
-import { Socket, socket, socklen_t, AF_INET, SOCK_STREAM, IPPROTO_UDP, /*ndelay, */ SockAddr, select, timeval, errnos, send, recv } from './socket.js';
+import { Socket, select, AF_INET, SOCK_STREAM, SOCK_DGRAM,IPPROTO_UDP,  SockAddr } from './socket.js';
 import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
-import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from './ /fd_set.js';
+import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../../qjs-modules/lib/fd_set.js';
+
+//import socklen_t from '../../qjs-modules/lib/socklen_t.js';
+
+console.log("socklen_t",1);
+
 
 function not(n) {
   return ~n >>> 0;
@@ -48,15 +53,16 @@ function main(...args) {
   }
 
   function lookup(domain) {
-    let local = new sockaddr_in(AF_INET, Math.floor(Math.random() * 65535 - 1024) + 1024, '0.0.0.0');
+    let local = new SockAddr(AF_INET, Math.floor(Math.random() * 65535 - 1024) + 1024, '0.0.0.0');
 
-    let remote = new sockaddr_in();
+    let remote = new SockAddr();
 
     remote.sin_family = AF_INET;
     remote.sin_port = port;
     remote.sin_addr = addr;
 
-    let sock = new Socket(IPPROTO_UDP);
+    let sock = new Socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    console.log('socket() fd =', sock);
     debug('socket() fd = %d', +sock);
 
     let ret = sock.bind(local);
@@ -87,7 +93,7 @@ function main(...args) {
       if(outLen) FD_SET(+sock, wfds);
       else if(inLen < inBuf.byteLength) FD_SET(+sock, rfds);
 
-      const timeout = new timeval(5, 0);
+      const timeout =  [5, 0];
       //console.log('select:', sock + 1);
 
       ret = select(sock + 1, rfds, wfds, null, timeout);
@@ -234,4 +240,12 @@ function StringToBuffer(str) {
   return Uint8Array.from(str.split('').map(ch => ch.charCodeAt(0))).buffer;
 }
 
-main(...scriptArgs.slice(1));
+try {
+  main(...scriptArgs.slice(1));
+} catch(error) {
+  console.log(`FAIL: ${error.message}\n${error.stack}`);
+  std.exit(1);
+} finally {
+  console.log('SUCCESS');
+}
+
