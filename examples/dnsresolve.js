@@ -1,14 +1,13 @@
 import { strerror, err, out, exit, open, loadFile } from 'std';
 import { read, signal, ttySetRaw, write } from 'os';
 import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
-import { Socket, select, AF_INET, SOCK_STREAM, SOCK_DGRAM,IPPROTO_UDP,  SockAddr } from './socket.js';
+import { Socket, select, AF_INET, SOCK_STREAM, SOCK_DGRAM, IPPROTO_UDP, SockAddr } from './socket.js';
 import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
 import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../../qjs-modules/lib/fd_set.js';
 
-//import socklen_t from '../../qjs-modules/lib/socklen_t.js';
+import socklen_t from '../../qjs-modules/lib/socklen_t.js';
 
-console.log("socklen_t",1);
-
+console.log('socklen_t', 1);
 
 function not(n) {
   return ~n >>> 0;
@@ -55,11 +54,11 @@ function main(...args) {
   function lookup(domain) {
     let local = new SockAddr(AF_INET, Math.floor(Math.random() * 65535 - 1024) + 1024, '0.0.0.0');
 
-    let remote = new SockAddr();
+    let remote = new SockAddr(AF_INET);
 
-    remote.sin_family = AF_INET;
-    remote.sin_port = port;
-    remote.sin_addr = addr;
+    remote.family = AF_INET;
+    remote.port = port;
+    remote.addr = addr;
 
     let sock = new Socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     console.log('socket() fd =', sock);
@@ -93,15 +92,15 @@ function main(...args) {
       if(outLen) FD_SET(+sock, wfds);
       else if(inLen < inBuf.byteLength) FD_SET(+sock, rfds);
 
-      const timeout =  [5, 0];
+      const timeout = [5, 0];
       //console.log('select:', sock + 1);
 
       ret = select(sock + 1, rfds, wfds, null, timeout);
 
       if(FD_ISSET(+sock, wfds)) {
         if(outLen > 0) {
-          //console.log('outBuf:', BufferToString(outBuf));
-          if(sock.sendto(outBuf, outLen, 0, remote) > 0) {
+          console.log('outBuf:', BufferToString(outBuf));
+          if(sock.sendto(outBuf, 0, outLen, 0, remote) > 0) {
             outLen = 0;
           }
         }
@@ -111,9 +110,17 @@ function main(...args) {
         let length;
         debug('socket readable %s %u', remote, remote.byteLength);
 
+        console.log(`remote =`, remote);
+
+        const addr = new SockAddr();
+
         const data = new ArrayBuffer(1024);
         const slen = new socklen_t(remote.byteLength);
-        length = sock.recvfrom(data, data.byteLength, 0, remote, slen);
+        console.log(`slen =`, slen);
+
+        length = sock.recvfrom(data, 0, data.byteLength, 0, remote, slen);
+
+        console.log(`socket recvfrom = ${length}`);
 
         if(length > 0) {
           let u8 = new Uint8Array(data, 0, length);
@@ -248,4 +255,3 @@ try {
 } finally {
   console.log('SUCCESS');
 }
-
