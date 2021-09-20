@@ -3,7 +3,7 @@
 
 import * as std from "std";
 import * as os from "os";
-import * as ffi from "./ffi.so";
+import * as ffi from "./ffi";
 
 
 /* Define a function

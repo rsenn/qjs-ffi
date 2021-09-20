@@ -1,11 +1,11 @@
 import { strerror, err, out, exit, open, loadFile } from 'std';
 import { read, signal, ttySetRaw, write } from 'os';
 import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
-import { Socket, select, AF_INET, SOCK_STREAM, SOCK_DGRAM, IPPROTO_UDP, SockAddr } from './socket.js';
-import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
-import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../../qjs-modules/lib/fd_set.js';
+import { Socket, select, AF_INET, SOCK_STREAM, SOCK_DGRAM, IPPROTO_UDP, SockAddr } from '../lib/socket.js';
+import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from '../lib/term.js';
+import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../lib/fd_set.js';
 
-import socklen_t from '../../qjs-modules/lib/socklen_t.js';
+import socklen_t from '../lib/socklen_t.js';
 
 console.log('socklen_t', 1);
 

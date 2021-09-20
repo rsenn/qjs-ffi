@@ -1,10 +1,11 @@
 import { strerror, err, out, exit, open } from 'std';
 import { read, signal, ttySetRaw, write } from 'os';
 import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
-import { Socket, socket, AF_INET, SOCK_STREAM, /* ndelay, connect, sockaddr_in*/ SockAddr, select } from './socket.js';
-import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
-import timeval from './timeval.js';
-import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../../qjs-modules/lib/fd_set.js';
+import { Socket, socket, AF_INET, SOCK_STREAM, SOCK_DGRAM, SOL_SOCKET, SO_OOBINLINE, SockAddr, select, setsockopt } from '../lib/socket.js';
+import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from '../lib/term.js';
+import timeval from '../lib/timeval.js';
+import socklen_t from '../lib/socklen_t.js';
+import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../lib/fd_set.js';
 
 function not(n) {
   return ~n >>> 0;
@@ -43,11 +44,14 @@ function main(...args) {
 
   const listen = !!(args[0] == '-l' && args.shift());
 
-  const [address = '67.202.121.41', port = 23] = args;
+  const [address = '127.0.0.1', port = 22] = args;
 
   debug('address: %s, port: %u', address, port);
+  /*console.log('SOCK_STREAM', SOCK_STREAM);
+  console.log('SOCK_DGRAM', SOCK_DGRAM);*/
 
   let sock = new Socket(AF_INET, SOCK_STREAM);
+  //console.log('socket() =', sock);
   let addr = new SockAddr(AF_INET, address, port);
   let conn;
   console.log('socket() .fd =', sock.fd);
@@ -62,6 +66,10 @@ function main(...args) {
     ReturnValue(ret, `sock.listen())`);
   } else {
     ret = sock.connect(addr);
+
+    let opt = new socklen_t(1);
+    /*console.log('opt =', opt);
+    console.log('setsockopt() =', setsockopt(sock.fd, SOL_SOCKET, SO_OOBINLINE, opt, 4));*/
 
     ReturnValue(ret, `sock.connect(${addr})`);
   }
@@ -83,7 +91,7 @@ function main(...args) {
   const Send = (a, n) => {
     const b = a instanceof ArrayBuffer ? a : StringToBuffer(a);
     if(n === undefined) n = b.byteLength;
-    debug('Send -> %s', a instanceof ArrayBuffer ? Dump(b, n, 40) : EscapeString(a));
+    // debug('Send[%u] -> %s', n, a instanceof ArrayBuffer ? Dump(b, n, 40) : EscapeString(a));
     return sock.send(b, 0, n);
   };
   // debug('errnos: %s', Object.entries(errnos));
@@ -99,17 +107,22 @@ function main(...args) {
     else if(inLen < inBuf.byteLength) FD_SET(STDIN_FILENO, rfds);
 
     const timeout = new timeval(5, 0);
-    //console.log('select:', sock + 1);
+
+    //console.log('select:', sock + 1, outLen);
 
     ret = select(sock + 1, rfds, wfds, null, timeout);
 
+    //console.log('select', { rfds: rfds.toArray(), wfds: wfds.toArray() });
+
     if(FD_ISSET(+sock, wfds)) {
       if(outLen > 0) {
-        //console.log('outBuf:', BufferToString(outBuf));
+        console.log('outLen:', outLen, 'outBuf:', BufferToString(outBuf.slice(0, outLen)).replace(/\x1b/g, '\\x1b'));
+
         if(Send(outBuf, outLen) > 0) {
           outLen = 0;
           if(handshake == 0) {
             ttySetRaw(STDOUT_FILENO);
+            debug('Set RAW mode');
             signal(2, function() {
               debug('SIGINT');
               [outBuf, outLen] = Append(outBuf, outLen, tattr.c_cc[VINTR]);
@@ -148,11 +161,14 @@ function main(...args) {
     if(FD_ISSET(+conn, rfds)) {
       let length;
       //debug(`Socket readable handshake=${handshake} ${sock}`);
-      if(handshake < 4) {
+      if(handshake < 1) {
+        //debug(`sock ${+sock}`);
         length = outLen = sock.recv(outBuf, 0, outBuf.byteLength);
+
+        /*     if(length > 0) */ console.log('recv', { length, data: outBuf.slice(0, length) });
       } else {
         const data = new ArrayBuffer(1024);
-        length = sock.read(data, 0, data.byteLength);
+        length = sock.recv(data, 0, data.byteLength);
 
         if(length > 0) {
           let start = 0;

@@ -22,7 +22,7 @@
 
 import * as std from 'std';
 import * as os from 'os';
-import { debug, dlopen, dlerror, dlclose, dlsym, define, call, toString, toArrayBuffer, toPointer, errno, JSContext, RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND, RTLD_DEFAULT, RTLD_NEXT } from './ffi.so';
+import { debug, dlopen, dlerror, dlclose, dlsym, define, call, toString, toArrayBuffer, toPointer, errno, JSContext, RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND, RTLD_DEFAULT, RTLD_NEXT } from 'ffi';
 
 var h;
 var r;
