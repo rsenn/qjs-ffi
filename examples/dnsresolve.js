@@ -60,8 +60,10 @@ function main(...args) {
     remote.port = port;
     remote.addr = addr;
 
+    console.log('addr', addr);
+
     let sock = new Socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    console.log('socket() fd =', sock);
+    console.log('socket() fd =', +sock);
     debug('socket() fd = %d', +sock);
 
     let ret = sock.bind(local);
@@ -86,20 +88,22 @@ function main(...args) {
       FD_ZERO(rfds);
       FD_ZERO(wfds);
       FD_CLR(+sock, wfds);
-
       FD_SET(+sock, rfds);
 
       if(outLen) FD_SET(+sock, wfds);
       else if(inLen < inBuf.byteLength) FD_SET(+sock, rfds);
 
-      const timeout = [5, 0];
-      //console.log('select:', sock + 1);
+      const timeout = new Uint32Array([5, 0]).buffer;
+      // console.log('select:', sock + 1, { rfds, wfds, timeout });
 
       ret = select(sock + 1, rfds, wfds, null, timeout);
 
       if(FD_ISSET(+sock, wfds)) {
-        if(outLen > 0) {
-          console.log('outBuf:', BufferToString(outBuf));
+        const out = outBuf.slice(0, outLen);
+        const len = Math.min(outLen, outBuf.byteLength);
+        if(len) {
+          //console.log(`outLen ${outLen} outBuf '${BufferToString(outBuf)}'`);
+          //console.log('sendto', { out, len, remote });
           if(sock.sendto(outBuf, 0, outLen, 0, remote) > 0) {
             outLen = 0;
           }
@@ -176,7 +180,7 @@ function BufferToArray(buf, offset, length) {
 }
 
 function BufferToString(buf, offset, length) {
-  return BufferToArray(buf, offset, length).reduce((s, code) => s + String.fromCharCode(code), '');
+  return BufferToArray(buf, offset, length).reduce((s, code) => (s + code ? String.fromCharCode(code) : '\\0'), '');
 }
 
 function BufferToBytes(buf, offset = 0, len) {

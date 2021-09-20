@@ -121,7 +121,7 @@ export const SOL_SOCKET = 1;
 
 const syscall = {
   socket: foreign('socket', 'int', 'int', 'int', 'int'),
-  select: foreign('select', 'int', 'int', 'buffer', 'buffer', 'buffer', 'buffer'),
+  select: foreign('select', 'int', 'int', 'void *', 'void *', 'void *', 'void *'),
   connect: foreign('connect', 'int', 'int', 'void *', 'size_t'),
   bind: foreign('bind', 'int', 'int', 'void *', 'size_t'),
   listen: foreign('listen', 'int', 'int', 'int'),
@@ -236,7 +236,7 @@ export class timeval extends ArrayBuffer {
   }
 }
 
-export class sockaddr_in extends ArrayBuffer {
+export class SockAddr extends ArrayBuffer {
   constructor(family, port, addr) {
     super(16);
 
@@ -245,21 +245,44 @@ export class sockaddr_in extends ArrayBuffer {
     this.sin_addr = addr;
   }
 
+  get family() {
+    return this.sin_family;
+  }
+  set family(af) {
+    this.sin_family = af;
+  }
+  get port() {
+    return this.sin_port;
+  }
+  set port(p) {
+    this.sin_port = p;
+  }
+  get addr() {
+    return this.sin_addr;
+  }
+  set addr(a) {
+    this.sin_addr = a;
+  }
+
   [Symbol.toPrimitive](hint) {
     return this.toString();
+  }
+
+  [Symbol.for('quickjs.inspect.custom')](options) {
+    const { sin_family, sin_port, sin_addr } = this;
+    return Object.setPrototypeOf({ sin_family, sin_port, sin_addr }, SockAddr.prototype);
   }
 
   toString() {
     return `${this.sin_addr}:${this.sin_port}`;
   }
-
+ 
   get [Symbol.toStringTag]() {
-    const { sin_family, sin_port, sin_addr } = this;
-    return `{ .sin_family = ${sin_family}, .sin_port = ${sin_port}, .sin_addr = ${sin_addr} }`;
+    return 'SockAddr';
   }
 }
 
-Object.defineProperties(sockaddr_in.prototype, {
+Object.defineProperties(SockAddr.prototype, {
   sin_family: {
     set(af) {
       new Uint16Array(this)[0] = af;
@@ -274,7 +297,9 @@ Object.defineProperties(sockaddr_in.prototype, {
       new DataView(this, 2).setUint16(0, port, false);
     },
     get() {
-      return new DataView(this, 2).getUint16(0, false);
+      const [hi, lo] = new Uint8Array(this, 2, 2);
+      return (hi << 8) | lo;
+      //return new DataView(this, 2).getUint16(0, false);
     },
     enumerable: true
   },
@@ -356,12 +381,19 @@ export function FD_ZERO(fd, set) {
 }
 
 export class Socket {
-  constructor(proto = IPPROTO_IP) {
-    this.type = [IPPROTO_UDP, SOCK_DGRAM].indexOf(proto) != -1 ? SOCK_DGRAM : SOCK_STREAM;
-    this.fd = socket(this.family, this.type, proto);
-    this.remote = new sockaddr_in(this.family);
-    this.local = new sockaddr_in(this.family);
+  constructor(family, type, proto = IPPROTO_IP) {
+    this.family = family;
+    this.type = type ?? [IPPROTO_UDP, SOCK_DGRAM].indexOf(proto) != -1 ? SOCK_DGRAM : SOCK_STREAM;
+    this.remote = new SockAddr(this.family);
+    this.local = new SockAddr(this.family);
     this.pending = true;
+    this.fd = socket(this.family, this.type, proto);
+    if(this.fd < 0) {
+      this.errno = errno();
+      this.error = strerror(this.errno);
+
+      throw new globalThis.Error(`syscall error: ${this.error} (${this.errno})`);
+    }
   }
 
   set remoteFamily(family) {
@@ -427,7 +459,7 @@ export class Socket {
     return ret;
   }
 
-  accept(remote = new sockaddr_in(this.family)) {
+  accept(remote = new SockAddr(this.family)) {
     let len = new socklen_t(remote.byteLength);
     let ret = accept(this.fd, remote, len);
 
@@ -460,11 +492,13 @@ export class Socket {
     return ret;
   }
 
-  recvfrom(buf, len, flags = 0, src_addr = null, addrlen = null) {
+  recvfrom(buf, offset, len, flags = 0, src_addr = null, addrlen = null) {
+    if(offset) buf = buf.slice(offset);
     return syscall.recvfrom(this.fd, buf, len, flags, src_addr, addrlen);
   }
 
-  sendto(buf, len, flags = 0, dest_addr = null, addrlen) {
+  sendto(buf, offset, len, flags = 0, dest_addr = null, addrlen) {
+    if(offset) buf = buf.slice(offset);
     return syscall.sendto(this.fd, buf, len, flags, dest_addr, addrlen === undefined ? dest_addr.byteLength : addrlen);
   }
 
