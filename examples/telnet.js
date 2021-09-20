@@ -1,8 +1,10 @@
 import { strerror, err, out, exit, open } from 'std';
 import { read, signal, ttySetRaw, write } from 'os';
 import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
-import { Socket, socket, AF_INET, SOCK_STREAM, /* ndelay, connect, sockaddr_in*/ SockAddr, select, fd_set, timeval, FD_SET, FD_CLR, FD_ISSET, FD_ZERO, errnos, send, recv } from './socket.js';
+import { Socket, socket, AF_INET, SOCK_STREAM, /* ndelay, connect, sockaddr_in*/ SockAddr, select } from './socket.js';
 import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from './term.js';
+import timeval from './timeval.js';
+import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../../qjs-modules/lib/fd_set.js';
 
 function not(n) {
   return ~n >>> 0;
@@ -41,25 +43,27 @@ function main(...args) {
 
   const listen = !!(args[0] == '-l' && args.shift());
 
-  const [addr = '213.136.8.188', port = 23] = args;
+  const [address = '67.202.121.41', port = 23] = args;
 
-  debug('addr: %s, port: %u', addr, port);
+  debug('address: %s, port: %u', address, port);
 
-  let sock = new Socket();
+  let sock = new Socket(AF_INET, SOCK_STREAM);
+  let addr = new SockAddr(AF_INET, address, port);
   let conn;
+  console.log('socket() .fd =', sock.fd);
   debug('socket() fd = %d', +sock);
 
   let ret;
 
   if(listen) {
-    ret = sock.bind(addr, port);
-    ReturnValue(ret, `sock.bind(${addr}, ${port})`);
+    ret = sock.bind(addr);
+    ReturnValue(ret, `sock.bind(${addr})`);
     ret = sock.listen();
     ReturnValue(ret, `sock.listen())`);
   } else {
-    ret = sock.connect(addr, port);
+    ret = sock.connect(addr);
 
-    ReturnValue(ret, `sock.connect(${addr}, ${port})`);
+    ReturnValue(ret, `sock.connect(${addr})`);
   }
 
   SetupTerm();
@@ -80,9 +84,9 @@ function main(...args) {
     const b = a instanceof ArrayBuffer ? a : StringToBuffer(a);
     if(n === undefined) n = b.byteLength;
     debug('Send -> %s', a instanceof ArrayBuffer ? Dump(b, n, 40) : EscapeString(a));
-    return sock.write(b, 0, n);
+    return sock.send(b, 0, n);
   };
-  debug('errnos: %s', Object.entries(errnos));
+  // debug('errnos: %s', Object.entries(errnos));
 
   do {
     FD_ZERO(rfds);
@@ -145,7 +149,7 @@ function main(...args) {
       let length;
       //debug(`Socket readable handshake=${handshake} ${sock}`);
       if(handshake < 4) {
-        length = outLen = sock.read(outBuf, 0, outBuf.byteLength);
+        length = outLen = sock.recv(outBuf, 0, outBuf.byteLength);
       } else {
         const data = new ArrayBuffer(1024);
         length = sock.read(data, 0, data.byteLength);

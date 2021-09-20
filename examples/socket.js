@@ -277,7 +277,7 @@ export class SockAddr extends ArrayBuffer {
   toString() {
     return `${this.sin_addr}:${this.sin_port}`;
   }
- 
+
   get [Symbol.toStringTag]() {
     return 'SockAddr';
   }
