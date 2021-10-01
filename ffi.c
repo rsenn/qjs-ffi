@@ -56,13 +56,13 @@ typedef struct typed_argument_s typed_argument;
 static struct ffi_type_s* ffi_type_head = NULL;
 
 static void
-fatal(char* msg) {
+fatal(const char* msg) {
   fprintf(stderr, "%s\n", msg);
   exit(2);
 }
 
 static void
-warn(char* msg) {
+warn(const char* msg) {
   fprintf(stderr, "%s\n", msg);
 }
 
@@ -83,7 +83,7 @@ find_ffi_type(const char* name) {
 /* Add new ffi_type to named types
  */
 static void
-define_ffi_type(char* name, ffi_type* t) {
+define_ffi_type(const char* name, ffi_type* t) {
   struct ffi_type_s* p = NULL;
 
   /* ignore if already defined */
