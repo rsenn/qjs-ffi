@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(qjs-ffi)
+project(qjs-ffi C)
 
 set(DISABLE_WERROR ON)
 
@@ -13,24 +13,7 @@ endif(LIBFFI)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
 
 find_quickjs()
-#if(NOT QUICKJS_LIBRARY_DIR)
-#  execute_process(COMMAND cc -dumpmachine OUTPUT_VARIABLE HOST_SYSTEM_NAME
-#                  OUTPUT_STRIP_TRAILING_WHITESPACE)
-#  execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE SYSTEM_NAME
-#                  OUTPUT_STRIP_TRAILING_WHITESPACE)
-#
-#  if(NOT "${HOST_SYSTEM_NAME}" STREQUAL "${SYSTEM_NAME}")
-#    string(REGEX REPLACE i686 i386 QUICKJS_CROSS_ARCH "${SYSTEM_NAME}")
-#    message("QUICKJS_CROSS_ARCH = ${QUICKJS_CROSS_ARCH}")
-#  endif()
-#
-#  if(QUICKJS_CROSS_ARCH)
-#    set(QUICKJS_LIBRARY_DIR lib/${QUICKJS_CROSS_ARCH})
-#  else(QUICKJS_CROSS_ARCH)
-#    set(QUICKJS_LIBRARY_DIR lib)
-#  endif(QUICKJS_CROSS_ARCH)
-#
-#endif()
+configure_quickjs()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..
                     ${CMAKE_CURRENT_SOURCE_DIR}/../..)
@@ -102,6 +85,8 @@ target_include_directories(quickjs-ffi PRIVATE)
 set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
 target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
 target_link_libraries(quickjs-ffi PUBLIC ${FFI_LIBRARIES} dl)
+
+message("QUICKJS_C_MODULE_DIR: ${QUICKJS_C_MODULE_DIR}")
 
 install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
