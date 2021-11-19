@@ -4,6 +4,7 @@ project(qjs-ffi C)
 set(DISABLE_WERROR ON)
 
 find_library(LIBFFI ffi)
+find_library(LIBDL dl)
 
 if(LIBFFI)
   message(STATUS "Found LIBFFI at ${LIBFFI}")
@@ -32,7 +33,7 @@ function(make_shared_module FNAME)
 
   add_library(${TARGET_NAME} SHARED ${FNAME}.c)
 
-  target_link_libraries(${TARGET_NAME} ${LIBFFI} dl)
+  target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI} ${LIBDL})
   set_target_properties(
     ${TARGET_NAME}
     PROPERTIES
@@ -84,7 +85,11 @@ add_library(quickjs-ffi MODULE ${JS_BINDINGS_SOURCES})
 target_include_directories(quickjs-ffi PRIVATE)
 set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
 target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
-target_link_libraries(quickjs-ffi PUBLIC ${FFI_LIBRARIES} dl)
+target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${LIBDL})
+
+if(NOT QUICKJS_C_MODULE_DIR)
+  set(QUICKJS_C_MODULE_DIR "${CMAKE_INSTALL_PREFIX}/lib/quickjs")
+endif(NOT QUICKJS_C_MODULE_DIR)
 
 message("QUICKJS_C_MODULE_DIR: ${QUICKJS_C_MODULE_DIR}")
 
