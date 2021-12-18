@@ -4,6 +4,7 @@ project(qjs-ffi C)
 set(DISABLE_WERROR ON)
 
 find_library(LIBFFI ffi)
+find_library(LIBDL dl)
 
 if(LIBFFI)
   message(STATUS "Found LIBFFI at ${LIBFFI}")
@@ -15,8 +16,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
 find_quickjs()
 configure_quickjs()
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..
-                    ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/.. ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 if(CMAKE_SYSTEM_INCLUDE_PATH)
   include_directories(${CMAKE_SYSTEM_INCLUDE_PATH})
 endif(CMAKE_SYSTEM_INCLUDE_PATH)
@@ -32,7 +32,7 @@ function(make_shared_module FNAME)
 
   add_library(${TARGET_NAME} SHARED ${FNAME}.c)
 
-  target_link_libraries(${TARGET_NAME} ${LIBFFI} dl)
+  target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI} ${LIBDL})
   set_target_properties(
     ${TARGET_NAME}
     PROPERTIES
@@ -41,12 +41,10 @@ function(make_shared_module FNAME)
       INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib"
       OUTPUT_NAME "${NAME}" # COMPILE_FLAGS "-fvisibility=hidden"
       BUILD_RPATH
-      "${CMAKE_BINARY_DIR};${CMAKE_CURRENT_BINARY_DIR};${CMAKE_BINARY_DIR}/quickjs;${CMAKE_CURRENT_BINARY_DIR}/quickjs"
-  )
+      "${CMAKE_BINARY_DIR};${CMAKE_CURRENT_BINARY_DIR};${CMAKE_BINARY_DIR}/quickjs;${CMAKE_CURRENT_BINARY_DIR}/quickjs")
   target_compile_definitions(${TARGET_NAME} PRIVATE -DJS_${UNAME}_MODULE=1)
   install(TARGETS ${TARGET_NAME} DESTINATION ${QUICKJS_LIBRARY_DIR}/quickjs
-          PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
-                      WORLD_EXECUTE)
+          PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
 endfunction()
 
@@ -84,13 +82,16 @@ add_library(quickjs-ffi MODULE ${JS_BINDINGS_SOURCES})
 target_include_directories(quickjs-ffi PRIVATE)
 set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
 target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
-target_link_libraries(quickjs-ffi PUBLIC ${FFI_LIBRARIES} dl)
+target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${LIBDL})
+
+if(NOT QUICKJS_C_MODULE_DIR)
+  set(QUICKJS_C_MODULE_DIR "${CMAKE_INSTALL_PREFIX}/lib/quickjs")
+endif(NOT QUICKJS_C_MODULE_DIR)
 
 message("QUICKJS_C_MODULE_DIR: ${QUICKJS_C_MODULE_DIR}")
 
 install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
-                    WORLD_EXECUTE)
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
 # add_library(test MODULE test.c) set_target_properties(test PROPERTIES PREFIX "" OUTPUT_NAME
 # "test") target_link_libraries(test)
