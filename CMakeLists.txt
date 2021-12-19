@@ -3,13 +3,17 @@ project(qjs-ffi C)
 
 set(DISABLE_WERROR ON)
 
-find_library(LIBFFI ffi)
+find_library(LIBFFI_LIBRARY ffi)
 find_library(LIBDL dl)
 
-if(LIBFFI)
-  message(STATUS "Found LIBFFI at ${LIBFFI}")
+if(EXISTS "${LIBFFI_INCLUDE_DIR}")
+  include_directories("${LIBFFI_INCLUDE_DIR}")
+endif(EXISTS "${LIBFFI_INCLUDE_DIR}")
+
+if(LIBFFI_LIBRARY)
+  message(STATUS "Found LIBFFI_LIBRARY at ${LIBFFI_LIBRARY}")
   set(FFI_FOUND TRUE)
-endif(LIBFFI)
+endif(LIBFFI_LIBRARY)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
 
@@ -32,7 +36,7 @@ function(make_shared_module FNAME)
 
   add_library(${TARGET_NAME} SHARED ${FNAME}.c)
 
-  target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI} ${LIBDL})
+  target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI_LIBRARY} ${LIBDL})
   set_target_properties(
     ${TARGET_NAME}
     PROPERTIES
@@ -59,7 +63,7 @@ if(NOT FFI_FOUND)
   pkg_search_module(FFI libffi)
 
   if(pkgcfg_lib_FFI_ffi)
-    set(LIBFFI "${pkgcfg_lib_FFI_ffi}")
+    set(LIBFFI_LIBRARY "${pkgcfg_lib_FFI_ffi}")
     set(FFI_FOUND TRUE)
   endif(pkgcfg_lib_FFI_ffi)
 endif(NOT FFI_FOUND)
@@ -70,7 +74,7 @@ endif(FFI_FOUND)
 # check_library_exists(ffi ffi_call "" HAVE_LIBFFI)
 
 if(HAVE_LIBFFI)
-  link_libraries(${LIBFFI})
+  link_libraries(${LIBFFI_LIBRARY})
 endif(HAVE_LIBFFI)
 
 if(BUILD_SHARED_LIBS)
