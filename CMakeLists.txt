@@ -3,8 +3,23 @@ project(qjs-ffi C)
 
 set(DISABLE_WERROR ON)
 
-find_library(LIBFFI_LIBRARY ffi)
+include(FindPkgConfig)
+
+pkg_search_module(LIBFFI libffi)
+
+if(pkgcfg_lib_LIBFFI_ffi)
+  set(LIBFFI_LIBRARY ${pkgcfg_lib_LIBFFI_ffi})
+endif(pkgcfg_lib_LIBFFI_ffi)
+
+if(NOT LIBFFI_FOUND)
+  find_library(LIBFFI_LIBRARY ffi)
+endif(NOT LIBFFI_FOUND)
+
 find_library(LIBDL dl)
+
+if(LIBDL)
+  link_libraries(${LIBDL})
+endif(LIBDL)
 
 if(EXISTS "${LIBFFI_INCLUDE_DIR}")
   include_directories("${LIBFFI_INCLUDE_DIR}")
@@ -36,7 +51,7 @@ function(make_shared_module FNAME)
 
   add_library(${TARGET_NAME} SHARED ${FNAME}.c)
 
-  target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI_LIBRARY} ${LIBDL})
+  target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI_LIBRARY})
   set_target_properties(
     ${TARGET_NAME}
     PROPERTIES
@@ -86,7 +101,7 @@ add_library(quickjs-ffi MODULE ${JS_BINDINGS_SOURCES})
 target_include_directories(quickjs-ffi PRIVATE)
 set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
 target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
-target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${LIBDL})
+target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES})
 
 if(NOT QUICKJS_C_MODULE_DIR)
   set(QUICKJS_C_MODULE_DIR "${CMAKE_INSTALL_PREFIX}/lib/quickjs")
