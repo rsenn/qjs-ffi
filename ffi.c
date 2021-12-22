@@ -776,10 +776,10 @@ static const JSCFunctionListEntry js_funcs[] = {JS_CFUNC_DEF("debug", 0, js_debu
                                                 JS_PROP_INT32_DEF("RTLD_DEEPBIND", RTLD_DEEPBIND, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_DEFAULT
-                                                JS_PROP_INT64_DEF("RTLD_DEFAULT", (long)RTLD_DEFAULT, JS_PROP_CONFIGURABLE),
+                                                JS_PROP_INT64_DEF("RTLD_DEFAULT", (ptrdiff_t)RTLD_DEFAULT, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NEXT
-                                                JS_PROP_INT64_DEF("RTLD_NEXT", (long)RTLD_NEXT, JS_PROP_CONFIGURABLE),
+                                                JS_PROP_INT64_DEF("RTLD_NEXT", (ptrdiff_t)RTLD_NEXT, JS_PROP_CONFIGURABLE),
 #endif
                                                 JS_PROP_INT32_DEF("pointerSize", sizeof(void*), JS_PROP_CONFIGURABLE)};
 
