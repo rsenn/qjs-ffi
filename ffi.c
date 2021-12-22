@@ -399,7 +399,7 @@ call_function(const char* name, typed_argument* args, long double* rp) {
           arguments[i].ld = (long double)args[i].arg.ll;
 
         else if(f->args[i] == &ffi_type_pointer) {
-          pointer_list[pl++] = (void*)(long long)args[i].arg.ll;
+          pointer_list[pl++] = (void*)(ptrdiff_t)args[i].arg.ll;
           ptrs[i] = &(pointer_list[pl - 1]);
 
         } else
@@ -418,7 +418,7 @@ call_function(const char* name, typed_argument* args, long double* rp) {
           arguments[i].ld = (long double)args[i].arg.ld;
 
         else if(f->args[i] == &ffi_type_pointer) {
-          long long t = (long long)args[i].arg.ld;
+          ptrdiff_t t = (ptrdiff_t)args[i].arg.ld;
           pointer_list[pl++] = (void*)t;
           ptrs[i] = &(pointer_list[pl - 1]);
 
@@ -457,7 +457,7 @@ call_function(const char* name, typed_argument* args, long double* rp) {
   else if(f->rtype == &ffi_type_longdouble)
     r = rc.ld;
   else if(f->rtype == &ffi_type_pointer)
-    r = (double)(long long)rc.p;
+    r = (double)(ptrdiff_t)rc.p;
   else
     r = rc.ll;
 
@@ -512,7 +512,7 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
     JS_FreeCString(ctx, s);
   if(res == NULL)
     return JS_NULL;
-  return JS_NewInt64(ctx, (long long)res);
+  return JS_NewInt64(ctx, (ptrdiff_t)res);
 }
 
 /* s = dlerror()
@@ -534,7 +534,7 @@ js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) 
   int64_t n;
   if(JS_ToInt64(ctx, &n, argv[0]))
     return JS_EXCEPTION;
-  res = dlclose((void*)n);
+  res = dlclose((void*)(ptrdiff_t)n);
   return JS_NewInt32(ctx, res);
 }
 
@@ -550,12 +550,12 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   s = JS_ToCString(ctx, argv[1]);
   if(!s)
     return JS_EXCEPTION;
-  res = dlsym((void*)n, s);
+  res = dlsym((void*)(ptrdiff_t)n, s);
   if(s)
     JS_FreeCString(ctx, s);
   if(res == NULL)
     return JS_NULL;
-  return JS_NewInt64(ctx, (long long)res);
+  return JS_NewInt64(ctx, (ptrdiff_t)res);
 }
 
 #define MAX_PARAMETERS 30
@@ -590,7 +590,7 @@ js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   for(i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i) params[nparams++] = JS_ToCString(ctx, argv[i]);
   params[nparams] = NULL;
 
-  if(define_function(name, (void*)fp, abi, rtype, params))
+  if(define_function(name, (void*)(ptrdiff_t)fp, abi, rtype, params))
     r = JS_TRUE;
   else
     r = JS_FALSE;
@@ -657,14 +657,14 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
       if(!s)
         goto error;
       strings[fl++] = s;
-      args[i - 1].arg.ll = (long long)s;
+      args[i - 1].arg.ll = (ptrdiff_t)s;
     } else {
       uint8_t* buf;
       size_t size;
       buf = JS_GetArrayBuffer(ctx, &size, argv[i]);
       if(!buf)
         goto error;
-      args[i - 1].arg.ll = (long long)buf;
+      args[i - 1].arg.ll = (ptrdiff_t)buf;
     }
   }
   if(call_function(name, args, &res)) {
@@ -686,7 +686,7 @@ js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv)
   int64_t p;
   if(JS_ToInt64(ctx, &p, argv[0]))
     return JS_EXCEPTION;
-  s = (const char*)p;
+  s = (const char*)(ptrdiff_t)p;
   return JS_NewString(ctx, s);
 }
 
@@ -705,7 +705,7 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
     return JS_EXCEPTION;
   size = s;
 
-  buf = (const uint8_t*)p;
+  buf = (const uint8_t*)(ptrdiff_t)p;
   return JS_NewArrayBufferCopy(ctx, buf, size);
 }
 
@@ -739,7 +739,7 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
  */
 static JSValue
 js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  return JS_NewInt64(ctx, (long long)ctx);
+  return JS_NewInt64(ctx, (ptrdiff_t)ctx);
 }
 
 static const JSCFunctionListEntry js_funcs[] = {JS_CFUNC_DEF("debug", 0, js_debug),
