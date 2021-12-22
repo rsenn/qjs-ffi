@@ -75,11 +75,20 @@ macro(find_quickjs)
     set(QUICKJS_LIBRARY_DIR "${QUICKJS_LIBRARY_DIR}" CACHE PATH "QuickJS library directory")
   endif(NOT QUICKJS_LIBRARY_DIR)
 
-  if(WIN32 OR MINGW)
-    set(QUICKJS_LIBRARY "libquickjs.dll.a" CACHE FILEPATH "QuickJS library" FORCE)
-  else(WIN32 OR MINGW)
-    find_library(QUICKJS_LIBRARY quickjs "${QUICKJS_LIBRARY_DIR}")
-  endif(WIN32 OR MINGW)
+  if(NOT QUICKJS_LIBRARY)
+    if(QUICKJS_BUILD_ROOT)
+      link_directories(${QUICKJS_BUILD_ROOT})
+      set(QUICKJS_LIBRARY quickjs)
+    else(QUICKJS_BUILD_ROOT)
+    
+    #if(WIN32 OR MINGW)
+    #  set(QUICKJS_LIBRARY "libquickjs.dll.a" CACHE FILEPATH "QuickJS library" FORCE)
+    #else(WIN32 OR MINGW)
+      find_library(QUICKJS_LIBRARY quickjs "${QUICKJS_LIBRARY_DIR}")
+    endif(QUICKJS_BUILD_ROOT)
+    
+    #endif(WIN32 OR MINGW)
+  endif(NOT QUICKJS_LIBRARY)
 
   set(QUICKJS_INCLUDE_DIR "${QUICKJS_INCLUDE_DIR}" CACHE PATH "QuickJS include directory")
 
