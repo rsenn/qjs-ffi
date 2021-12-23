@@ -1,9 +1,7 @@
-import { Pm_Initialize, Pm_Terminate, Pm_HasHostError, Pm_GetErrorText, Pm_GetHostErrorText, Pm_CountDevices, Pm_GetDefaultInputDeviceID, Pm_GetDefaultOutputDeviceID, Pm_GetDeviceInfo, Pm_OpenInput, Pm_OpenOutput, Pm_SetFilter, Pm_SetChannelMask, Pm_Abort, Pm_CreateVirtualInput, Pm_CreateVirtualOutput, Pm_Close, Pm_Synchronize, Pm_Read, Pm_Poll, Pm_Write, Pm_WriteShort, Pm_WriteSysEx, PmDeviceInfo, PmError, toPointer, Pm_Message } from './examples/portmidi.js';
+import { dlopen, PmError, Pm_Message, PmDeviceInfo, Pm_Initialize, Pm_Terminate, Pm_HasHostError, Pm_GetErrorText, Pm_GetHostErrorText, Pm_CountDevices, Pm_GetDefaultInputDeviceID, Pm_GetDefaultOutputDeviceID, Pm_GetDeviceInfo, Pm_OpenInput, Pm_OpenOutput, Pm_CreateVirtualInput, Pm_CreateVirtualOutput, Pm_SetFilter, Pm_SetChannelMask, Pm_Abort, Pm_Close, Pm_Synchronize, Pm_Read, Pm_Poll, Pm_Write, Pm_WriteShort, Pm_WriteSysEx, MIDIInput, MIDIOutput, MIDIInputMap, MIDIOutputMap, MIDIAccess } from './examples/portmidi.js';
 import { Console } from 'console';
 
-function main() {
-  globalThis.console = new Console({ inspectOptions: { depth: Infinity, compact: 0 } });
-
+function Test_PmApi() {
   let err = Pm_Initialize();
   let count;
   let inputId, outputId, inputInfo, outputInfo, deviceIDs;
@@ -70,6 +68,27 @@ function main() {
   console.log('Pm_Close', { err });
 
   err = Pm_Terminate();
+}
+
+function main() {
+  globalThis.console = new Console({ inspectOptions: { depth: Infinity, compact: 0, customInspect: true } });
+
+  Test_PmApi();
+
+  let midi = new MIDIAccess();
+
+  console.log('midi', midi);
+  console.log('midi.devices', midi.devices);
+
+  let [input] = [...midi.inputs.values()];
+  let [output] = [...midi.outputs.values()];
+
+  console.log('input', input);
+  console.log('input.name', input.name);
+  console.log('input.deviceInfo', input.deviceInfo);
+  console.log('output', output);
+  console.log('output.name', output.name);
+  console.log('output.deviceInfo', output.deviceInfo);
 }
 
 main();

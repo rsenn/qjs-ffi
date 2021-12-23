@@ -1,5 +1,6 @@
 import { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
 export { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
+import { memoize, lazyProperty,define } from 'util';
 
 const libportmidi = dlopen('libportmidi.so.0', RTLD_NOW);
 
@@ -44,21 +45,10 @@ export class PmDeviceInfo extends ArrayBuffer {
     return '0x' + new Uint32Array(this, 0)[0].toString(16);
   }
 
-  /* 8: const char* interf */
-  /* set interf(value) {
-    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = toPointer(value);
-    new BigInt64Array(this, 8)[0] = BigInt(value);
-  }*/
   get interf() {
     return toString('0x' + new BigInt64Array(this, 8)[0].toString(16));
   }
 
-  /* 16: char* name */
-  /* undefined 1 true */
-  /*set name(value) {
-    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = toPointer(value);
-    new BigInt64Array(this, 16)[0] = BigInt(value);
-  }*/
   get name() {
     return toString('0x' + new BigInt64Array(this, 16)[0].toString(16));
   }
@@ -114,10 +104,6 @@ export class PmDeviceInfo extends ArrayBuffer {
     return `PmDeviceInfo ` + inspect({ structVersion, interf, name, input, output, opened });
   }
 }
-
-//delete PmDeviceInfo.prototype[Symbol.toStringTag];
-//PmDeviceInfo.prototype[Symbol.toStringTag] = 'PmDeviceInfo';
-
 /**
  * @function Pm_Initialize
  *
@@ -423,3 +409,141 @@ define('Pm_WriteSysEx', dlsym(libportmidi, 'Pm_WriteSysEx'), null, 'int', 'void 
 export function Pm_WriteSysEx(stream, when, msg) {
   return call('Pm_WriteSysEx', stream, when, msg);
 }
+
+/**
+ * This class describes a midi device.
+ *
+ * @class      MIDIPort (name)
+ */
+export class MIDIPort {
+  constructor(deviceId) {
+    this.deviceId = deviceId;
+    this.stream= new ArrayBuffer(8);
+
+    lazyProperty(this, 'deviceInfo', () => Pm_GetDeviceInfo(deviceId), { enumerable: false });
+  }
+
+  get name() {
+    const { deviceInfo } = this;
+    return deviceInfo.name;
+  }
+ 
+  get type() {
+    const { deviceInfo } = this;
+    return deviceInfo.input ? 'input' : deviceInfo.output  ? 'output' : null;
+  }
+
+  open() {
+    
+  }
+}
+
+/**
+ * This class describes a midi input.
+ *
+ * @class      MIDIInput (name)
+ */
+export class MIDIInput extends MIDIPort {
+  static inputs = memoize(deviceId => new MIDIInput(deviceId));
+
+  constructor(deviceId) {
+    super(deviceId);
+  }
+
+  static from(deviceId) {
+    let input = MIDIInput.inputs(deviceId);
+    console.log('MIDIInput.from', { deviceId, input });
+    return input;
+  }
+}
+
+/**
+ * This class describes a midi output.
+ *
+ * @class      MIDIOutput (name)
+ */
+export class MIDIOutput extends MIDIPort {
+  static outputs = memoize(deviceId => new MIDIOutput(deviceId));
+
+  constructor(deviceId) {
+    super(deviceId);
+  }
+
+  send(data) {
+
+  }
+
+  static from(deviceId) {
+    let output = MIDIOutput.outputs(deviceId);
+    return output;
+  }
+}
+
+/**
+ * This class describes a map of midi inputs.
+ *
+ * @class      MIDIInputMap (name)
+ */
+export class MIDIInputMap {
+  constructor(arr) {
+    this.devices = arr;
+  }
+
+  *values() {
+    const { devices } = this;
+    for(let deviceId of devices) yield MIDIInput.from(deviceId);
+  }
+}
+
+/**
+ * This class describes a map of midi outputs.
+ *
+ * @class      MIDIOutputMap (name)
+ */
+export class MIDIOutputMap {
+  constructor(arr) {
+    this.devices = arr;
+  }
+
+  *values() {
+    const { devices } = this;
+    for(let deviceId of devices) yield MIDIOutput.from(deviceId);
+  }
+}
+
+let inputs, outputs;
+
+/**
+ * This class describes a midi access.
+ *
+ * @class      MIDIAccess (name)
+ */
+export class MIDIAccess {
+  get devices() {
+    let count = Pm_CountDevices();
+    let ret = [];
+    for(let i = 0; i < count; i++) ret[i] = Pm_GetDeviceInfo(i);
+    return ret;
+  }
+
+  filter(fn = (id, info) => false) {
+    const entries = [...this.devices.entries()].filter(([id, info]) => fn(id, info));
+    return entries.map(([id]) => id);
+  }
+
+  get inputs() {
+    inputs = new MIDIInputMap(this.filter((id, info) => info.input));
+    return inputs;
+  }
+
+  get outputs() {
+    outputs = new MIDIOutputMap(this.filter((id, info) => info.output));
+    return outputs;
+  }
+}
+
+MIDIInput.prototype[Symbol.toStringTag] = 'MIDIInput';
+MIDIOutput.prototype[Symbol.toStringTag] = 'MIDIOutput';
+MIDIInputMap.prototype[Symbol.toStringTag] = 'MIDIInputMap';
+MIDIOutputMap.prototype[Symbol.toStringTag] = 'MIDIOutputMap';
+MIDIAccess.prototype[Symbol.toStringTag] = 'MIDIAccess';
