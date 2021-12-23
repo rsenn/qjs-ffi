@@ -1,4 +1,4 @@
-import { Pm_Initialize, Pm_Terminate, Pm_HasHostError, Pm_GetErrorText, Pm_GetHostErrorText, Pm_CountDevices, Pm_GetDefaultInputDeviceID, Pm_GetDefaultOutputDeviceID, Pm_GetDeviceInfo, Pm_OpenInput, Pm_OpenOutput, Pm_SetFilter, Pm_SetChannelMask, Pm_Abort, Pm_CreateVirtualInput, Pm_CreateVirtualOutput, Pm_Close, Pm_Synchronize, Pm_Read, Pm_Poll, Pm_Write, Pm_WriteShort, Pm_WriteSysEx, PmDeviceInfo, PmError, toPointer, Pm_Message } from './portmidi.js';
+import { Pm_Initialize, Pm_Terminate, Pm_HasHostError, Pm_GetErrorText, Pm_GetHostErrorText, Pm_CountDevices, Pm_GetDefaultInputDeviceID, Pm_GetDefaultOutputDeviceID, Pm_GetDeviceInfo, Pm_OpenInput, Pm_OpenOutput, Pm_SetFilter, Pm_SetChannelMask, Pm_Abort, Pm_CreateVirtualInput, Pm_CreateVirtualOutput, Pm_Close, Pm_Synchronize, Pm_Read, Pm_Poll, Pm_Write, Pm_WriteShort, Pm_WriteSysEx, PmDeviceInfo, PmError, toPointer, Pm_Message } from './examples/portmidi.js';
 import { Console } from 'console';
 
 function main() {
