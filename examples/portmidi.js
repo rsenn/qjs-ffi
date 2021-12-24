@@ -2,7 +2,7 @@ import { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPoint
 export { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
 import { memoize, lazyProperty } from 'util';
 
-const libportmidi = dlopen('libportmidi.so.0', RTLD_NOW);
+const libportmidi = dlopen('/opt/portmidi-debug/lib/libportmidi.so', RTLD_NOW);
 
 export function PmError(n) {
   return { [0]: 'pmNoError', [1]: 'pmGotData', [-10000]: 'pmHostError', [-9999]: 'pmInvalidDeviceId', [-9998]: 'pmInsufficientMemory', [-9997]: 'pmBufferTooSmall', [-9996]: 'pmBufferOverflow', [-9995]: 'pmBadPtr', [-9994]: 'pmBadData', [-9993]: 'pmInternalError', [-9992]: 'pmBufferMaxSize', [-9991]: 'pmNotImplemented', [-9990]: 'pmInterfaceNotSupported', [-9989]: 'pmNameConflict' }[n];
