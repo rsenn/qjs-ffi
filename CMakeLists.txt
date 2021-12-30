@@ -3,6 +3,9 @@ project(qjs-ffi C)
 
 set(DISABLE_WERROR ON)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
+
 include(FindPkgConfig)
 
 pkg_search_module(LIBFFI libffi)
@@ -29,8 +32,6 @@ if(LIBFFI_LIBRARY)
   message(STATUS "Found LIBFFI_LIBRARY at ${LIBFFI_LIBRARY}")
   set(FFI_FOUND TRUE)
 endif(LIBFFI_LIBRARY)
-
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
 
 find_quickjs()
 configure_quickjs()
