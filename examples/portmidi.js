@@ -418,7 +418,7 @@ export function Pm_WriteSysEx(stream, when, msg) {
 export class MIDIPort {
   constructor(deviceId) {
     this.deviceId = deviceId;
-    this.stream= new ArrayBuffer(8);
+    this.stream = new ArrayBuffer(8);
 
     lazyProperty(this, 'deviceInfo', () => Pm_GetDeviceInfo(deviceId), { enumerable: false });
   }
@@ -427,15 +427,13 @@ export class MIDIPort {
     const { deviceInfo } = this;
     return deviceInfo.name;
   }
- 
+
   get type() {
     const { deviceInfo } = this;
-    return deviceInfo.input ? 'input' : deviceInfo.output  ? 'output' : null;
+    return deviceInfo.input ? 'input' : deviceInfo.output ? 'output' : null;
   }
 
-  open() {
-    
-  }
+  open() {}
 }
 
 /**
@@ -469,9 +467,7 @@ export class MIDIOutput extends MIDIPort {
     super(deviceId);
   }
 
-  send(data) {
-
-  }
+  send(data) {}
 
   static from(deviceId) {
     let output = MIDIOutput.outputs(deviceId);
