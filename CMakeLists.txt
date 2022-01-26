@@ -66,8 +66,8 @@ function(make_shared_module FNAME)
   )
   target_compile_definitions(${TARGET_NAME} PRIVATE -DJS_${UNAME}_MODULE=1)
   install(TARGETS ${TARGET_NAME} DESTINATION ${QUICKJS_LIBRARY_DIR}/quickjs
-          PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
-                      WORLD_EXECUTE)
+          PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
+                      GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
 endfunction()
 
@@ -104,7 +104,8 @@ endif(BUILD_SHARED_LIBS)
 add_library(quickjs-ffi MODULE ${JS_BINDINGS_SOURCES})
 target_include_directories(quickjs-ffi PRIVATE)
 set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
-target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
+target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1
+                                               -DJS_BINDINGS_INIT_MODULE=1)
 target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES})
 
 if(NOT CMAKE_INSTALL_LIBDIR)
@@ -115,5 +116,5 @@ if(NOT QUICKJS_C_MODULE_DIR)
 endif(NOT QUICKJS_C_MODULE_DIR)
 
 install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
-                    WORLD_EXECUTE)
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
+                    GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
