@@ -24,6 +24,21 @@ function debug(fmt, ...args) {
   log.flush();
 }
 
+function ToDomain(str, alpha = false) {
+    return str.split('.').reduce(alpha ? (a, s) => a + String.fromCharCode(s.length) + s : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]), alpha ? '' : []);
+}
+
+function DNSQuery(domain) {
+if(/^([0-9]+\.?){4}$/.test(domain))
+    domain = domain.split('.').reverse().join('.')+'.in-addr.arpa';
+    console.log('DNSQuery',  domain);
+
+  let outBuf = new Uint8Array([0xff, 0xff, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, ...ToDomain(domain), 0x00, 0x00, 0x01, 0x00, 0x01]).buffer;
+  new DataView(outBuf).setUint16(0, outBuf.byteLength - 2, false);
+      console.log('DNSQuery',  outBuf);
+return outBuf;
+}
+
 function main(...args) {
   if(/^-o/.test(args[0])) {
     let arg = args[0].length == 2 ? (args.shift(), args.shift()) : args.shift().slice(2);
@@ -52,7 +67,8 @@ function main(...args) {
   }
 
   function lookup(domain) {
-    let local = new SockAddr(AF_INET, Math.floor(Math.random() * 65535 - 1024) + 1024, '0.0.0.0');
+      console.log('lookup', domain);
+  let local = new SockAddr(AF_INET, Math.floor(Math.random() * 65535 - 1024) + 1024, '0.0.0.0');
 
     let remote = new SockAddr(AF_INET);
 
@@ -75,14 +91,10 @@ function main(...args) {
 
     let inLen = 0,
       inBuf = new ArrayBuffer(128);
-    let outLen = 0,
-      outBuf = new ArrayBuffer(1024);
+    let query = DNSQuery(domain);
 
     const rfds = new fd_set();
     const wfds = new fd_set();
-
-    outLen = Copy(new Uint8Array(outBuf), [0xff, 0xff, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, ...ToDomain(domain), 0x00, 0x00, 0x01, 0x00, 0x01]);
-    new DataView(outBuf).setUint16(0, outLen - 2, false);
 
     do {
       FD_ZERO(rfds);
@@ -90,7 +102,7 @@ function main(...args) {
       FD_CLR(+sock, wfds);
       FD_SET(+sock, rfds);
 
-      if(outLen) FD_SET(+sock, wfds);
+      if(query) FD_SET(+sock, wfds);
       else if(inLen < inBuf.byteLength) FD_SET(+sock, rfds);
 
       const timeout = new Uint32Array([5, 0]).buffer;
@@ -99,13 +111,13 @@ function main(...args) {
       ret = select(sock + 1, rfds, wfds, null, timeout);
 
       if(FD_ISSET(+sock, wfds)) {
-        const out = outBuf.slice(0, outLen);
-        const len = Math.min(outLen, outBuf.byteLength);
-        if(len) {
+        /*   const out = outBuf.slice(0, outLen);
+        const len = Math.min(outLen, outBuf.byteLength);*/
+        if(query && query.byteLength) {
           //console.log(`outLen ${outLen} outBuf '${BufferToString(outBuf)}'`);
           //console.log('sendto', { out, len, remote });
-          if(sock.sendto(outBuf, 0, outLen, 0, remote) > 0) {
-            outLen = 0;
+          if(sock.sendto(query, 0, query.byteLength, 0, remote) > 0) {
+            query = null;
           }
         }
       }
@@ -203,10 +215,6 @@ function Copy(dst, src, len) {
   return len;
 }
 
-function ToDomain(str, alpha = false) {
-  return str.split('.').reduce(alpha ? (a, s) => a + String.fromCharCode(s.length) + s : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]), alpha ? '' : []);
-}
-
 function Append(buf, numBytes, ...chars) {
   let n = chars.reduce((a, c) => (typeof c == 'number' ? a + 1 : a + c.length), 0);
   if(AvailableBytes(buf, numBytes) < n) buf = CloneBuf(buf, numBytes + n);
@@ -251,11 +259,12 @@ function StringToBuffer(str) {
   return Uint8Array.from(str.split('').map(ch => ch.charCodeAt(0))).buffer;
 }
 
-try {
-  main(...scriptArgs.slice(1));
-} catch(error) {
-  console.log(`FAIL: ${error.message}\n${error.stack}`);
-  std.exit(1);
-} finally {
-  console.log('SUCCESS');
-}
+const runMain = () => {
+  try {
+    main(...scriptArgs.slice(1));
+    std.exit(0);
+  } catch(error) {
+    console.log('ERROR:', error);
+  }
+};
+import('console') .catch(runMain) .then(({ Console }) => ((globalThis.console = new Console({ inspectOptions: {} })), runMain()));
