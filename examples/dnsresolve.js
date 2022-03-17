@@ -24,19 +24,66 @@ function debug(fmt, ...args) {
   log.flush();
 }
 
+function FromDomain(buffer) {
+  let s = '',
+    i = 0,
+    u8 = new Uint8Array(buffer);
+  for(;;) {
+    let len = u8[i++];
+    if(len == 0) return s;
+    if(s != '') s += '.';
+    while(len--) s += String.fromCharCode(u8[i++]);
+  }
+}
+
 function ToDomain(str, alpha = false) {
-    return str.split('.').reduce(alpha ? (a, s) => a + String.fromCharCode(s.length) + s : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]), alpha ? '' : []);
+  return str.split('.').reduce(alpha ? (a, s) => a + String.fromCharCode(s.length) + s : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]), alpha ? '' : []);
 }
 
 function DNSQuery(domain) {
-if(/^([0-9]+\.?){4}$/.test(domain))
-    domain = domain.split('.').reverse().join('.')+'.in-addr.arpa';
-    console.log('DNSQuery',  domain);
+  let type = 0x01;
+  if(/^([0-9]+\.?){4}$/.test(domain)) {
+    domain = domain.split('.').reverse().join('.') + '.in-addr.arpa';
+    type = 0x0c;
+  }
+  console.log('DNSQuery', domain);
 
-  let outBuf = new Uint8Array([0xff, 0xff, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, ...ToDomain(domain), 0x00, 0x00, 0x01, 0x00, 0x01]).buffer;
+  let outBuf = new Uint8Array([0xff, 0xff, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, ...ToDomain(domain), 0x00, 0x00, type, 0x00, 0x01]).buffer;
   new DataView(outBuf).setUint16(0, outBuf.byteLength - 2, false);
-      console.log('DNSQuery',  outBuf);
-return outBuf;
+  console.log('DNSQuery', outBuf);
+  return outBuf;
+}
+
+function DNSResponse(buffer) {
+  let u8 = new Uint8Array(buffer);
+  let header = new DataView(buffer, 0, 12);
+  debug('Num queries: %u', header.getUint16(6, false));
+  let ofs = 2 + header.getUint16(0, false);
+
+  header = new DataView(buffer, ofs, 12);
+  debug('Num answers: %u', header.getUint16(6, false));
+  //   ofs += 2 + header.getUint16(0, false);
+  console.log(
+    'Response header:',
+    ArrayToBytes(u8.slice(ofs, ofs + 12))
+    //new Uint16Array(header.buffer, header.byteOffset, 6).map((v, i) => header.getUint16(i * 2, false))
+  );
+  let type = header.getUint16(2, false);
+  console.log('Response type:', type);
+
+  ofs += 12;
+
+  debug('Offset: %u', ofs);
+  debug('Packet data [%d] at %d: %s', u8.slice(ofs).length, ofs, ArrayToString(u8.slice(ofs)));
+
+  let addr;
+  if(type == 0x0c) {
+    addr = FromDomain(buffer.slice(ofs));
+  } else {
+    addr = u8.slice(-4).join('.');
+  }
+
+  return addr;
 }
 
 function main(...args) {
@@ -44,7 +91,7 @@ function main(...args) {
     let arg = args[0].length == 2 ? (args.shift(), args.shift()) : args.shift().slice(2);
     log = open(arg, 'a+');
   } else {
-    log = open('debug.log', 'w+');
+    log = open('debug.log', 'a+');
   }
 
   debug('%s started (%s) [%s]', scriptArgs[0].replace(/.*\//g, ''), args, new Date().toISOString());
@@ -67,8 +114,8 @@ function main(...args) {
   }
 
   function lookup(domain) {
-      console.log('lookup', domain);
-  let local = new SockAddr(AF_INET, Math.floor(Math.random() * 65535 - 1024) + 1024, '0.0.0.0');
+    console.log('lookup', domain);
+    let local = new SockAddr(AF_INET, Math.floor(Math.random() * 65535 - 1024) + 1024, '0.0.0.0');
 
     let remote = new SockAddr(AF_INET);
 
@@ -138,12 +185,11 @@ function main(...args) {
 
         console.log(`socket recvfrom = ${length}`);
 
+        let u8 = new Uint8Array(data.slice(0, length));
+
         if(length > 0) {
-          let u8 = new Uint8Array(data, 0, length);
-          let header = new DataView(data, 0, 12);
-          debug('Num answers: %u', header.getUint16(6, false));
-          let addr = u8.slice(-4).join('.');
-          debug('Received data from socket: %s', ArrayToBytes(u8));
+          let addr = DNSResponse(u8.buffer);
+          debug('Received %d bytes from socket: %s', length, '"' + ArrayToBytes(u8, '').replace(/0x/g, '\\x').slice(1, -1) + '"');
 
           sock.close();
           return addr;
@@ -202,6 +248,13 @@ function BufferToBytes(buf, offset = 0, len) {
 
 function ArrayToBytes(arr, delim = ', ', bytes = 1) {
   return '[' + arr.reduce((s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)), '') + ']';
+}
+
+function ArrayToString(arr, bytes = 1) {
+  const toHex = code => '\\x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2));
+  const toChar = code => (code < 0x20 || code > 0x7f ? toHex(code) : String.fromCharCode(code));
+
+  return '"' + arr.reduce((s, code) => s + toChar(code), '') + '"';
 }
 
 function AvailableBytes(buf, numBytes) {
@@ -267,4 +320,4 @@ const runMain = () => {
     console.log('ERROR:', error);
   }
 };
-import('console') .catch(runMain) .then(({ Console }) => ((globalThis.console = new Console({ inspectOptions: {} })), runMain()));
+import('console') .catch(runMain) .then(({ Console }) => ((globalThis.console = new Console({ inspectOptions: { numberBase: 16, maxStringLength: 512, maxArrayLength: 512 } })), runMain()));
