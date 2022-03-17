@@ -179,11 +179,8 @@ function main(...args) {
 
         const data = new ArrayBuffer(1024);
         const slen = new socklen_t(remote.byteLength);
-        console.log(`slen =`, slen);
-
+ 
         length = sock.recvfrom(data, 0, data.byteLength, 0, remote, slen);
-
-        console.log(`socket recvfrom = ${length}`);
 
         let u8 = new Uint8Array(data.slice(0, length));
 
