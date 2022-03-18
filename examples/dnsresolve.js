@@ -179,7 +179,7 @@ function main(...args) {
 
         const data = new ArrayBuffer(1024);
         const slen = new socklen_t(remote.byteLength);
- 
+
         length = sock.recvfrom(data, 0, data.byteLength, 0, remote, slen);
 
         let u8 = new Uint8Array(data.slice(0, length));
