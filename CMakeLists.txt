@@ -1,12 +1,16 @@
 cmake_minimum_required(VERSION 3.0)
 project(qjs-ffi C)
 
+message("Building project [1;31m${PROJECT_NAME}[0m")
+
 set(DISABLE_WERROR ON)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
 
-include(FindPkgConfig)
+if(NOT PKG_CONFIG_FOUND)
+  include(FindPkgConfig)
+endif(NOT PKG_CONFIG_FOUND)
 
 pkg_search_module(LIBFFI libffi)
 
@@ -47,14 +51,15 @@ function(make_shared_module FNAME)
   string(REGEX REPLACE "_" "-" NAME "${FNAME}")
   string(TOUPPER "${FNAME}" UNAME)
 
-  message("Module: ${NAME}")
+  message(STATUS "Building shared module: ${NAME}")
   set(TARGET_NAME quickjs-${NAME})
 
   add_library(${TARGET_NAME} SHARED ${FNAME}.c)
 
   target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI_LIBRARY})
-  set_target_properties(${TARGET_NAME} PROPERTIES PREFIX "" BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}" INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib" OUTPUT_NAME "${NAME}" # COMPILE_FLAGS "-fvisibility=hidden"
-                                                  BUILD_RPATH "${CMAKE_BINARY_DIR};${CMAKE_CURRENT_BINARY_DIR};${CMAKE_BINARY_DIR}/quickjs;${CMAKE_CURRENT_BINARY_DIR}/quickjs")
+  set_target_properties(
+    ${TARGET_NAME} PROPERTIES PREFIX "" BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}" INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib" OUTPUT_NAME "${NAME}" # COMPILE_FLAGS "-fvisibility=hidden"
+                              BUILD_RPATH "${CMAKE_BINARY_DIR};${CMAKE_CURRENT_BINARY_DIR};${CMAKE_BINARY_DIR}/quickjs;${CMAKE_CURRENT_BINARY_DIR}/quickjs")
   target_compile_definitions(${TARGET_NAME} PRIVATE -DJS_${UNAME}_MODULE=1)
   install(TARGETS ${TARGET_NAME} DESTINATION ${QUICKJS_LIBRARY_DIR}/quickjs PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
@@ -66,7 +71,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(CheckLibraryExists)
 
-include(FindPkgConfig)
+if(NOT PKG_CONFIG_FOUND)
+  include(FindPkgConfig)
+endif(NOT PKG_CONFIG_FOUND)
 if(NOT FFI_FOUND)
   pkg_search_module(FFI libffi)
 
