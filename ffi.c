@@ -23,7 +23,7 @@ struct function_s {
   int nargs;
   ffi_cif cif;
   ffi_type** args;
-  ffi_type* rtype;
+  struct ffi_type_s* rtype;
 };
 
 #define TYPE_INTEGRAL 0
@@ -77,6 +77,20 @@ find_ffi_type(const char* name) {
   for(p = ffi_type_head; p; p = p->next)
     if(strcmp(p->name, name) == 0)
       return p->type;
+  return NULL;
+}
+
+/* Find type by name
+ */
+static struct ffi_type_s*
+find_type(const char* name) {
+  struct ffi_type_s* p = NULL;
+
+  if(name == NULL)
+    return NULL;
+  for(p = ffi_type_head; p; p = p->next)
+    if(strcmp(p->name, name) == 0)
+      return p;
   return NULL;
 }
 
@@ -280,7 +294,7 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
 
   /* Record return type
    */
-  f->rtype = find_ffi_type(rtype);
+  f->rtype = find_type(rtype);
   if(f->rtype == NULL) {
     warn("define_function: no such return type");
     goto error;
@@ -289,7 +303,7 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
   /* Prepare cif. Add prepared function to function list and return
    * true.
    */
-  if(ffi_prep_cif(&(f->cif), find_abi(abi), f->nargs, f->rtype, f->args) == FFI_OK) {
+  if(ffi_prep_cif(&(f->cif), find_abi(abi), f->nargs, f->rtype->type, f->args) == FFI_OK) {
     f->next = function_list;
     function_list = f;
     return true;
@@ -333,7 +347,7 @@ error:
  * cast into the actual return.
  */
 static bool
-call_function(const char* name, typed_argument* args, long double* rp) {
+call_function(const char* name, typed_argument* args, JSContext* ctx, JSValue* rp) {
   struct function_s* f = NULL;
   char* s = NULL;
   int i = 0;
@@ -344,7 +358,7 @@ call_function(const char* name, typed_argument* args, long double* rp) {
   argument* arguments = NULL;
   argument rc;
   double p = 0.0;
-  long double r = 0.0;
+  JSValue r = JS_UNDEFINED;
   bool rv = false;
 
   if(name == NULL) {
@@ -448,18 +462,21 @@ call_function(const char* name, typed_argument* args, long double* rp) {
    * pointers fit in 52 bits. This is a reasonable assumption in
    * 2020.
    */
-  if(f->rtype == &ffi_type_void)
-    r = 0;
-  else if(f->rtype == &ffi_type_float)
-    r = rc.f;
-  else if(f->rtype == &ffi_type_double)
-    r = rc.d;
-  else if(f->rtype == &ffi_type_longdouble)
-    r = rc.ld;
-  else if(f->rtype == &ffi_type_pointer)
-    r = (double)(ptrdiff_t)rc.p;
-  else
-    r = rc.ll;
+  if(f->rtype->type == &ffi_type_void)
+    r = JS_NewFloat64(ctx, 0);
+  else if(f->rtype->type == &ffi_type_float)
+    r = JS_NewFloat64(ctx, rc.f);
+  else if(f->rtype->type == &ffi_type_double)
+    r = JS_NewFloat64(ctx, rc.d);
+  else if(f->rtype->type == &ffi_type_longdouble)
+    r = JS_NewFloat64(ctx, rc.ld);
+  else if(f->rtype->type == &ffi_type_pointer) {
+    if(!strcmp(f->rtype->name, "string") || !strcmp(f->rtype->name, "char *"))
+      r = rc.p ? JS_NewString(ctx, rc.p) : JS_NULL;
+    else
+      r = JS_NewFloat64(ctx, (long double)(ptrdiff_t)rc.p);
+  } else
+    r = JS_NewFloat64(ctx, rc.ll);
 
   if(rp)
     *rp = r;
@@ -667,8 +684,8 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
       args[i - 1].arg.ll = (ptrdiff_t)buf;
     }
   }
-  if(call_function(name, args, &res)) {
-    r = JS_NewFloat64(ctx, res);
+  if(call_function(name, args, ctx, &res)) {
+    // r = JS_NewFloat64(ctx, res);
   }
 
 error:
@@ -776,7 +793,9 @@ static const JSCFunctionListEntry js_funcs[] = {JS_CFUNC_DEF("debug", 0, js_debu
                                                 JS_PROP_INT32_DEF("RTLD_DEEPBIND", RTLD_DEEPBIND, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_DEFAULT
-                                                JS_PROP_INT64_DEF("RTLD_DEFAULT", (ptrdiff_t)RTLD_DEFAULT, JS_PROP_CONFIGURABLE),
+                                                JS_PROP_INT64_DEF("RTLD_DEFAULT",
+                                                                  (ptrdiff_t)RTLD_DEFAULT,
+                                                                  JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NEXT
                                                 JS_PROP_INT64_DEF("RTLD_NEXT", (ptrdiff_t)RTLD_NEXT, JS_PROP_CONFIGURABLE),
