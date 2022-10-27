@@ -37,7 +37,14 @@ function FromDomain(buffer) {
 }
 
 function ToDomain(str, alpha = false) {
-  return str.split('.').reduce(alpha ? (a, s) => a + String.fromCharCode(s.length) + s : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]), alpha ? '' : []);
+  return str
+    .split('.')
+    .reduce(
+      alpha
+        ? (a, s) => a + String.fromCharCode(s.length) + s
+        : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]),
+      alpha ? '' : []
+    );
 }
 
 function DNSQuery(domain) {
@@ -48,7 +55,26 @@ function DNSQuery(domain) {
   }
   console.log('DNSQuery', domain);
 
-  let outBuf = new Uint8Array([0xff, 0xff, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, ...ToDomain(domain), 0x00, 0x00, type, 0x00, 0x01]).buffer;
+  let outBuf = new Uint8Array([
+    0xff,
+    0xff,
+    0x01,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    ...ToDomain(domain),
+    0x00,
+    0x00,
+    type,
+    0x00,
+    0x01
+  ]).buffer;
   new DataView(outBuf).setUint16(0, outBuf.byteLength - 2, false);
   console.log('DNSQuery', outBuf);
   return outBuf;
@@ -186,7 +212,11 @@ function main(...args) {
 
         if(length > 0) {
           let addr = DNSResponse(u8.buffer);
-          debug('Received %d bytes from socket: %s', length, '"' + ArrayToBytes(u8, '').replace(/0x/g, '\\x').slice(1, -1) + '"');
+          debug(
+            'Received %d bytes from socket: %s',
+            length,
+            '"' + ArrayToBytes(u8, '').replace(/0x/g, '\\x').slice(1, -1) + '"'
+          );
 
           sock.close();
           return addr;
@@ -244,7 +274,14 @@ function BufferToBytes(buf, offset = 0, len) {
 }
 
 function ArrayToBytes(arr, delim = ', ', bytes = 1) {
-  return '[' + arr.reduce((s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)), '') + ']';
+  return (
+    '[' +
+    arr.reduce(
+      (s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)),
+      ''
+    ) +
+    ']'
+  );
 }
 
 function ArrayToString(arr, bytes = 1) {
@@ -317,4 +354,4 @@ const runMain = () => {
     console.log('ERROR:', error);
   }
 };
-import('console') .catch(runMain) .then(({ Console }) => ((globalThis.console = new Console({ inspectOptions: { numberBase: 16, maxStringLength: 512, maxArrayLength: 512 } })), runMain()));
+import('console') .catch(runMain) .then( ({ Console }) => ( (globalThis.console = new Console({ inspectOptions: { numberBase: 16, maxStringLength: 512, maxArrayLength: 512 } })), runMain() ) );

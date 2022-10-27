@@ -5,7 +5,22 @@ import { memoize, lazyProperty } from 'util';
 const libportmidi = dlopen('/opt/portmidi-debug/lib/libportmidi.so', RTLD_NOW);
 
 export function PmError(n) {
-  return { [0]: 'pmNoError', [1]: 'pmGotData', [-10000]: 'pmHostError', [-9999]: 'pmInvalidDeviceId', [-9998]: 'pmInsufficientMemory', [-9997]: 'pmBufferTooSmall', [-9996]: 'pmBufferOverflow', [-9995]: 'pmBadPtr', [-9994]: 'pmBadData', [-9993]: 'pmInternalError', [-9992]: 'pmBufferMaxSize', [-9991]: 'pmNotImplemented', [-9990]: 'pmInterfaceNotSupported', [-9989]: 'pmNameConflict' }[n];
+  return {
+    [0]: 'pmNoError',
+    [1]: 'pmGotData',
+    [-10000]: 'pmHostError',
+    [-9999]: 'pmInvalidDeviceId',
+    [-9998]: 'pmInsufficientMemory',
+    [-9997]: 'pmBufferTooSmall',
+    [-9996]: 'pmBufferOverflow',
+    [-9995]: 'pmBadPtr',
+    [-9994]: 'pmBadData',
+    [-9993]: 'pmInternalError',
+    [-9992]: 'pmBufferMaxSize',
+    [-9991]: 'pmNotImplemented',
+    [-9990]: 'pmInterfaceNotSupported',
+    [-9989]: 'pmNameConflict'
+  }[n];
 }
 
 export function Pm_Message(status, data1, data2) {
@@ -96,7 +111,11 @@ export class PmDeviceInfo extends ArrayBuffer {
 
   toString() {
     const { structVersion, interf, name, input, output, opened, is_virtual } = this;
-    return `PmDeviceInfo {\n\t.structVersion = ${structVersion},\n\t.interf = 0x${interf.toString(16)},\n\t.name = 0x${name.toString(16)},\n\t.input = ${input},\n\t.output = ${output},\n\t.opened = ${opened},\n\t.is_virtual = ${is_virtual}\n}`;
+    return `PmDeviceInfo {\n\t.structVersion = ${structVersion},\n\t.interf = 0x${interf.toString(
+      16
+    )},\n\t.name = 0x${name.toString(
+      16
+    )},\n\t.input = ${input},\n\t.output = ${output},\n\t.opened = ${opened},\n\t.is_virtual = ${is_virtual}\n}`;
   }
 
   [Symbol.inspect]() {
@@ -215,8 +234,26 @@ export function Pm_GetDeviceInfo(id) {
  *
  * @return   {Number}
  */
-define('Pm_OpenInput', dlsym(libportmidi, 'Pm_OpenInput'), null, 'int', 'void *', 'int', 'void *', 'int', 'int', 'void *');
-export function Pm_OpenInput(stream, inputDevice, inputDriverInfo = null, bufferSize = 0, time_proc = null, time_info = null) {
+define(
+  'Pm_OpenInput',
+  dlsym(libportmidi, 'Pm_OpenInput'),
+  null,
+  'int',
+  'void *',
+  'int',
+  'void *',
+  'int',
+  'int',
+  'void *'
+);
+export function Pm_OpenInput(
+  stream,
+  inputDevice,
+  inputDriverInfo = null,
+  bufferSize = 0,
+  time_proc = null,
+  time_info = null
+) {
   let streamPtr = new BigUint64Array(1);
   let ret = call('Pm_OpenInput', streamPtr.buffer, inputDevice, inputDriverInfo, bufferSize, time_proc, time_info);
   let ptr = Number(streamPtr[0]);
@@ -241,10 +278,39 @@ export function Pm_OpenInput(stream, inputDevice, inputDriverInfo = null, buffer
  *
  * @return   {Number}
  */
-define('Pm_OpenOutput', dlsym(libportmidi, 'Pm_OpenOutput'), null, 'int', 'void *', 'int', 'void *', 'int', 'int', 'void *', 'int');
-export function Pm_OpenOutput(stream, outputDevice, outputDriverInfo = null, bufferSize = 0, time_proc = null, time_info = null, latency = 0) {
+define(
+  'Pm_OpenOutput',
+  dlsym(libportmidi, 'Pm_OpenOutput'),
+  null,
+  'int',
+  'void *',
+  'int',
+  'void *',
+  'int',
+  'int',
+  'void *',
+  'int'
+);
+export function Pm_OpenOutput(
+  stream,
+  outputDevice,
+  outputDriverInfo = null,
+  bufferSize = 0,
+  time_proc = null,
+  time_info = null,
+  latency = 0
+) {
   let streamPtr = new BigUint64Array(1);
-  let ret = call('Pm_OpenOutput', streamPtr.buffer, outputDevice, outputDriverInfo, bufferSize, time_proc, time_info, latency);
+  let ret = call(
+    'Pm_OpenOutput',
+    streamPtr.buffer,
+    outputDevice,
+    outputDriverInfo,
+    bufferSize,
+    time_proc,
+    time_info,
+    latency
+  );
   let ptr = Number(streamPtr[0]);
   let buf = toArrayBuffer(ptr, 48);
   if(typeof stream == 'function') stream(buf, ptr);
@@ -274,7 +340,15 @@ export function Pm_CreateVirtualInput(name, interf) {
  *
  * @return   {Number}
  */
-define('Pm_CreateVirtualOutput', dlsym(libportmidi, 'Pm_CreateVirtualOutput'), null, 'int', 'string', 'string', 'void *');
+define(
+  'Pm_CreateVirtualOutput',
+  dlsym(libportmidi, 'Pm_CreateVirtualOutput'),
+  null,
+  'int',
+  'string',
+  'string',
+  'void *'
+);
 export function Pm_CreateVirtualOutput(name, interf) {
   return call('Pm_CreateVirtualOutput', name, interf, null);
 }
