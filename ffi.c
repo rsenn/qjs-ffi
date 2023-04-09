@@ -685,7 +685,7 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
     }
   }
   if(call_function(name, args, ctx, &res)) {
-    // r = JS_NewFloat64(ctx, res);
+    r = JS_NewFloat64(ctx, res);
   }
 
 error:
