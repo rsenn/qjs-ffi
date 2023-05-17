@@ -123,6 +123,7 @@ export class PmDeviceInfo extends ArrayBuffer {
     return `PmDeviceInfo ` + inspect({ structVersion, interf, name, input, output, opened });
   }
 }
+
 /**
  * @function Pm_Initialize
  *

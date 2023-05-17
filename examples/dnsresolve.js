@@ -238,6 +238,7 @@ function NumberToHex(n, b = 2) {
   let s = (+n).toString(16);
   return '0'.repeat(Math.ceil(s.length / b) * b - s.length) + s;
 }
+
 /*
 function EscapeString(str) {
     let r = '';
@@ -255,6 +256,7 @@ function EscapeString(str) {
     }
     return r;
 }
+
 */
 function BufferToArray(buf, offset, length) {
   let len,
@@ -341,6 +343,7 @@ function Once(fn, thisArg) {
         return ret;
     };
 }
+
 */
 function StringToBuffer(str) {
   return Uint8Array.from(str.split('').map(ch => ch.charCodeAt(0))).buffer;
