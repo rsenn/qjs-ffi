@@ -740,6 +740,7 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
   size_t size;
   char buf[64];
   ptr = JS_GetArrayBuffer(ctx, &size, argv[0]);
+
   if(argc > 1) {
     int64_t off;
     if(JS_ToInt64(ctx, &off, argv[1]))
@@ -750,7 +751,8 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
       return JS_EXCEPTION;
     ptr += off;
   }
-  snprintf(buf, sizeof(buf), "%p", ptr);
+
+  snprintf(buf, sizeof(buf), ptr ? "0x%llx" : "0", (long long)(ptrdiff_t)ptr);
   return JS_NewString(ctx, buf);
 }
 
