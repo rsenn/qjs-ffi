@@ -604,7 +604,8 @@ js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   if(!rtype)
     goto error;
   nparams = 0;
-  for(i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i) params[nparams++] = JS_ToCString(ctx, argv[i]);
+  for(i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i)
+    params[nparams++] = JS_ToCString(ctx, argv[i]);
   params[nparams] = NULL;
 
   if(define_function(name, (void*)(ptrdiff_t)fp, abi, rtype, params))
@@ -619,7 +620,8 @@ error:
     JS_FreeCString(ctx, rtype);
   if(abi)
     JS_FreeCString(ctx, abi);
-  for(i = 0; i < nparams; ++i) JS_FreeCString(ctx, params[i]);
+  for(i = 0; i < nparams; ++i)
+    JS_FreeCString(ctx, params[i]);
 
   return r;
 }
@@ -639,7 +641,6 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   JSValue r = JS_EXCEPTION;
   typed_argument args[MAX_PARAMETERS];
   int i;
-  long double res = 0;
   const char* strings[MAX_PARAMETERS];
   int fl = 0;
   name = JS_ToCString(ctx, argv[0]);
@@ -684,14 +685,15 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
       args[i - 1].arg.ll = (ptrdiff_t)buf;
     }
   }
-  if(call_function(name, args, ctx, &res)) {
-    r = JS_NewFloat64(ctx, res);
-  }
+
+  if(!call_function(name, args, ctx, &r))
+    r = JS_EXCEPTION;
 
 error:
   if(name)
     JS_FreeCString(ctx, name);
-  while(fl) JS_FreeCString(ctx, strings[--fl]);
+  while(fl)
+    JS_FreeCString(ctx, strings[--fl]);
   return r;
 }
 
