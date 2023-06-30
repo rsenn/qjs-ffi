@@ -515,20 +515,24 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   const char* s;
   void* res;
   int n;
+
   if(JS_IsNull(argv[0]))
     s = NULL;
-  else {
-    s = JS_ToCString(ctx, argv[0]);
-    if(!s)
+  else 
+    if(!(s = JS_ToCString(ctx, argv[0])))
       return JS_EXCEPTION;
-  }
+
   if(JS_ToUint32(ctx, &n, argv[1]))
     return JS_EXCEPTION;
+
   res = dlopen(s, n);
+  
   if(s)
     JS_FreeCString(ctx, s);
+  
   if(res == NULL)
     return JS_NULL;
+  
   return JS_NewInt64(ctx, (ptrdiff_t)res);
 }
 
