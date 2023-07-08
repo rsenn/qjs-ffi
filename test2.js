@@ -1,10 +1,8 @@
+import * as os from 'os';
+import * as util from './util.mjs';
+import * as std from 'std';
 /* test2.js
  */
-
-import * as os from 'os';
-import * as std from 'std';
-import * as util from './util.mjs';
-
 var pid;
 var status;
 

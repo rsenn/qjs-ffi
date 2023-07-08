@@ -1,12 +1,27 @@
-import { strerror, err, out, exit, open, loadFile } from 'std';
-import { read, signal, ttySetRaw, write } from 'os';
-import { errno, toString, toArrayBuffer, toPointer, pointerSize } from 'ffi';
-import { Socket, select, AF_INET, SOCK_STREAM, SOCK_DGRAM, IPPROTO_UDP, SockAddr } from '../lib/socket.js';
-import { termios, tcgetattr, tcsetattr, TCSANOW, IGNPAR, IMAXBEL, IUTF8, OPOST, ONLCR, CR0, TAB0, BS0, VT0, FF0, EXTB, CS8, CREAD, ISIG, ECHOE, ECHOK, ECHOCTL, ECHOKE, VINTR, cfgetospeed, cfsetospeed, B57600, B115200 } from '../lib/term.js';
-import { fd_set, FD_SET, FD_CLR, FD_ISSET, FD_ZERO } from '../lib/fd_set.js';
-
+import { read } from 'os';
+import { FD_CLR } from '../lib/fd_set.js';
+import { FD_ISSET } from '../lib/fd_set.js';
+import { fd_set } from '../lib/fd_set.js';
+import { FD_SET } from '../lib/fd_set.js';
+import { FD_ZERO } from '../lib/fd_set.js';
+import { AF_INET } from '../lib/socket.js';
+import { IPPROTO_UDP } from '../lib/socket.js';
+import { select } from '../lib/socket.js';
+import { SOCK_DGRAM } from '../lib/socket.js';
+import { SockAddr } from '../lib/socket.js';
+import { Socket } from '../lib/socket.js';
 import socklen_t from '../lib/socklen_t.js';
-
+import { errno } from 'ffi';
+import { pointerSize } from 'ffi';
+import { toArrayBuffer } from 'ffi';
+import { toPointer } from 'ffi';
+import { toString } from 'ffi';
+import { err } from 'std';
+import { exit } from 'std';
+import { loadFile } from 'std';
+import { open } from 'std';
+import { out } from 'std';
+import { strerror } from 'std';
 console.log('socklen_t', 1);
 
 function not(n) {

@@ -1,6 +1,15 @@
-import { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
+import { lazyProperty } from 'util';
+import { memoize } from 'util';
+import { call } from 'ffi';
+import { define } from 'ffi';
+import { dlopen } from 'ffi';
+import { dlsym } from 'ffi';
+import { RTLD_NOW } from 'ffi';
+import { toArrayBuffer } from 'ffi';
+import { toPointer } from 'ffi';
+import { toString } from 'ffi';
+
 export { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
-import { memoize, lazyProperty } from 'util';
 
 const libportmidi = dlopen('/opt/portmidi-debug/lib/libportmidi.so', RTLD_NOW);
 
