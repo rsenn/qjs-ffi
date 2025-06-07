@@ -8,11 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 #include <errno.h>
-#include <quickjs/quickjs.h>
 #include <ffi.h>
 #include <dlfcn.h>
+
+#include <quickjs.h>
+#include <cutils.h>
 
 #define countof(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -216,7 +217,7 @@ dummy_() {
 
 /* Build function ffi
  */
-static bool
+static BOOL
 define_function(const char* name, void* fp, const char* abi, const char* rtype, const char** args) {
 
   struct function_s* f = NULL;
@@ -227,14 +228,14 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
    */
   if(name == NULL) {
     warn("define_function: no name");
-    return false;
+    return FALSE;
   }
 
   /* If function is already defined, just return
    */
   for(f = function_list; f; f = f->next)
     if(strcmp(f->name, name) == 0)
-      return true;
+      return TRUE;
 
   f = malloc(sizeof(struct function_s));
   if(f == NULL)
@@ -301,12 +302,12 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
   }
 
   /* Prepare cif. Add prepared function to function list and return
-   * true.
+   * TRUE.
    */
   if(ffi_prep_cif(&(f->cif), find_abi(abi), f->nargs, f->rtype->type, f->args) == FFI_OK) {
     f->next = function_list;
     function_list = f;
-    return true;
+    return TRUE;
   }
   warn("define_function: ffi_prep_cif failed");
 
@@ -316,7 +317,7 @@ error:
   free(f->args);
   free(f->name);
   free(f);
-  return false;
+  return FALSE;
 }
 
 /* We assume little-endian, which means that assigning into "long long"
@@ -346,20 +347,17 @@ error:
  * All return values are captured into long double -- this must be
  * cast into the actual return.
  */
-static bool
+static BOOL
 call_function(const char* name, typed_argument* args, JSContext* ctx, JSValue* rp) {
   struct function_s* f = NULL;
-  char* s = NULL;
   int i = 0;
   void** ptrs = NULL;
   void** pointer_list = NULL;
-  int fl = 0;
   int pl = 0;
   argument* arguments = NULL;
   argument rc;
-  double p = 0.0;
   JSValue r = JS_UNDEFINED;
-  bool rv = false;
+  BOOL rv = FALSE;
 
   if(name == NULL) {
     warn("call_function: no name");
@@ -391,8 +389,8 @@ call_function(const char* name, typed_argument* args, JSContext* ctx, JSValue* r
 
   /* initialize arguments, pointer_list and ptrs
    */
-  fl = 0;
   pl = 0;
+
   for(i = 0; i < f->nargs; ++i) {
     arguments[i].p = NULL;
     pointer_list[i] = NULL;
@@ -480,7 +478,7 @@ call_function(const char* name, typed_argument* args, JSContext* ctx, JSValue* r
 
   if(rp)
     *rp = r;
-  rv = true;
+  rv = TRUE;
 
 error:
   if(ptrs)
@@ -514,7 +512,7 @@ static JSValue
 js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   const char* s;
   void* res;
-  int n;
+  uint32_t n;
 
   if(JS_IsNull(argv[0]))
     s = NULL;
@@ -747,12 +745,16 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
 
   if(argc > 1) {
     int64_t off;
+
     if(JS_ToInt64(ctx, &off, argv[1]))
       return JS_EXCEPTION;
+
     if(off < 0)
       off += size;
-    if(off > size || off < 0)
+
+    if(off > (int64_t)size || off < 0)
       return JS_EXCEPTION;
+
     ptr += off;
   }
 
