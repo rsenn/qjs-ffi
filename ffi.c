@@ -218,7 +218,8 @@ dummy_() {
 /* Build function ffi
  */
 static BOOL
-define_function(const char* name, void* fp, const char* abi, const char* rtype, const char** args) {
+define_function(
+    const char* name, void* fp, const char* abi, const char* rtype, const char** args) {
 
   struct function_s* f = NULL;
   int i = 0;
@@ -516,21 +517,20 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
 
   if(JS_IsNull(argv[0]))
     s = NULL;
-  else 
-    if(!(s = JS_ToCString(ctx, argv[0])))
-      return JS_EXCEPTION;
+  else if(!(s = JS_ToCString(ctx, argv[0])))
+    return JS_EXCEPTION;
 
   if(JS_ToUint32(ctx, &n, argv[1]))
     return JS_EXCEPTION;
 
   res = dlopen(s, n);
-  
+
   if(s)
     JS_FreeCString(ctx, s);
-  
+
   if(res == NULL)
     return JS_NULL;
-  
+
   return JS_NewInt64(ctx, (ptrdiff_t)res);
 }
 
@@ -769,48 +769,48 @@ js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) 
   return JS_NewInt64(ctx, (ptrdiff_t)ctx);
 }
 
-static const JSCFunctionListEntry js_funcs[] = {JS_CFUNC_DEF("debug", 0, js_debug),
-                                                JS_CFUNC_DEF("dlopen", 2, js_dlopen),
-                                                JS_CFUNC_DEF("dlerror", 0, js_dlerror),
-                                                JS_CFUNC_DEF("dlclose", 1, js_dlclose),
-                                                JS_CFUNC_DEF("dlsym", 2, js_dlsym),
-                                                JS_CFUNC_DEF("define", 4, js_define),
-                                                JS_CFUNC_DEF("call", 1, js_call),
-                                                JS_CFUNC_DEF("toString", 1, js_tostring),
-                                                JS_CFUNC_DEF("toArrayBuffer", 2, js_toarraybuffer),
-                                                JS_CFUNC_DEF("toPointer", 1, js_topointer),
-                                                JS_CFUNC_DEF("errno", 0, js_errno),
-                                                JS_CFUNC_DEF("JSContext", 0, js_context),
+static const JSCFunctionListEntry js_funcs[] = {
+    JS_CFUNC_DEF("debug", 0, js_debug),
+    JS_CFUNC_DEF("dlopen", 2, js_dlopen),
+    JS_CFUNC_DEF("dlerror", 0, js_dlerror),
+    JS_CFUNC_DEF("dlclose", 1, js_dlclose),
+    JS_CFUNC_DEF("dlsym", 2, js_dlsym),
+    JS_CFUNC_DEF("define", 4, js_define),
+    JS_CFUNC_DEF("call", 1, js_call),
+    JS_CFUNC_DEF("toString", 1, js_tostring),
+    JS_CFUNC_DEF("toArrayBuffer", 2, js_toarraybuffer),
+    JS_CFUNC_DEF("toPointer", 1, js_topointer),
+    JS_CFUNC_DEF("errno", 0, js_errno),
+    JS_CFUNC_DEF("JSContext", 0, js_context),
 #ifdef RTLD_LAZY
-                                                JS_PROP_INT32_DEF("RTLD_LAZY", RTLD_LAZY, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("RTLD_LAZY", RTLD_LAZY, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NOW
-                                                JS_PROP_INT32_DEF("RTLD_NOW", RTLD_NOW, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("RTLD_NOW", RTLD_NOW, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_GLOBAL
-                                                JS_PROP_INT32_DEF("RTLD_GLOBAL", RTLD_GLOBAL, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("RTLD_GLOBAL", RTLD_GLOBAL, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_LOCAL
-                                                JS_PROP_INT32_DEF("RTLD_LOCAL", RTLD_LOCAL, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("RTLD_LOCAL", RTLD_LOCAL, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NODELETE
-                                                JS_PROP_INT32_DEF("RTLD_NODELETE", RTLD_NODELETE, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("RTLD_NODELETE", RTLD_NODELETE, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NOLOAD
-                                                JS_PROP_INT32_DEF("RTLD_NOLOAD", RTLD_NOLOAD, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("RTLD_NOLOAD", RTLD_NOLOAD, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_DEEPBIND
-                                                JS_PROP_INT32_DEF("RTLD_DEEPBIND", RTLD_DEEPBIND, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("RTLD_DEEPBIND", RTLD_DEEPBIND, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_DEFAULT
-                                                JS_PROP_INT64_DEF("RTLD_DEFAULT",
-                                                                  (ptrdiff_t)RTLD_DEFAULT,
-                                                                  JS_PROP_CONFIGURABLE),
+    JS_PROP_INT64_DEF("RTLD_DEFAULT", (ptrdiff_t)RTLD_DEFAULT, JS_PROP_CONFIGURABLE),
 #endif
 #ifdef RTLD_NEXT
-                                                JS_PROP_INT64_DEF("RTLD_NEXT", (ptrdiff_t)RTLD_NEXT, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT64_DEF("RTLD_NEXT", (ptrdiff_t)RTLD_NEXT, JS_PROP_CONFIGURABLE),
 #endif
-                                                JS_PROP_INT32_DEF("pointerSize", sizeof(void*), JS_PROP_CONFIGURABLE)};
+    JS_PROP_INT32_DEF("pointerSize", sizeof(void*), JS_PROP_CONFIGURABLE),
+};
 
 static int
 js_init(JSContext* ctx, JSModuleDef* m) {
@@ -827,9 +827,10 @@ js_init(JSContext* ctx, JSModuleDef* m) {
 JSModuleDef*
 JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
-  m = JS_NewCModule(ctx, module_name, js_init);
-  if(!m)
+
+  if(!(m = JS_NewCModule(ctx, module_name, js_init)))
     return NULL;
+
   JS_AddModuleExportList(ctx, m, js_funcs, countof(js_funcs));
 
   return m;
