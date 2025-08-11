@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.5)
 project(qjs-ffi C)
 
 message("Building project [1;31m${PROJECT_NAME}[0m")
