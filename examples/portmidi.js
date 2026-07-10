@@ -1,13 +1,5 @@
-import { lazyProperty } from 'util';
-import { memoize } from 'util';
-import { call } from 'ffi';
-import { define } from 'ffi';
-import { dlopen } from 'ffi';
-import { dlsym } from 'ffi';
-import { RTLD_NOW } from 'ffi';
-import { toArrayBuffer } from 'ffi';
-import { toPointer } from 'ffi';
-import { toString } from 'ffi';
+import { lazyProperty, memoize } from 'util';
+import { call, define, dlopen, dlsym, RTLD_NOW, toArrayBuffer, toPointer, toString } from 'ffi';
 
 export { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
 

@@ -1,27 +1,9 @@
 import { read } from 'os';
-import { FD_CLR } from '../lib/fd_set.js';
-import { FD_ISSET } from '../lib/fd_set.js';
-import { fd_set } from '../lib/fd_set.js';
-import { FD_SET } from '../lib/fd_set.js';
-import { FD_ZERO } from '../lib/fd_set.js';
-import { AF_INET } from '../lib/socket.js';
-import { IPPROTO_UDP } from '../lib/socket.js';
-import { select } from '../lib/socket.js';
-import { SOCK_DGRAM } from '../lib/socket.js';
-import { SockAddr } from '../lib/socket.js';
-import { Socket } from '../lib/socket.js';
+import { FD_CLR, FD_ISSET, fd_set, FD_SET, FD_ZERO } from '../lib/fd_set.js';
+import { AF_INET, IPPROTO_UDP, select, SOCK_DGRAM, SockAddr, Socket } from '../lib/socket.js';
 import socklen_t from '../lib/socklen_t.js';
-import { errno } from 'ffi';
-import { pointerSize } from 'ffi';
-import { toArrayBuffer } from 'ffi';
-import { toPointer } from 'ffi';
-import { toString } from 'ffi';
-import { err } from 'std';
-import { exit } from 'std';
-import { loadFile } from 'std';
-import { open } from 'std';
-import { out } from 'std';
-import { strerror } from 'std';
+import { errno, pointerSize, toArrayBuffer, toPointer, toString } from 'ffi';
+import { err, exit, loadFile, open, out, strerror } from 'std';
 console.log('socklen_t', 1);
 
 function not(n) {

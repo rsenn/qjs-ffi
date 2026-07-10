@@ -1,21 +1,4 @@
-import { MIDIAccess } from './examples/portmidi.js';
-import { Pm_Close } from './examples/portmidi.js';
-import { Pm_CountDevices } from './examples/portmidi.js';
-import { Pm_CreateVirtualInput } from './examples/portmidi.js';
-import { Pm_CreateVirtualOutput } from './examples/portmidi.js';
-import { Pm_GetDefaultInputDeviceID } from './examples/portmidi.js';
-import { Pm_GetDefaultOutputDeviceID } from './examples/portmidi.js';
-import { Pm_GetDeviceInfo } from './examples/portmidi.js';
-import { Pm_Initialize } from './examples/portmidi.js';
-import { Pm_Message } from './examples/portmidi.js';
-import { Pm_OpenInput } from './examples/portmidi.js';
-import { Pm_OpenOutput } from './examples/portmidi.js';
-import { Pm_Poll } from './examples/portmidi.js';
-import { Pm_Read } from './examples/portmidi.js';
-import { Pm_SetFilter } from './examples/portmidi.js';
-import { Pm_Terminate } from './examples/portmidi.js';
-import { Pm_Write } from './examples/portmidi.js';
-import { PmError } from './examples/portmidi.js';
+import { MIDIAccess, Pm_Close, Pm_CountDevices, Pm_CreateVirtualInput, Pm_CreateVirtualOutput, Pm_GetDefaultInputDeviceID, Pm_GetDefaultOutputDeviceID, Pm_GetDeviceInfo, Pm_Initialize, Pm_Message, Pm_OpenInput, Pm_OpenOutput, Pm_Poll, Pm_Read, Pm_SetFilter, Pm_Terminate, Pm_Write, PmError } from './examples/portmidi.js';
 import { Console } from 'console';
 function Test_PmApi() {
   let err = Pm_Initialize();
