@@ -55,7 +55,7 @@ function(make_shared_module FNAME)
   message(STATUS "Building shared module: ${NAME}")
   set(TARGET_NAME quickjs-${NAME})
 
-  add_library(${TARGET_NAME} SHARED ${FNAME}.c)
+  add_library(${TARGET_NAME} SHARED ${FNAME}.c opaque-call.c)
 
   target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI_LIBRARY})
   set_target_properties(
@@ -75,7 +75,7 @@ function(make_shared_module FNAME)
 
 endfunction()
 
-file(GLOB JS_BINDINGS_SOURCES ffi.c)
+file(GLOB JS_BINDINGS_SOURCES *.[ch])
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 

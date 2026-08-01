@@ -15,6 +15,8 @@
 #include <quickjs.h>
 #include <cutils.h>
 
+#include "opaque-call.h"
+
 #define countof(x) (sizeof(x) / sizeof((x)[0]))
 
 struct function_s {
@@ -218,8 +220,7 @@ dummy_() {
 /* Build function ffi
  */
 static BOOL
-define_function(
-    const char* name, void* fp, const char* abi, const char* rtype, const char** args) {
+define_function(const char* name, void* fp, const char* abi, const char* rtype, const char** args) {
 
   struct function_s* f = NULL;
   int i = 0;
@@ -678,6 +679,16 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
         goto error;
       strings[fl++] = s;
       args[i - 1].arg.ll = (ptrdiff_t)s;
+    } else if(JS_IsFunction(ctx, argv[i])) {
+      OpaqueCall* closure;
+
+      if(!(closure = opaque_new(ctx, argv[i])))
+        goto error;
+
+      closure->index = i;
+
+      args[i - 1].arg.ll = (ptrdiff_t)&opaque_call;
+      args[i - 1].type = TYPE_POINTER;
     } else {
       uint8_t* buf;
       size_t size;
@@ -703,31 +714,41 @@ error:
  */
 static JSValue
 js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  const char* s;
   int64_t p;
+
+  if(JS_IsString(argv[0]))
+    return JS_DupValue(ctx, argv[0]);
+
   if(JS_ToInt64(ctx, &p, argv[0]))
     return JS_EXCEPTION;
-  s = (const char*)(ptrdiff_t)p;
-  return JS_NewString(ctx, s);
+
+  return JS_NewString(ctx, (const char*)(ptrdiff_t)p);
 }
 
 /* b = toArrayBuffer(p, size)
  */
 static JSValue
 js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  const uint8_t* buf;
   int64_t p, s;
-  size_t size;
-  if(JS_ToInt64(ctx, &p, argv[0]))
-    return JS_EXCEPTION;
-  if(JS_ToInt64(ctx, &s, argv[1]))
-    return JS_EXCEPTION;
-  if(s < 0)
-    return JS_EXCEPTION;
-  size = s;
 
-  buf = (const uint8_t*)(ptrdiff_t)p;
-  return JS_NewArrayBufferCopy(ctx, buf, size);
+  if(JS_IsString(argv[0])) {
+    size_t len;
+
+    p = (ptrdiff_t)JS_ToCStringLen(ctx, &len, argv[0]);
+    s = len;
+  } else {
+    if(JS_ToInt64(ctx, &p, argv[0]))
+      return JS_EXCEPTION;
+  }
+
+  if(argc > 1) {
+    if(JS_ToInt64(ctx, &s, argv[1]))
+      return JS_EXCEPTION;
+    if(s < 0)
+      return JS_EXCEPTION;
+  }
+
+  return JS_NewArrayBufferCopy(ctx, (const uint8_t*)(ptrdiff_t)p, s);
 }
 
 /* s = toPointer(ArrayBuffer[, offset])
@@ -738,10 +759,9 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
  */
 static JSValue
 js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  uint8_t* ptr;
-  size_t size;
   char buf[64];
-  ptr = JS_GetArrayBuffer(ctx, &size, argv[0]);
+  size_t size;
+  uint8_t* ptr = JS_GetArrayBuffer(ctx, &size, argv[0]);
 
   if(argc > 1) {
     int64_t off;
@@ -762,8 +782,7 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
   return JS_NewString(ctx, buf);
 }
 
-/* p = JSContext()
- */
+/* p = JSContext() */
 static JSValue
 js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   return JS_NewInt64(ctx, (ptrdiff_t)ctx);
