@@ -725,10 +725,10 @@ js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv)
   return JS_NewString(ctx, (const char*)(ptrdiff_t)p);
 }
 
-/* b = toArrayBuffer(p, size)
- */
+/* b = toArrayBuffer(p, size) */
 static JSValue
 js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+  BOOL copy = TRUE;
   int64_t p, s;
 
   if(JS_IsString(argv[0])) {
@@ -744,11 +744,18 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
   if(argc > 1) {
     if(JS_ToInt64(ctx, &s, argv[1]))
       return JS_EXCEPTION;
+
     if(s < 0)
       return JS_EXCEPTION;
   }
 
-  return JS_NewArrayBufferCopy(ctx, (const uint8_t*)(ptrdiff_t)p, s);
+  if(argc > 2)
+    copy = JS_ToBool(ctx, argv[2]);
+
+  if(copy)
+    return JS_NewArrayBufferCopy(ctx, (const uint8_t*)(ptrdiff_t)p, s);
+
+  return JS_NewArrayBuffer(ctx, (uint8_t*)(ptrdiff_t)p, s, (JSFreeArrayBufferDataFunc*)NULL, NULL, FALSE);
 }
 
 /* s = toPointer(ArrayBuffer[, offset])
@@ -759,9 +766,21 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
  */
 static JSValue
 js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  char buf[64];
+  size_t byte_offset = 0, byte_length = 0, bytes_per_element = 0;
+  JSValue an = JS_GetTypedArrayBuffer(ctx, argv[0], &byte_offset, &byte_length, &bytes_per_element);
+
+  if(JS_IsException(an)) {
+    an = JS_DupValue(ctx, argv[0]);
+    byte_offset = 0;
+    byte_length = SIZE_MAX;
+  }
+
   size_t size;
-  uint8_t* ptr = JS_GetArrayBuffer(ctx, &size, argv[0]);
+   uint8_t* ptr = JS_GetArrayBuffer(ctx, &size, an);
+  JS_FreeValue(ctx, an);
+
+  size = size < byte_length ? size : byte_length;
+  ptr += byte_offset;
 
   if(argc > 1) {
     int64_t off;
@@ -778,7 +797,8 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
     ptr += off;
   }
 
-  snprintf(buf, sizeof(buf), ptr ? "0x%llx" : "0", (long long)(ptrdiff_t)ptr);
+   char buf[64];
+ snprintf(buf, sizeof(buf), ptr ? "0x%llx" : "0", (long long)(ptrdiff_t)ptr);
   return JS_NewString(ctx, buf);
 }
 

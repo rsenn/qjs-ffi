@@ -18,9 +18,10 @@ extern JSValue opaque_call_proto, opaque_call_ctor;
 
 CallFunction* opaque_address(void);
 CallClosure* opaque_new(JSContext*, JSValueConst, JSValueConst, int, const JSValueConst[]);
-int js_closure_init(JSContext*, JSModuleDef*);
-
+void opaque_free(JSRuntime*, CallClosure*);
+JSValue opaque_arraybuffer(JSContext*, CallClosure*);
 JSValue js_closure_wrap(JSContext*, JSValueConst, CallClosure*);
+int js_closure_init(JSContext*, JSModuleDef*);
 
 static inline CallClosure*
 js_closure_data2(JSContext* ctx, JSValueConst value) {

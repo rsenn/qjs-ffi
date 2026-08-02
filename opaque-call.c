@@ -7,6 +7,8 @@ JSValue opaque_call_proto, opaque_call_ctor;
 
 static struct list_head opaque_list;
 
+#define opaque_size(argc) (sizeof(CallClosure) + (sizeof(JSValue) * (argc)))
+
 static CallClosure*
 opaque_dup(CallClosure* cl) {
   ++cl->ref_count;
@@ -38,7 +40,7 @@ opaque_realloc(JSContext* ctx, CallClosure* cl, int argc) {
   CallClosure* closure;
   int oldargc = cl->argc;
 
-  if(!(closure = js_realloc(ctx, cl, sizeof(CallClosure) + sizeof(JSValue) * argc)))
+  if(!(closure = js_realloc(ctx, cl, opaque_size(argc))))
     return NULL;
 
   if(oldargc < argc) {
@@ -60,7 +62,7 @@ CallClosure*
 opaque_new(JSContext* ctx, JSValueConst func_obj, JSValueConst this_obj, int argc, const JSValueConst argv[]) {
   CallClosure* cl;
 
-  if(!(cl = js_mallocz(ctx, sizeof(CallClosure) + sizeof(JSValue) * argc)))
+  if(!(cl = js_mallocz(ctx, opaque_size(argc))))
     return NULL;
 
   if(!opaque_list.next)
@@ -83,7 +85,7 @@ opaque_new(JSContext* ctx, JSValueConst func_obj, JSValueConst this_obj, int arg
   return cl;
 }
 
-static void
+void
 opaque_free(JSRuntime* rt, CallClosure* cl) {
   if(--cl->ref_count <= 0) {
     JS_FreeValueRT(rt, cl->func);
@@ -96,6 +98,11 @@ opaque_free(JSRuntime* rt, CallClosure* cl) {
 
     js_free_rt(rt, cl);
   }
+}
+
+JSValue
+opaque_arraybuffer(JSContext* ctx, CallClosure* cl) {
+  return JS_NewArrayBuffer(ctx, (uint8_t*)cl, opaque_size(cl->argc), (JSFreeArrayBufferDataFunc*)&opaque_free, opaque_dup(cl), FALSE);
 }
 
 JSValue
@@ -211,8 +218,8 @@ js_closure_method(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
     }
 
     case METHOD_TOSTRING: {
-      char buf[(sizeof(void*) * 2 + 3) * 2 + 10];
-      size_t len = snprintf(buf, sizeof(buf), "#CallClosure @%p *%p", cl, opaque_address());
+      char buf[256];
+      size_t len = snprintf(buf, sizeof(buf), "#CallClosure ((int64_t(*)(void*))%p)(*%p)", opaque_address(), cl);
 
       ret = JS_NewString(ctx, buf);
       break;
@@ -236,10 +243,10 @@ enum {
 
 static JSValue
 js_closure_get(JSContext* ctx, JSValueConst this_val, int magic) {
-  const CallClosure* cl;
+  CallClosure* cl;
   void* addr = 0;
 
-  if(magic >= PROP_CALLED)
+  if(magic >= PROP_OPAQUE)
     if(!(cl = JS_GetOpaque(this_val, js_closure_class_id)))
       return JS_EXCEPTION;
 
@@ -263,8 +270,7 @@ js_closure_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_OPAQUE: {
-      addr = JS_GetOpaque(this_val, js_closure_class_id);
-      break;
+      return opaque_arraybuffer(ctx, cl);
     }
 
     case PROP_CALLED: {
