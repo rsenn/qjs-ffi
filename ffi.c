@@ -2,9 +2,10 @@
  *                                                                    *
  * ffi.c                                                              *
  *                                                                    *
- **********************************************************************/
+ ********************************************************************* */
 
 #define _GNU_SOURCE
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 #include <quickjs.h>
 #include <cutils.h>
 
+#include "js-helpers.h"
 #include "opaque-call.h"
 
 #define countof(x) (sizeof(x) / sizeof((x)[0]))
@@ -54,8 +56,7 @@ struct typed_argument_s {
 };
 typedef struct typed_argument_s typed_argument;
 
-/* FFI types
- */
+/* FFI types */
 static struct ffi_type_s* ffi_type_head = NULL;
 
 static void
@@ -69,36 +70,37 @@ warn(const char* msg) {
   fprintf(stderr, "%s\n", msg);
 }
 
-/* Find type by name
- */
+/* Find type by name */
 static ffi_type*
 find_ffi_type(const char* name) {
   struct ffi_type_s* p = NULL;
 
   if(name == NULL)
     return NULL;
+
   for(p = ffi_type_head; p; p = p->next)
     if(strcmp(p->name, name) == 0)
       return p->type;
+
   return NULL;
 }
 
-/* Find type by name
- */
+/* Find type by name */
 static struct ffi_type_s*
 find_type(const char* name) {
   struct ffi_type_s* p = NULL;
 
   if(name == NULL)
     return NULL;
+
   for(p = ffi_type_head; p; p = p->next)
     if(strcmp(p->name, name) == 0)
       return p;
+
   return NULL;
 }
 
-/* Add new ffi_type to named types
- */
+/* Add new ffi_type to named types */
 static void
 define_ffi_type(const char* name, ffi_type* t) {
   struct ffi_type_s* p = NULL;
@@ -107,17 +109,16 @@ define_ffi_type(const char* name, ffi_type* t) {
   if(find_ffi_type(name) != NULL)
     return;
 
-  p = malloc(sizeof(struct ffi_type_s));
-  if(p == NULL)
+  if(!(p = malloc(sizeof(struct ffi_type_s))))
     fatal("define_ffi_type: no memory");
+
   p->name = strdup(name);
   p->next = ffi_type_head;
   ffi_type_head = p;
   p->type = t;
 }
 
-/* Return ABI
- */
+/* Return ABI */
 static int
 find_abi(const char* name) {
   if(strcmp(name, "default") == 0)
@@ -153,13 +154,12 @@ find_abi(const char* name) {
   return FFI_DEFAULT_ABI;
 }
 
-/* Define standard types.
- */
+/* Define standard types. */
 static void
 define_types(void) {
 
-  /* Standard ffi types
-   */
+  /* Standard ffi types */
+
   define_ffi_type("void", &ffi_type_void);
   define_ffi_type("sint8", &ffi_type_sint8);
   define_ffi_type("sint16", &ffi_type_sint16);
@@ -207,8 +207,7 @@ define_types(void) {
   define_ffi_type("buffer", &ffi_type_pointer);
 }
 
-/* Defined functions
- */
+/* Defined functions */
 static struct function_s* function_list = NULL;
 
 static int
@@ -217,8 +216,7 @@ dummy_() {
   return 0;
 }
 
-/* Build function ffi
- */
+/* Build function ffi */
 static BOOL
 define_function(const char* name, void* fp, const char* abi, const char* rtype, const char** args) {
 
@@ -226,86 +224,85 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
   int i = 0;
   char* s = NULL;
 
-  /* We need a name
-   */
+  /* We need a name */
+
   if(name == NULL) {
     warn("define_function: no name");
     return FALSE;
   }
 
-  /* If function is already defined, just return
-   */
+  /* If function is already defined, just return */
+
   for(f = function_list; f; f = f->next)
     if(strcmp(f->name, name) == 0)
       return TRUE;
 
-  f = malloc(sizeof(struct function_s));
-  if(f == NULL)
+  if(!(f = malloc(sizeof(struct function_s))))
     fatal("define_function: no memory for function_s");
+
   f->name = NULL;
   f->args = NULL;
 
-  f->name = strdup(name);
-  if(f->name == NULL)
+  if(!(f->name = strdup(name)))
     fatal("define_function: no memory for name");
 
   /* If fp is not supplied, a dummy function will be used. This is
    * probably not something you want, but is useful when
    * prototyping.
    */
-  f->fp = fp;
-  if(f->fp == NULL)
+  if(!(f->fp = fp))
     f->fp = dummy_;
 
-  /* If abi is not supplied, use "default"
-   */
+  /* If abi is not supplied, use "default" */
+
   if(abi == NULL)
     abi = "default";
 
-  /* Number of arguments (nargs).
-   */
+  /* Number of arguments (nargs). */
+
   for(f->nargs = 0; args && args[f->nargs]; ++f->nargs)
     ;
 
-  /* Initialize argument types
-   */
+  /* Initialize argument types */
+
   f->args = NULL;
+
   if(f->nargs) {
     if(args == NULL) {
       warn("define_function: no args");
       goto error;
     }
-    f->args = malloc(f->nargs * sizeof(ffi_type*));
-    if(f->args == NULL)
+
+    ;
+    if(!(f->args = malloc(f->nargs * sizeof(ffi_type*))))
       fatal("define_function: cannot alloc args");
   }
 
-  /* Return type. Default to "void"
-   */
+  /* Return type. Default to "void" */
+
   if(rtype == NULL)
     rtype = "void";
 
-  /* Read each argument type. Record each type in f->args[].
-   */
+  /* Read each argument type. Record each type in f->args[]. */
+
   for(i = 0; i < f->nargs; ++i) {
     s = (char*)args[i];
+
     if((f->args[i] = find_ffi_type(s)) == NULL) {
       warn("define_function: no such type");
       goto error;
     }
   }
 
-  /* Record return type
-   */
-  f->rtype = find_type(rtype);
-  if(f->rtype == NULL) {
+  /* Record return type */
+
+  ;
+  if(!(f->rtype = find_type(rtype))) {
     warn("define_function: no such return type");
     goto error;
   }
 
-  /* Prepare cif. Add prepared function to function list and return
-   * TRUE.
-   */
+  /* Prepare cif. Add prepared function to function list and return TRUE. */
   if(ffi_prep_cif(&(f->cif), find_abi(abi), f->nargs, f->rtype->type, f->args) == FFI_OK) {
     f->next = function_list;
     function_list = f;
@@ -313,8 +310,8 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
   }
   warn("define_function: ffi_prep_cif failed");
 
-  /* On failure, return memory.
-   */
+  /* On failure, return memory. */
+
 error:
   free(f->args);
   free(f->name);
@@ -389,8 +386,8 @@ call_function(const char* name, typed_argument* args, JSContext* ctx, JSValue* r
     }
   }
 
-  /* initialize arguments, pointer_list and ptrs
-   */
+  /* initialize arguments, pointer_list and ptrs */
+
   pl = 0;
 
   for(i = 0; i < f->nargs; ++i) {
@@ -450,8 +447,8 @@ call_function(const char* name, typed_argument* args, JSContext* ctx, JSValue* r
     }
   }
 
-  /* call the function
-   */
+  /* call the function */
+
   ffi_call(&(f->cif), f->fp, &rc, ptrs);
 
   /* result - simple conversion to float
@@ -492,15 +489,13 @@ error:
   return rv;
 }
 
-/* debug()
- */
+/* debug() */
 static JSValue
 js_debug(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   return JS_NULL;
 }
 
-/* errno()
- */
+/* errno() */
 static JSValue
 js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   int e;
@@ -508,8 +503,7 @@ js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   return JS_NewInt32(ctx, e);
 }
 
-/* h = dlopen(name, flags)
- */
+/* h = dlopen(name, flags) */
 static JSValue
 js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   const char* s;
@@ -535,8 +529,7 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   return JS_NewInt64(ctx, (ptrdiff_t)res);
 }
 
-/* s = dlerror()
- */
+/* s = dlerror() */
 static JSValue
 js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   char* res;
@@ -546,42 +539,46 @@ js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) 
   return JS_NewString(ctx, res);
 }
 
-/* n = dlclose(h)
- */
+/* n = dlclose(h) */
 static JSValue
 js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   int res;
   int64_t n;
+
   if(JS_ToInt64(ctx, &n, argv[0]))
     return JS_EXCEPTION;
+
   res = dlclose((void*)(ptrdiff_t)n);
   return JS_NewInt32(ctx, res);
 }
 
-/* p = dlsym(h, name)
- */
+/* p = dlsym(h, name) */
 static JSValue
 js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   void* res;
   int64_t n;
   const char* s;
+
   if(JS_ToInt64(ctx, &n, argv[0]))
     return JS_EXCEPTION;
-  s = JS_ToCString(ctx, argv[1]);
-  if(!s)
+
+  if(!(s = JS_ToCString(ctx, argv[1])))
     return JS_EXCEPTION;
+
   res = dlsym((void*)(ptrdiff_t)n, s);
+
   if(s)
     JS_FreeCString(ctx, s);
+
   if(res == NULL)
     return JS_NULL;
+
   return JS_NewInt64(ctx, (ptrdiff_t)res);
 }
 
 #define MAX_PARAMETERS 30
 
-/* define(name, fp, abi, ret, p1,...pn)
- */
+/* define(name, fp, abi, ret, p1,...pn) */
 static JSValue
 js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   const char* name = NULL;
@@ -591,21 +588,21 @@ js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   const char* params[MAX_PARAMETERS + 1];
   int i, nparams = 0;
   JSValue r = JS_FALSE;
-  name = JS_ToCString(ctx, argv[0]);
-  if(!name)
+
+  if(!(name = JS_ToCString(ctx, argv[0])))
     goto error;
+
   if(JS_ToInt64(ctx, &fp, argv[1]))
     goto error;
+
   if(JS_IsNull(argv[2]))
     abi = NULL;
-  else {
-    abi = JS_ToCString(ctx, argv[2]);
-    if(!abi)
-      goto error;
-  }
-  rtype = JS_ToCString(ctx, argv[3]);
-  if(!rtype)
+  else if(!(abi = JS_ToCString(ctx, argv[2])))
     goto error;
+
+  if(!(rtype = JS_ToCString(ctx, argv[3])))
+    goto error;
+
   nparams = 0;
   for(i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i)
     params[nparams++] = JS_ToCString(ctx, argv[i]);
@@ -636,47 +633,51 @@ JS_IsInteger(JSValueConst v) {
   return tag == JS_TAG_INT || tag == JS_TAG_BIG_INT;
 }
 
-/* r = call(name, p1,...pn)
- */
+/* r = call(name, p1,...pn) */
 static JSValue
 js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   const char* name = NULL;
   JSValue r = JS_EXCEPTION;
   typed_argument args[MAX_PARAMETERS];
-  int i;
   const char* strings[MAX_PARAMETERS];
-  int fl = 0;
-  name = JS_ToCString(ctx, argv[0]);
-  if(!name)
+  int i, fl = 0;
+
+  if(!(name = JS_ToCString(ctx, argv[0])))
     goto error;
 
   for(i = 0; i < MAX_PARAMETERS; ++i) {
     args[i].arg.ll = 0;
     args[i].type = TYPE_INTEGRAL;
   }
+
   for(i = 1; (i < argc) && (i <= MAX_PARAMETERS); ++i) {
     if(JS_IsNull(argv[i])) {
       ;
     } else if(JS_IsBool(argv[i])) {
       args[i - 1].arg.ll = JS_ToBool(ctx, argv[i]);
+
       if(args[i - 1].arg.ll < 0)
         goto error;
     } else if(JS_IsInteger(argv[i])) {
       int64_t v;
+
       if(JS_ToInt64(ctx, &v, argv[i]))
         goto error;
       args[i - 1].arg.ll = v;
     } else if(JS_IsNumber(argv[i])) {
       double d;
+
       if(JS_ToFloat64(ctx, &d, argv[i]))
         goto error;
+
       args[i - 1].arg.ld = (long double)d;
       args[i - 1].type = TYPE_FLOAT;
     } else if(JS_IsString(argv[i])) {
       const char* s;
-      s = JS_ToCString(ctx, argv[i]);
-      if(!s)
+
+      if(!(s = JS_ToCString(ctx, argv[i])))
         goto error;
+
       strings[fl++] = s;
       args[i - 1].arg.ll = (ptrdiff_t)s;
     } else if(JS_IsFunction(ctx, argv[i])) {
@@ -690,12 +691,12 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
       args[i - 1].arg.ll = (ptrdiff_t)opaque_address();
       args[i - 1].type = TYPE_POINTER;
     } else {
-      uint8_t* buf;
-      size_t size;
-      buf = JS_GetArrayBuffer(ctx, &size, argv[i]);
-      if(!buf)
+      ptr_len buf;
+
+      if(!(buf.ptr = js_buf(ctx, &buf.len, argv[i])))
         goto error;
-      args[i - 1].arg.ll = (ptrdiff_t)buf;
+
+      args[i - 1].arg.ll = (ptrdiff_t)buf.ptr;
     }
   }
 
@@ -705,57 +706,85 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
 error:
   if(name)
     JS_FreeCString(ctx, name);
+
   while(fl)
     JS_FreeCString(ctx, strings[--fl]);
+
   return r;
 }
 
-/* s = toString(p)
- */
+/* s = toString(p) */
 static JSValue
 js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  int64_t p;
+  // int64_t p, n = INT64_MAX;
+  ptr_len buf;
+  int i = 0;
+  ofs_len ol = {0, INT64_MAX};
 
-  if(JS_IsString(argv[0]))
-    return JS_DupValue(ctx, argv[0]);
+  if((i = js_bufargv(ctx, &buf, argc, argv)) > 0) {
+    ol.ofs = (int64_t)(ptrdiff_t)buf.ptr;
+    ol.len = (int64_t)buf.len;
+  } else if((i = js_offsetlength(ctx, &ol, argc, argv))) {
 
-  if(JS_ToInt64(ctx, &p, argv[0]))
-    return JS_EXCEPTION;
+    if(ol.len == 0)
+      ol.len = INT64_MAX;
+    /* p = ol.ofs;
 
-  return JS_NewString(ctx, (const char*)(ptrdiff_t)p);
+     if(ol.len)
+       n = ol.len;*/
+  }
+
+  const char* str = (const char*)(ptrdiff_t)ol.ofs;
+  return str ? ol.len != INT64_MAX ? JS_NewStringLen(ctx, str, ol.len) : JS_NewString(ctx, str) : JS_NULL;
+}
+
+static void
+js_buffree(JSRuntime* rt, void* opaque, void* ptr) {
+  JSValue buf = JS_MKPTR(JS_TAG_OBJECT, opaque);
+  JS_FreeValueRT(rt, buf);
 }
 
 /* b = toArrayBuffer(p, size) */
 static JSValue
 js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  BOOL copy = TRUE;
-  int64_t p, s;
+  ptr_len buf = {0, SIZE_MAX};
+  JSFreeArrayBufferDataFunc* free_func = 0;
+  void* opaque = 0;
+  int copy = -1;
 
-  if(JS_IsString(argv[0])) {
-    size_t len;
+  if(argc > 0 && JS_IsBool(argv[argc - 1])) {
+    copy = JS_ToBool(ctx, argv[argc - 1]);
+    argc--;
+  }
 
-    p = (ptrdiff_t)JS_ToCStringLen(ctx, &len, argv[0]);
-    s = len;
+  if((buf.ptr = js_buf(ctx, &buf.len, argv[0]))) {
+    if(!copy) {
+      free_func = &js_buffree;
+      opaque = JS_VALUE_GET_PTR(JS_DupValue(ctx, argv[0]));
+    }
+  } else if(copy == -1 && JS_IsString(argv[0])) {
+    buf.ptr = (uint8_t*)JS_ToCStringLen(ctx, &buf.len, argv[0]);
+    copy = TRUE;
   } else {
-    if(JS_ToInt64(ctx, &p, argv[0]))
+    if(!js_ptr(ctx, argv[0], &buf.ptr))
       return JS_EXCEPTION;
   }
 
   if(argc > 1) {
-    if(JS_ToInt64(ctx, &s, argv[1]))
+    int64_t len;
+
+    if(!js_index(ctx, argv[1], &len))
       return JS_EXCEPTION;
 
-    if(s < 0)
-      return JS_EXCEPTION;
+    if(buf.len) {
+      len = WRAP(len, buf.len);
+      len = CLAMP(len, 0, buf.len);
+    }
+
+    buf.len = len;
   }
 
-  if(argc > 2)
-    copy = JS_ToBool(ctx, argv[2]);
-
-  if(copy)
-    return JS_NewArrayBufferCopy(ctx, (const uint8_t*)(ptrdiff_t)p, s);
-
-  return JS_NewArrayBuffer(ctx, (uint8_t*)(ptrdiff_t)p, s, (JSFreeArrayBufferDataFunc*)NULL, NULL, FALSE);
+  return copy ? JS_NewArrayBufferCopy(ctx, buf.ptr, buf.len) : JS_NewArrayBuffer(ctx, buf.ptr, buf.len, free_func, opaque, FALSE);
 }
 
 /* s = toPointer(ArrayBuffer[, offset])
@@ -766,40 +795,21 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
  */
 static JSValue
 js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  size_t byte_offset = 0, byte_length = 0, bytes_per_element = 0;
-  JSValue an = JS_GetTypedArrayBuffer(ctx, argv[0], &byte_offset, &byte_length, &bytes_per_element);
+  uint8_t* ptr = NULL;
 
-  if(JS_IsException(an)) {
-    an = JS_DupValue(ctx, argv[0]);
-    byte_offset = 0;
-    byte_length = SIZE_MAX;
-  }
-
-  size_t size;
-   uint8_t* ptr = JS_GetArrayBuffer(ctx, &size, an);
-  JS_FreeValue(ctx, an);
-
-  size = size < byte_length ? size : byte_length;
-  ptr += byte_offset;
+  if(!js_ptr(ctx, argv[0], &ptr))
+    return JS_EXCEPTION;
 
   if(argc > 1) {
-    int64_t off;
+    int64_t ofs = 0;
 
-    if(JS_ToInt64(ctx, &off, argv[1]))
-      return JS_EXCEPTION;
-
-    if(off < 0)
-      off += size;
-
-    if(off > (int64_t)size || off < 0)
-      return JS_EXCEPTION;
-
-    ptr += off;
+    if(js_index(ctx, argv[1], &ofs))
+      ptr += ofs;
   }
 
-   char buf[64];
- snprintf(buf, sizeof(buf), ptr ? "0x%llx" : "0", (long long)(ptrdiff_t)ptr);
-  return JS_NewString(ctx, buf);
+  char str[64];
+  snprintf(str, sizeof(str), ptr ? "%p" : "0", ptr);
+  return JS_NewString(ctx, str);
 }
 
 /* p = JSContext() */
@@ -874,7 +884,6 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
 
   JS_AddModuleExport(ctx, m, "CallClosure");
   JS_AddModuleExportList(ctx, m, js_funcs, countof(js_funcs));
-
   return m;
 }
 
