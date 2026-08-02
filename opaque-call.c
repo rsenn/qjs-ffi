@@ -170,13 +170,16 @@ js_closure_call(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, in
   for(int i = 0; i < argc; i++)
     args[n++] = argv[i];
 
+  JS_FreeValue(ctx, cl->exception);
+  cl->exception = JS_UNDEFINED;
+
   JSValue ret = JS_Call(ctx, cl->func, cl->this, n, args);
+
+  cl->called++;
 
   if(JS_IsException(ret)) {
     JS_FreeValue(ctx, cl->exception);
     cl->exception = JS_GetException(ctx);
-  } else {
-    cl->called++;
   }
 
   return ret;
