@@ -28,11 +28,6 @@ js_closure_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, js_closure_class_id);
 }
 
-// #define opaque_new(ctx) opaque_new3((ctx), JS_NULL, JS_NULL)
-// #define opaque_new2(ctx, func_obj) opaque_new3((ctx), (func_obj), JS_NULL)
-// #define opaque_new3(ctx, func_obj, this_obj) opaque_new3((ctx), (func_obj), (this_obj))
-// #define opaque_clone(ctx, cl) opaque_new((ctx), (cl)->func, (cl)->this, (cl)->argc, (cl)->args)
-
 #define js_closure_new(ctx, args...) js_closure_wrap((ctx), opaque_call_proto, opaque_new((ctx), args))
 
 #endif /* defined(QJSFFI_OPAQUE_CALL_H) */
