@@ -178,6 +178,7 @@ js_closure_call(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, in
 enum {
   METHOD_CLONE,
   METHOD_CLEAR,
+  METHOD_TOSTRING,
 };
 
 static JSValue
@@ -193,7 +194,6 @@ js_closure_method(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
       ret = js_closure_new(ctx, cl->func, cl->this, cl->argc, cl->args);
       break;
     }
-
     case METHOD_CLEAR: {
       JS_FreeValue(ctx, cl->func);
       cl->func = JS_UNDEFINED;
@@ -207,6 +207,14 @@ js_closure_method(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
 
       cl->argc = 0;
       cl->called = 0;
+      break;
+    }
+
+    case METHOD_TOSTRING: {
+      char buf[(sizeof(void*) * 2 + 3) * 2 + 10];
+      size_t len = snprintf(buf, sizeof(buf), "#CallClosure @%p *%p", cl, opaque_address());
+
+      ret = JS_NewString(ctx, buf);
       break;
     }
   }
@@ -377,6 +385,7 @@ static const JSCFunctionListEntry js_closure_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("argc", js_closure_get, 0, PROP_ARGC),
     JS_CGETSET_MAGIC_DEF("args", js_closure_get, js_closure_set, PROP_ARGS),
     JS_CGETSET_MAGIC_DEF("exception", js_closure_get, js_closure_set, PROP_EXCEPTION),
+    JS_CFUNC_MAGIC_DEF("toString", 0, js_closure_method, METHOD_TOSTRING),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "CallClosure", JS_PROP_CONFIGURABLE),
 };
 
