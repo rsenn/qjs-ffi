@@ -680,14 +680,14 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
       strings[fl++] = s;
       args[i - 1].arg.ll = (ptrdiff_t)s;
     } else if(JS_IsFunction(ctx, argv[i])) {
-      OpaqueCall* closure;
+      CallClosure* closure;
 
-      if(!(closure = opaque_new(ctx, argv[i])))
+      if(!(closure = opaque_new(ctx, argv[i], JS_NULL, 0, 0)))
         goto error;
 
       closure->index = i;
 
-      args[i - 1].arg.ll = (ptrdiff_t)&opaque_call;
+      args[i - 1].arg.ll = (ptrdiff_t)opaque_address();
       args[i - 1].type = TYPE_POINTER;
     } else {
       uint8_t* buf;
@@ -833,6 +833,8 @@ static const JSCFunctionListEntry js_funcs[] = {
 
 static int
 js_init(JSContext* ctx, JSModuleDef* m) {
+  js_closure_init(ctx, m);
+
   define_types();
   return JS_SetModuleExportList(ctx, m, js_funcs, countof(js_funcs));
 }
@@ -850,6 +852,7 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
   if(!(m = JS_NewCModule(ctx, module_name, js_init)))
     return NULL;
 
+  JS_AddModuleExport(ctx, m, "CallClosure");
   JS_AddModuleExportList(ctx, m, js_funcs, countof(js_funcs));
 
   return m;
