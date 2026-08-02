@@ -6,7 +6,7 @@ function main() {
 
   let ab2 = toArrayBuffer(ptr, 4, false);
   console.log('ptr', ptr);
-  let str = toString(ptr, 0);
+  let str = toString(ptr, 5);
 
   console.log({ ab, ptr, ab2, str });
 }
