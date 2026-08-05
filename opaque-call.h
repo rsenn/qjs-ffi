@@ -24,6 +24,11 @@ JSValue js_closure_wrap(JSContext*, JSValueConst, CallClosure*);
 int js_closure_init(JSContext*, JSModuleDef*);
 
 static inline CallClosure*
+js_closure_data(JSValueConst value) {
+  return JS_GetOpaque(value, js_closure_class_id);
+}
+
+static inline CallClosure*
 js_closure_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, js_closure_class_id);
 }

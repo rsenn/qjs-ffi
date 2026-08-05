@@ -17,7 +17,6 @@
 #include <cutils.h>
 
 #include "js-helpers.h"
-#include "opaque-call.h"
 
 #define countof(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -56,6 +55,8 @@ struct typed_argument_s {
 };
 typedef struct typed_argument_s typed_argument;
 
+#include "opaque-call.h"
+  
 /* FFI types */
 static struct ffi_type_s* ffi_type_head = NULL;
 
@@ -205,6 +206,9 @@ define_types(void) {
    */
   define_ffi_type("string", &ffi_type_pointer);
   define_ffi_type("buffer", &ffi_type_pointer);
+
+  define_ffi_type("callback", &ffi_type_pointer);
+  define_ffi_type("opaque*", &ffi_type_pointer);
 }
 
 /* Defined functions */
@@ -635,6 +639,7 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   typed_argument args[MAX_PARAMETERS];
   const char* strings[MAX_PARAMETERS];
   int i, fl = 0;
+  CallClosure* closure;
 
   if(!(name = JS_ToCString(ctx, argv[0])))
     goto error;
@@ -674,11 +679,7 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
 
       strings[fl++] = s;
       args[i - 1].arg.ll = (ptrdiff_t)s;
-    } else if(JS_IsFunction(ctx, argv[i])) {
-      CallClosure* closure;
-
-      if(!(closure = opaque_new(ctx, argv[i], JS_NULL, 0, 0)))
-        goto error;
+    } else if((closure = js_closure_data(argv[i]))) {
 
       closure->index = i;
 
