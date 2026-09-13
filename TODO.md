@@ -1,0 +1,224 @@
+# TODO: Migrate qjs-ffi to a bun:ffi-compatible API
+
+## 1. Current qjs-ffi API (as-is assessment)
+
+### Shape
+
+- Global, name-keyed function registry (`function_s` linked list, `ffi.c:23-31,215`).
+  `define(name, fp, abi, rtype, ...argtypes)` builds an `ffi_cif` and prepends a
+  `function_s` node. `call(name, ...args)` walks the list doing `strcmp` per node
+  until it finds a match (`ffi.c:369-371`). `define()` itself also does a linear
+  `strcmp` scan to reject duplicate names (`ffi.c:240-242`).
+- Types are *also* a global linked list looked up by `strcmp`
+  (`find_ffi_type`/`find_type`, `ffi.c:75-102`), scanned once per argument on
+  every `define()` call.
+- **This is the core problem the user flagged**: every `call()` pays an O(n)
+  strcmp scan over every function ever defined, and every `define()` pays the
+  same over both the function list and the type list. There is no handle
+  returned from `define()` — the only way to invoke a function is to re-supply
+  its string name to `call()`, which is what forces the scan to exist at all.
+- Return values are always coerced into a single `double` (`call_function`,
+  `ffi.c:456-484`) — real 64-bit ints/pointers above 2^53 are not
+  representable.
+- No struct-by-value, no varargs, no arrays. Documented as YAGNI in the
+  existing README `TODO`/`Limitations` sections.
+- Assumes little-endian.
+- `dlopen`/`dlsym`/`dlclose`/`dlerror`/`errno` are thin 1:1 libdl/libc wrappers
+  — these map cleanly onto bun:ffi's internal use of dlopen and don't need to
+  change shape, just visibility (bun:ffi hides them behind `dlopen(path, symbols)`).
+
+### `CallClosure` / `opaque-call.[ch]` (native callback support)
+
+- Exists already as a `JSClassID`-backed object (`js_closure_class_id`) with a
+  constructor, `clone()`/`clear()`/`toString()`, and getters/setters for
+  `funcObj`, `thisObj`, `args`, `argc`, `called`, `exception`, `opaque`
+  (an ArrayBuffer view over the struct itself), and a global `list` of all
+  live closures (`opaque-call.c:247-311`).
+- **The actual native trampoline is a stub**: `opaque_call()`
+  (`opaque-call.c:18-31`) is hardcoded to the fixed C signature
+  `int64_t (*)(void*)` and always calls the JS function with **zero**
+  arguments (`JS_Call(ctx, call->func, call->this, 0, 0)`), ignoring whatever
+  the real native caller actually passed in registers/stack. It only works
+  today because `js_call()` in `ffi.c:682-687` passes a `CallClosure*` to a
+  native function as an opaque `void*` argument — it is not a general
+  "native code calls back into JS with real arguments" mechanism yet. There
+  is no `ffi_prep_closure_loc`/`ffi_closure` usage anywhere in the codebase.
+- Consequently none of `args`/`argc` on `CallClosure` are ever populated by a
+  real inbound native call — they only reflect the args baked in at
+  construction time via `opaque_new()`/`CallClosure()`.
+- This is the object the user wants refactored into a real
+  `JSCallback` equivalent (see §3, Phase 0).
+
+### Build/test surface
+
+- `CMakeLists.txt` builds one shared module per binding (`ffi.c` +
+  `opaque-call.c` → `quickjs-ffi` MODULE, `CMakeLists.txt:58,110`).
+- Existing smoke tests: `test.js`, `test2.js`, `test-ffi.js`, `test-portmidi.js`
+  (manual, run under `qjsm`/`qjs`, no assertions/harness — visual inspection
+  of `console.log` output).
+
+## 2. Bun.js `bun:ffi` API (target shape)
+
+Reference: <https://bun.com/docs/runtime/ffi>
+
+```js
+import { dlopen, FFIType, CFunction, JSCallback, ptr, toBuffer, toArrayBuffer, CString, suffix } from "bun:ffi";
+
+const lib = dlopen(`libsqlite3.${suffix}`, {
+  sqlite3_libversion: { args: [], returns: FFIType.cstring },
+});
+lib.symbols.sqlite3_libversion(); // called directly, no name lookup
+lib.close();
+```
+
+### Key shape differences from qjs-ffi
+
+| Aspect | qjs-ffi (current) | bun:ffi |
+|---|---|---|
+| Binding a function | `define(name, fp, abi, rtype, ...)` registers globally by string | `dlopen(path, { name: {args, returns} })` returns `{ symbols: { name: fn } }` — `fn` is a real callable bound directly to its own `cif`/`fp`, no name needed at call time |
+| Calling | `call(name, ...args)` — global strcmp scan | `lib.symbols.name(...args)` — direct call through the object's own function pointer, O(1) |
+| Wrapping a raw pointer (no dlopen) | not supported | `CFunction({ ptr, args, returns })` — one-off wrapper around an already-resolved pointer (e.g. from `dlsym`-equivalent or JIT'd code) |
+| JS function → native function pointer | `CallClosure` (broken trampoline, see §1) | `new JSCallback(jsFn, { args, returns })` — real `ffi_closure`-based trampoline; `.ptr` is passed to native code, `.close()` frees it |
+| Types | ad-hoc libffi names + C aliases + "string"/"buffer" semantic types, all in one flat string-keyed list | `FFIType` enum with a fixed small vocabulary: `bool, cstring, function, i8/u8, i16/u16, i32/u32, i64/u64, i64_fast/u64_fast, f32, f64, ptr/pointer, void, napi_env, napi_value` — string aliases resolve through a static table, not a mutable registry |
+| Return value fidelity | always coerced to `double` | per-type: `i64`/`u64` return `bigint`, `i64_fast`/`u64_fast` return `number` when safe, `cstring` returns a decoded JS string, `ptr` returns a `number`/`bigint` address |
+| Pointer/buffer helpers | `toPointer`, `toArrayBuffer`, `toString` (custom) | `ptr(buffer)`, `toBuffer(ptr, len)`, `toArrayBuffer(ptr, len)`, `CString` class (lazy pointer→string wrapper with `.length`, `byteOffset`) |
+| Closing/lifetime | closures freed via GC finalizer only | `lib.close()` (dlclose + free all symbol wrappers), `callback.close()` (frees the `ffi_closure`) — explicit and GC |
+| Platform suffix | none | `suffix` constant (`"so"`/`"dylib"`/`"dll"`) for building library filenames |
+| Multiple libs, shared symbol table | not supported | `linkSymbols({ ... })` — define symbols without a `dlopen`, or merge several libs |
+
+### What we will *not* chase in this migration
+
+- `napi_env`/`napi_value` types (N-API interop) — no N-API layer exists in
+  quickjs; out of scope.
+- Bun's JIT'd fast-path (`tryCall`) internals — irrelevant, that's a V8/JSC
+  engine-specific optimization we can't replicate in a libffi-backed module.
+  Our equivalent optimization is simply: don't do string lookups (see Phase 1).
+
+## 3. Migration Plan
+
+Each phase must independently build (`cmake --build build --target quickjs-ffi`)
+and be exercised by a runnable `.js` test under `qjsm` before moving to the
+next phase. Do not start a phase until the previous one's tests pass.
+New/changed tests get the 5x flakiness check per
+`.claude/rules/check-tests-for-flakiness.md`.
+
+### Phase 0 — Rebuild `opaque-call.[ch]` as a real `JSCallback`
+
+The user called this out as the *first* step, independent of the define/call
+migration.
+
+1. Replace the fixed `int64_t(*)(void*)` trampoline in `opaque_call()` with a
+   generic libffi closure created via `ffi_closure_alloc()` +
+   `ffi_prep_closure_loc()`, driven by a declared `(args: FFIType[], returns: FFIType)`
+   signature stored on `CallClosure` (mirrors what `function_s`/`ffi_cif`
+   already do for the outbound direction in `ffi.c`).
+2. The generic closure handler must marshal the real incoming native argument
+   values (from libffi's `void** args`) into `JSValue`s per the declared arg
+   types, `JS_Call()` the JS function with those real args, then marshal the
+   JS return value back into the native ABI return slot per the declared
+   return type. This is the piece that's currently entirely stubbed out.
+3. Rename/expose the JS-visible constructor as `JSCallback` (keep
+   `CallClosure` as the internal C struct name if desired, or alias it —
+   decide based on whether any existing script depends on the `CallClosure`
+   global; `test-ffi.js` only imports it, doesn't use it, so it's safe to
+   rename the export outright).
+4. New shape: `new JSCallback(fn, { args: [...], returns })` → object with
+   `.ptr` (native function pointer, for passing to a C API expecting a
+   callback) and `.close()` (frees the `ffi_closure` — replaces relying on GC
+   alone).
+5. Keep the existing debug/introspection surface (`args`, `argc`, `called`,
+   `exception`, `list`) working against the new implementation — they're
+   independent of the trampoline bug and are useful for testing Phase 0 itself.
+6. **Verify**: write a small C test harness (or use an existing libc callback
+   API like `qsort()` via `dlsym`) that invokes a `JSCallback` with real
+   arguments and asserts the JS side received correct values and the C side
+   received the correct return value. This does not depend on any `define`/
+   `call` changes — it's fully testable in isolation.
+
+### Phase 1 — `CFunction`: direct, name-free function wrappers
+
+1. Introduce a new JS class (or `JS_NewCFunctionData`-based factory) that
+   takes `{ ptr, args, returns, abi }`, builds the `ffi_cif` once (reusing
+   `find_ffi_type`-equivalent lookups, but resolved at construction time, not
+   per call), and returns a **plain callable JS function** whose own closure
+   data holds the `ffi_cif`/`fp`/arg-type array directly.
+2. Calling that function invokes libffi directly against its own stored
+   `cif`/`fp` — **no string lookup, no scan, no registry**. This is what
+   eliminates the strcmp-per-call problem structurally: there is nothing to
+   look up because the function object *is* the binding.
+3. Leave `define()`/`call()`/`function_s` untouched in this phase — `CFunction`
+   is additive.
+4. **Verify**: rewrite one `test.js` case to use `CFunction` instead of
+   `define`+`call` for the same libc function (e.g. `strdup`), compare output.
+
+### Phase 2 — `dlopen(path, symbols)` (bun-shaped)
+
+1. New JS-visible `dlopen(path, symbolSpecs)` that: opens the library, for
+   each key in `symbolSpecs` does the dlsym lookup, builds a `CFunction` from
+   Phase 1, and returns `{ symbols: { ...name: CFunction }, close() }`.
+2. `close()` calls `dlclose` and drops references to the wrapped functions
+   (they may still be reachable/callable-until-GC if the user kept a
+   reference — match Bun's documented behavior here, or note the deviation).
+3. Keep the legacy `dlopen(path, flags)` (raw handle, int flags) *name*
+   colliding — needs a decision: overload by argument shape (string+object vs
+   string+number) or pick a new name and deprecate the old one. Flag this as
+   an explicit decision point, don't guess silently.
+4. **Verify**: port a `test.js`/`test2.js` case to the new `dlopen` end-to-end.
+
+### Phase 3 — `FFIType` vocabulary
+
+1. Add an `FFIType` export (object of string→string or string→int constants)
+   matching Bun's names (`cstring`, `ptr`/`pointer`, `function`, `i8`...`u64`,
+   `i64_fast`/`u64_fast`, `f32`, `f64`, `bool`, `void`).
+2. Map each `FFIType` value onto the existing internal `ffi_type_s` table
+   (already 90% there — e.g. `f64`→`double`, `ptr`→`pointer`) — this is a
+   translation layer, not a rewrite of the type table.
+3. Decide fidelity for `i64`/`u64` (return as `BigInt`) vs `i64_fast`/`u64_fast`
+   (return as `number`, only safe up to 2^53) — this is where we fix the
+   "everything coerced to double" limitation from §1, at least for `CFunction`/
+   `dlopen`-defined functions. Legacy `call()` keeps its old double-only
+   behavior untouched.
+4. **Verify**: a function returning a value >2^53 via `i64` comes back as a
+   correct `BigInt`; the same via `i64_fast` comes back as a (possibly lossy)
+   `number`, documented as such.
+
+### Phase 4 — pointer/buffer helper parity
+
+1. Add `ptr(buffer)`, `toBuffer(ptr, len)` as bun-named wrappers over the
+   existing `toPointer`/`toArrayBuffer` implementations (thin aliasing, no new
+   logic).
+2. Add a `CString` class (lazy pointer→string, `.length`, `.ptr`) layered over
+   existing `toString()`.
+3. **Verify**: round-trip a buffer through `ptr()`/`toBuffer()` and compare
+   bytes.
+
+### Phase 5 — `linkSymbols`, `suffix` (low priority, additive)
+
+1. `suffix` constant (`"so"` on Linux — this project apparently only targets
+   Linux/Windows per README, so this can be a compile-time constant, no
+   runtime platform detection needed beyond what already exists).
+2. `linkSymbols(symbolSpecs)` — same as `dlopen` symbol-building path from
+   Phase 2, minus opening a new library (symbols pre-resolved, e.g. via
+   `RTLD_DEFAULT`).
+3. **Verify**: define two libc symbols via `RTLD_DEFAULT` through
+   `linkSymbols` and call both.
+
+### Phase 6 — deprecate/remove legacy `define`/`call`/`function_s`
+
+Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
+`test-ffi.js`/`test-portmidi.js`/`examples/` has been ported to the new API:
+
+1. Mark `define`/`call` deprecated (keep working, maybe a one-time `warn()`).
+2. Once nothing in-tree uses them, delete `function_s`, `define_function`,
+   `call_function`, and the global `ffi_type_head` list/`find_ffi_type`/
+   `find_type` (superseded by Phase 3's static `FFIType` table).
+3. This is the step that actually deletes the strcmp-scanning code the user
+   flagged — everything before this phase is additive, so the old path keeps
+   working throughout the migration and can be dropped only when nothing
+   depends on it anymore.
+
+### Phase 7 — docs/examples pass
+
+1. Update `README.md` to document the new API as primary, old API as
+   "legacy" (or removed, depending on Phase 6 outcome).
+2. Update `test-ffi.js`/`test.js`/`test2.js`/`examples/` to the new API.
