@@ -830,6 +830,46 @@ js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) 
   return JS_NewInt64(ctx, (ptrdiff_t)ctx);
 }
 
+/* FFIType: a plain object of name -> name, so `FFIType.i32` and `"i32"` are
+ * interchangeable wherever a CFunction/JSCallback `args`/`returns` type is
+ * expected. Matches the vocabulary independently duplicated in
+ * js-callback.c and c-function.c's own `type_table`s (see the comment
+ * there) -- kept here as a third, equally independent copy rather than a
+ * shared header, consistent with how those two already avoid depending on
+ * this file's mutable, string-keyed type registry.
+ */
+static const char* const ffitype_names[] = {
+    "void",
+    "bool",
+    "i8",
+    "u8",
+    "i16",
+    "u16",
+    "i32",
+    "u32",
+    "i64",
+    "u64",
+    "i64_fast",
+    "u64_fast",
+    "f32",
+    "f64",
+    "pointer",
+    "ptr",
+    "function",
+    "cstring",
+};
+
+static JSValue
+js_ffitype_new(JSContext* ctx) {
+  JSValue obj = JS_NewObject(ctx);
+  size_t i;
+
+  for(i = 0; i < countof(ffitype_names); i++)
+    JS_SetPropertyStr(ctx, obj, ffitype_names[i], JS_NewString(ctx, ffitype_names[i]));
+
+  return obj;
+}
+
 static const JSCFunctionListEntry js_funcs[] = {
     JS_CFUNC_DEF("debug", 0, js_debug),
     JS_CFUNC_DEF("dlopen", 2, js_dlopen),
@@ -879,6 +919,7 @@ js_init(JSContext* ctx, JSModuleDef* m) {
   js_cfunction_init(ctx, m);
 
   define_types();
+  JS_SetModuleExport(ctx, m, "FFIType", js_ffitype_new(ctx));
   return JS_SetModuleExportList(ctx, m, js_funcs, countof(js_funcs));
 }
 
@@ -897,6 +938,7 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
 
   JS_AddModuleExport(ctx, m, "JSCallback");
   JS_AddModuleExport(ctx, m, "CFunction");
+  JS_AddModuleExport(ctx, m, "FFIType");
   JS_AddModuleExportList(ctx, m, js_funcs, countof(js_funcs));
   return m;
 }

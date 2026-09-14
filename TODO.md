@@ -103,23 +103,6 @@ New/changed tests get the 5x flakiness check per
    an explicit decision point, don't guess silently.
 4. **Verify**: port a `test.js`/`test2.js` case to the new `dlopen` end-to-end.
 
-### Phase 3 — `FFIType` vocabulary
-
-1. Add an `FFIType` export (object of string→string or string→int constants)
-   matching Bun's names (`cstring`, `ptr`/`pointer`, `function`, `i8`...`u64`,
-   `i64_fast`/`u64_fast`, `f32`, `f64`, `bool`, `void`).
-2. Map each `FFIType` value onto the existing internal `ffi_type_s` table
-   (already 90% there — e.g. `f64`→`double`, `ptr`→`pointer`) — this is a
-   translation layer, not a rewrite of the type table.
-3. Decide fidelity for `i64`/`u64` (return as `BigInt`) vs `i64_fast`/`u64_fast`
-   (return as `number`, only safe up to 2^53) — this is where we fix the
-   "everything coerced to double" limitation from §1, at least for `CFunction`/
-   `dlopen`-defined functions. Legacy `call()` keeps its old double-only
-   behavior untouched.
-4. **Verify**: a function returning a value >2^53 via `i64` comes back as a
-   correct `BigInt`; the same via `i64_fast` comes back as a (possibly lossy)
-   `number`, documented as such.
-
 ### Phase 4 — pointer/buffer helper parity
 
 1. Add `ptr(buffer)`, `toBuffer(ptr, len)` as bun-named wrappers over the
@@ -149,7 +132,8 @@ Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
 1. Mark `define`/`call` deprecated (keep working, maybe a one-time `warn()`).
 2. Once nothing in-tree uses them, delete `function_s`, `define_function`,
    `call_function`, and the global `ffi_type_head` list/`find_ffi_type`/
-   `find_type` (superseded by Phase 3's static `FFIType` table).
+   `find_type` (superseded by the static `FFIType` export, done — see
+   `ffitype_names`/`js_ffitype_new` in `ffi.c`).
 3. This is the step that actually deletes the strcmp-scanning code the user
    flagged — everything before this phase is additive, so the old path keeps
    working throughout the migration and can be dropped only when nothing

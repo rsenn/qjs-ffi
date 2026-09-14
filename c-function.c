@@ -7,9 +7,10 @@
 
 #define CFUNCTION_MAX_ARGS 32
 
-/* Marshaling kinds, matching bun:ffi's FFIType vocabulary (see TODO.md
- * Phase 3). Kept local to this file, same as js-callback.c: c-function.c
- * doesn't depend on ffi.c's mutable, string-keyed type registry.
+/* Marshaling kinds, matching bun:ffi's FFIType vocabulary (see the
+ * `FFIType` export in ffi.c and doc/c-function.md). Kept local to this
+ * file, same as js-callback.c: c-function.c doesn't depend on ffi.c's
+ * mutable, string-keyed type registry.
  */
 enum {
   K_VOID = 0,
