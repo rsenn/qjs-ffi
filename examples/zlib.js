@@ -1,5 +1,6 @@
 import * as zlib from '../lib/zlib.js';
 import { open, out } from 'std';
+
 function main(...args) {
   let strm = new zlib.z_stream();
   let ok = zlib.deflateInit(strm);

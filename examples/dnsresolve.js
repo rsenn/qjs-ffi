@@ -4,6 +4,7 @@ import { AF_INET, IPPROTO_UDP, select, SOCK_DGRAM, SockAddr, Socket } from '../l
 import socklen_t from '../lib/socklen_t.js';
 import { errno, pointerSize, toArrayBuffer, toPointer, toString } from 'ffi';
 import { err, exit, loadFile, open, out, strerror } from 'std';
+
 console.log('socklen_t', 1);
 
 function not(n) {
@@ -34,14 +35,7 @@ function FromDomain(buffer) {
 }
 
 function ToDomain(str, alpha = false) {
-  return str
-    .split('.')
-    .reduce(
-      alpha
-        ? (a, s) => a + String.fromCharCode(s.length) + s
-        : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]),
-      alpha ? '' : []
-    );
+  return str.split('.').reduce(alpha ? (a, s) => a + String.fromCharCode(s.length) + s : (a, s) => a.concat([s.length, ...s.split('').map(ch => ch.charCodeAt(0))]), alpha ? '' : []);
 }
 
 function DNSQuery(domain) {
@@ -52,26 +46,7 @@ function DNSQuery(domain) {
   }
   console.log('DNSQuery', domain);
 
-  let outBuf = new Uint8Array([
-    0xff,
-    0xff,
-    0x01,
-    0x00,
-    0x00,
-    0x01,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    ...ToDomain(domain),
-    0x00,
-    0x00,
-    type,
-    0x00,
-    0x01
-  ]).buffer;
+  let outBuf = new Uint8Array([0xff, 0xff, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, ...ToDomain(domain), 0x00, 0x00, type, 0x00, 0x01]).buffer;
   new DataView(outBuf).setUint16(0, outBuf.byteLength - 2, false);
   console.log('DNSQuery', outBuf);
   return outBuf;
@@ -88,7 +63,7 @@ function DNSResponse(buffer) {
   //   ofs += 2 + header.getUint16(0, false);
   console.log(
     'Response header:',
-    ArrayToBytes(u8.slice(ofs, ofs + 12))
+    ArrayToBytes(u8.slice(ofs, ofs + 12)),
     //new Uint16Array(header.buffer, header.byteOffset, 6).map((v, i) => header.getUint16(i * 2, false))
   );
   let type = header.getUint16(2, false);
@@ -209,11 +184,7 @@ function main(...args) {
 
         if(length > 0) {
           let addr = DNSResponse(u8.buffer);
-          debug(
-            'Received %d bytes from socket: %s',
-            length,
-            '"' + ArrayToBytes(u8, '').replace(/0x/g, '\\x').slice(1, -1) + '"'
-          );
+          debug('Received %d bytes from socket: %s', length, '"' + ArrayToBytes(u8, '').replace(/0x/g, '\\x').slice(1, -1) + '"');
 
           sock.close();
           return addr;
@@ -273,14 +244,7 @@ function BufferToBytes(buf, offset = 0, len) {
 }
 
 function ArrayToBytes(arr, delim = ', ', bytes = 1) {
-  return (
-    '[' +
-    arr.reduce(
-      (s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)),
-      ''
-    ) +
-    ']'
-  );
+  return '[' + arr.reduce((s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)), '') + ']';
 }
 
 function ArrayToString(arr, bytes = 1) {
@@ -354,4 +318,4 @@ const runMain = () => {
     console.log('ERROR:', error);
   }
 };
-import('console') .catch(runMain) .then( ({ Console }) => ( (globalThis.console = new Console({ inspectOptions: { numberBase: 16, maxStringLength: 512, maxArrayLength: 512 } })), runMain() ) );
+import('console').catch(runMain).then(({ Console }) => ((globalThis.console = new Console({ inspectOptions: { numberBase: 16, maxStringLength: 512, maxArrayLength: 512 } })), runMain()));

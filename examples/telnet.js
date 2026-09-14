@@ -6,6 +6,7 @@ import { B115200, cfgetospeed, cfsetospeed, ECHOCTL, ECHOE, ECHOK, ECHOKE, ISIG,
 import timeval from '../lib/timeval.js';
 import { errno, pointerSize, toArrayBuffer, toPointer, toString } from 'ffi';
 import { err, exit, open, out, strerror } from 'std';
+
 function not(n) {
   return ~n >>> 0;
 }
@@ -289,10 +290,7 @@ function ArrayToBytes(arr, delim = ', ', bytes = 1, limit = Infinity) {
     arr = arr.slice(0, len);
     if(len < arr.length) trail = `... ${arr.length - len} more bytes ...`;
   }
-  let str = arr.reduce(
-    (s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)),
-    ''
-  );
+  let str = arr.reduce((s, code) => (s != '' ? s + delim : '') + '0x' + ('000000000000000' + code.toString(16)).slice(-(bytes * 2)), '');
   return '[' + str + trail + ']';
 }
 

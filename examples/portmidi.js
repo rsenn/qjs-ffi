@@ -3,7 +3,7 @@ import { call, define, dlopen, dlsym, RTLD_NOW, toArrayBuffer, toPointer, toStri
 
 export { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
 
-const libportmidi = dlopen('/opt/portmidi-debug/lib/libportmidi.so', RTLD_NOW);
+const libportmidi = dlopen('libportmidi.so', RTLD_NOW);
 
 export function PmError(n) {
   return {
@@ -119,7 +119,7 @@ export class PmDeviceInfo extends ArrayBuffer {
 
   [Symbol.inspect]() {
     const { structVersion, interf, name, input, output, opened } = this;
-    return `PmDeviceInfo ` + inspect({ structVersion, interf, name, input, output, opened });
+    return `PmDeviceInfo` + Object.entries({ structVersion, interf, name, input, output, opened }).reduce((s, [k, v]) => (s ? s + '\n  ' : s + ' {\n  ') + `${k}: ${v}`, '') + '\n}';
   }
 }
 

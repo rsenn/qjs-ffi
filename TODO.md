@@ -29,30 +29,15 @@
 
 ### `CallClosure` / `opaque-call.[ch]` (native callback support)
 
-- Exists already as a `JSClassID`-backed object (`js_closure_class_id`) with a
-  constructor, `clone()`/`clear()`/`toString()`, and getters/setters for
-  `funcObj`, `thisObj`, `args`, `argc`, `called`, `exception`, `opaque`
-  (an ArrayBuffer view over the struct itself), and a global `list` of all
-  live closures (`opaque-call.c:247-311`).
-- **The actual native trampoline is a stub**: `opaque_call()`
-  (`opaque-call.c:18-31`) is hardcoded to the fixed C signature
-  `int64_t (*)(void*)` and always calls the JS function with **zero**
-  arguments (`JS_Call(ctx, call->func, call->this, 0, 0)`), ignoring whatever
-  the real native caller actually passed in registers/stack. It only works
-  today because `js_call()` in `ffi.c:682-687` passes a `CallClosure*` to a
-  native function as an opaque `void*` argument — it is not a general
-  "native code calls back into JS with real arguments" mechanism yet. There
-  is no `ffi_prep_closure_loc`/`ffi_closure` usage anywhere in the codebase.
-- Consequently none of `args`/`argc` on `CallClosure` are ever populated by a
-  real inbound native call — they only reflect the args baked in at
-  construction time via `opaque_new()`/`CallClosure()`.
-- This is the object the user wants refactored into a real
-  `JSCallback` equivalent (see §3, Phase 0).
+Done — rebuilt as `JSCallback` (`js-callback.c`/`js-callback.h`), a real
+`ffi_closure`-based trampoline that marshals actual inbound native
+arguments/return value per a declared `(args, returns)` signature. See
+[`doc/js-callback.md`](doc/js-callback.md).
 
 ### Build/test surface
 
 - `CMakeLists.txt` builds one shared module per binding (`ffi.c` +
-  `opaque-call.c` → `quickjs-ffi` MODULE, `CMakeLists.txt:58,110`).
+  `js-callback.c` + `c-function.c` → `quickjs-ffi` MODULE, `CMakeLists.txt:110`).
 - Existing smoke tests: `test.js`, `test2.js`, `test-ffi.js`, `test-portmidi.js`
   (manual, run under `qjsm`/`qjs`, no assertions/harness — visual inspection
   of `console.log` output).
@@ -92,7 +77,8 @@ lib.close();
   quickjs; out of scope.
 - Bun's JIT'd fast-path (`tryCall`) internals — irrelevant, that's a V8/JSC
   engine-specific optimization we can't replicate in a libffi-backed module.
-  Our equivalent optimization is simply: don't do string lookups (see Phase 1).
+  Our equivalent optimization is simply: don't do string lookups (done, see
+  `CFunction` in [`doc/c-function.md`](doc/c-function.md)).
 
 ## 3. Migration Plan
 
@@ -102,60 +88,12 @@ next phase. Do not start a phase until the previous one's tests pass.
 New/changed tests get the 5x flakiness check per
 `.claude/rules/check-tests-for-flakiness.md`.
 
-### Phase 0 — Rebuild `opaque-call.[ch]` as a real `JSCallback`
-
-The user called this out as the *first* step, independent of the define/call
-migration.
-
-1. Replace the fixed `int64_t(*)(void*)` trampoline in `opaque_call()` with a
-   generic libffi closure created via `ffi_closure_alloc()` +
-   `ffi_prep_closure_loc()`, driven by a declared `(args: FFIType[], returns: FFIType)`
-   signature stored on `CallClosure` (mirrors what `function_s`/`ffi_cif`
-   already do for the outbound direction in `ffi.c`).
-2. The generic closure handler must marshal the real incoming native argument
-   values (from libffi's `void** args`) into `JSValue`s per the declared arg
-   types, `JS_Call()` the JS function with those real args, then marshal the
-   JS return value back into the native ABI return slot per the declared
-   return type. This is the piece that's currently entirely stubbed out.
-3. Rename/expose the JS-visible constructor as `JSCallback` (keep
-   `CallClosure` as the internal C struct name if desired, or alias it —
-   decide based on whether any existing script depends on the `CallClosure`
-   global; `test-ffi.js` only imports it, doesn't use it, so it's safe to
-   rename the export outright).
-4. New shape: `new JSCallback(fn, { args: [...], returns })` → object with
-   `.ptr` (native function pointer, for passing to a C API expecting a
-   callback) and `.close()` (frees the `ffi_closure` — replaces relying on GC
-   alone).
-5. Keep the existing debug/introspection surface (`args`, `argc`, `called`,
-   `exception`, `list`) working against the new implementation — they're
-   independent of the trampoline bug and are useful for testing Phase 0 itself.
-6. **Verify**: write a small C test harness (or use an existing libc callback
-   API like `qsort()` via `dlsym`) that invokes a `JSCallback` with real
-   arguments and asserts the JS side received correct values and the C side
-   received the correct return value. This does not depend on any `define`/
-   `call` changes — it's fully testable in isolation.
-
-### Phase 1 — `CFunction`: direct, name-free function wrappers
-
-1. Introduce a new JS class (or `JS_NewCFunctionData`-based factory) that
-   takes `{ ptr, args, returns, abi }`, builds the `ffi_cif` once (reusing
-   `find_ffi_type`-equivalent lookups, but resolved at construction time, not
-   per call), and returns a **plain callable JS function** whose own closure
-   data holds the `ffi_cif`/`fp`/arg-type array directly.
-2. Calling that function invokes libffi directly against its own stored
-   `cif`/`fp` — **no string lookup, no scan, no registry**. This is what
-   eliminates the strcmp-per-call problem structurally: there is nothing to
-   look up because the function object *is* the binding.
-3. Leave `define()`/`call()`/`function_s` untouched in this phase — `CFunction`
-   is additive.
-4. **Verify**: rewrite one `test.js` case to use `CFunction` instead of
-   `define`+`call` for the same libc function (e.g. `strdup`), compare output.
-
 ### Phase 2 — `dlopen(path, symbols)` (bun-shaped)
 
 1. New JS-visible `dlopen(path, symbolSpecs)` that: opens the library, for
-   each key in `symbolSpecs` does the dlsym lookup, builds a `CFunction` from
-   Phase 1, and returns `{ symbols: { ...name: CFunction }, close() }`.
+   each key in `symbolSpecs` does the dlsym lookup, builds a `CFunction`
+   (see [`doc/c-function.md`](doc/c-function.md)), and returns
+   `{ symbols: { ...name: CFunction }, close() }`.
 2. `close()` calls `dlclose` and drops references to the wrapped functions
    (they may still be reachable/callable-until-GC if the user kept a
    reference — match Bun's documented behavior here, or note the deviation).
