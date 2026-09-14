@@ -55,8 +55,9 @@ struct typed_argument_s {
 };
 typedef struct typed_argument_s typed_argument;
 
-#include "opaque-call.h"
-  
+#include "js-callback.h"
+#include "c-function.h"
+
 /* FFI types */
 static struct ffi_type_s* ffi_type_head = NULL;
 
@@ -639,7 +640,7 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   typed_argument args[MAX_PARAMETERS];
   const char* strings[MAX_PARAMETERS];
   int i, fl = 0;
-  CallClosure* closure;
+  JSCallback* closure;
 
   if(!(name = JS_ToCString(ctx, argv[0])))
     goto error;
@@ -679,11 +680,9 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
 
       strings[fl++] = s;
       args[i - 1].arg.ll = (ptrdiff_t)s;
-    } else if((closure = js_closure_data(argv[i]))) {
+    } else if((closure = js_callback_data(argv[i]))) {
 
-      closure->index = i;
-
-      args[i - 1].arg.ll = (ptrdiff_t)opaque_address();
+      args[i - 1].arg.ll = (ptrdiff_t)closure->code;
       args[i - 1].type = TYPE_POINTER;
     } else {
       ptr_len buf;
@@ -852,7 +851,8 @@ static const JSCFunctionListEntry js_funcs[] = {
 
 static int
 js_init(JSContext* ctx, JSModuleDef* m) {
-  js_closure_init(ctx, m);
+  js_callback_init(ctx, m);
+  js_cfunction_init(ctx, m);
 
   define_types();
   return JS_SetModuleExportList(ctx, m, js_funcs, countof(js_funcs));
@@ -871,7 +871,8 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
   if(!(m = JS_NewCModule(ctx, module_name, js_init)))
     return NULL;
 
-  JS_AddModuleExport(ctx, m, "CallClosure");
+  JS_AddModuleExport(ctx, m, "JSCallback");
+  JS_AddModuleExport(ctx, m, "CFunction");
   JS_AddModuleExportList(ctx, m, js_funcs, countof(js_funcs));
   return m;
 }

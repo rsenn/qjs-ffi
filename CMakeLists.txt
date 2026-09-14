@@ -55,7 +55,7 @@ function(make_shared_module FNAME)
   message(STATUS "Building shared module: ${NAME}")
   set(TARGET_NAME quickjs-${NAME})
 
-  add_library(${TARGET_NAME} SHARED ${FNAME}.c opaque-call.c)
+  add_library(${TARGET_NAME} SHARED ${FNAME}.c js-callback.c)
 
   target_link_libraries(${TARGET_NAME} ${QUICKJS_LIBRARY} ${LIBFFI_LIBRARY})
   set_target_properties(

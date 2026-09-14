@@ -1,4 +1,4 @@
-import { CallClosure, debug, dlopen, dlerror, dlclose, dlsym, define, call, toString, toArrayBuffer, toPointer, errno, JSContext, RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND, RTLD_DEFAULT, RTLD_NEXT, pointerSize, } from 'ffi';
+import { JSCallback, debug, dlopen, dlerror, dlclose, dlsym, define, call, toString, toArrayBuffer, toPointer, errno, JSContext, RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND, RTLD_DEFAULT, RTLD_NEXT, pointerSize, } from 'ffi';
 
 function main() {
   let ab = toArrayBuffer('BLAH\nTEST!\0');

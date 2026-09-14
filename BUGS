@@ -1,0 +1,12 @@
+- js-helpers-missing-stddef (js-helpers.h:1): js_ptr() and js_index() use ptrdiff_t
+  but the header never includes <stddef.h> (or anything else that would define
+  it). It only compiles today because every existing includer (ffi.c,
+  js-callback.c) happens to pull in stdlib.h/other headers that define
+  ptrdiff_t before including js-helpers.h. Confirmed by including
+  "js-helpers.h" from a fresh translation unit (c-function.c) with no prior
+  ptrdiff_t-providing include: fails with "'ptrdiff_t' undeclared". Worked
+  around locally in c-function.c by including <stddef.h> before
+  "js-helpers.h" rather than editing the shared header.
+
+    #include "js-helpers.h" /* as the first project header, before stdlib.h/stdio.h */
+
