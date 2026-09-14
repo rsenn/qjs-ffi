@@ -17,6 +17,8 @@
  * directly against that stored cif, so there is nothing to look up (no
  * strcmp scan, unlike ffi.c's legacy define()/call()).
  */
+extern JSValue js_cfunction_ctor;
+
 int js_cfunction_init(JSContext*, JSModuleDef*);
 
 #endif /* defined(QJSFFI_C_FUNCTION_H) */

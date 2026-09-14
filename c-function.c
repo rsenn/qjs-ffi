@@ -128,19 +128,34 @@ js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst
 
     case K_I8:
     case K_I16:
-    case K_I32: JS_ToInt32(ctx, &i32, v); out->i64 = i32; break;
+    case K_I32:
+      JS_ToInt32(ctx, &i32, v);
+      out->i64 = i32;
+      break;
 
     case K_U8:
     case K_U16:
-    case K_U32: JS_ToInt64Ext(ctx, &i64, v); out->i64 = i64; break;
+    case K_U32:
+      JS_ToInt64Ext(ctx, &i64, v);
+      out->i64 = i64;
+      break;
 
     case K_I64:
     case K_I64_FAST:
     case K_U64:
-    case K_U64_FAST: JS_ToInt64Ext(ctx, &i64, v); out->i64 = i64; break;
+    case K_U64_FAST:
+      JS_ToInt64Ext(ctx, &i64, v);
+      out->i64 = i64;
+      break;
 
-    case K_F32: JS_ToFloat64(ctx, &d, v); out->f32 = (float)d; break;
-    case K_F64: JS_ToFloat64(ctx, &d, v); out->f64 = d; break;
+    case K_F32:
+      JS_ToFloat64(ctx, &d, v);
+      out->f32 = (float)d;
+      break;
+    case K_F64:
+      JS_ToFloat64(ctx, &d, v);
+      out->f64 = d;
+      break;
 
     case K_POINTER: out->ptr = js_ptr(ctx, v); break;
 
@@ -176,8 +191,10 @@ static void
 js_cfunction_data_free(JSContext* ctx, CFunctionData* cf) {
   if(cf->arg_types)
     js_free(ctx, cf->arg_types);
+
   if(cf->arg_kind)
     js_free(ctx, cf->arg_kind);
+
   js_free(ctx, cf);
 }
 
@@ -189,8 +206,7 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
   ffi_type* ret_type = &ffi_type_void;
   int ret_kind = K_VOID;
   int abi = FFI_DEFAULT_ABI;
-  void* fp = NULL;
-  uint32_t argc = 0, i;
+   uint32_t argc = 0;
 
   if(!JS_IsObject(options)) {
     JS_ThrowTypeError(ctx, "CFunction: argument 1 must be an object");
@@ -198,7 +214,7 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
   }
 
   JSValue ptr_val = JS_GetPropertyStr(ctx, options, "ptr");
-  fp = js_ptr(ctx, ptr_val);
+  void* fp = js_ptr(ctx, ptr_val);
   JS_FreeValue(ctx, ptr_val);
 
   if(!fp) {
@@ -216,7 +232,7 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
     if(argc > CFUNCTION_MAX_ARGS)
       argc = CFUNCTION_MAX_ARGS;
 
-    for(i = 0; i < argc; i++) {
+    for(uint32_t i = 0; i < argc; i++) {
       JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
       const char* s = JS_ToCString(ctx, item);
       int kind = K_I32;
@@ -354,24 +370,12 @@ static JSClassDef js_cfunction_class = {
     .call = js_cfunction_invoke,
 };
 
-/* Function.prototype, fetched the same way qjs-lws's js_function_prototype()
- * does (js-utils.c:9-15): a throwaway JS_NewCFunction exists only to read
- * its [[Prototype]] off of.
- */
-static JSValue
-js_function_prototype(JSContext* ctx) {
-  JSValue fn = JS_NewCFunction(ctx, NULL, "", 0);
-  JSValue proto = JS_GetPrototype(ctx, fn);
-  JS_FreeValue(ctx, fn);
-  return proto;
-}
-
 /* fn = CFunction({ ptr, args, returns, abi }) */
 static JSValue
-js_cfunction_ctor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   JSValueConst options = argc > 0 ? argv[0] : JS_UNDEFINED;
   CFunctionData* cf;
-  
+
   if(!(cf = js_cfunction_new(ctx, options)))
     return JS_EXCEPTION;
 
@@ -388,15 +392,22 @@ js_cfunction_ctor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst*
   return func_obj;
 }
 
+/* Kept as a global, like js_callback_ctor in js-callback.h, so other
+ * translation units (ffi.c's dlopen(path, symbolSpecs), Phase 2 of
+ * TODO.md) can build CFunction objects via JS_Call() without duplicating
+ * js_cfunction_new()'s option-parsing/ffi_cif setup.
+ */
+JSValue js_cfunction_ctor;
+
 int
 js_cfunction_init(JSContext* ctx, JSModuleDef* m) {
   JS_NewClassID(&js_cfunction_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cfunction_class_id, &js_cfunction_class);
 
-  JSValue ctor = JS_NewCFunction(ctx, js_cfunction_ctor, "CFunction", 1);
+  js_cfunction_ctor = JS_NewCFunction(ctx, js_cfunction_constructor, "CFunction", 1);
 
   if(m)
-    JS_SetModuleExport(ctx, m, "CFunction", ctor);
+    JS_SetModuleExport(ctx, m, "CFunction", js_cfunction_ctor);
 
   return 0;
 }

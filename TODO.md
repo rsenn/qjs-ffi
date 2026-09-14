@@ -89,20 +89,16 @@ next phase. Do not start a phase until the previous one's tests pass.
 New/changed tests get the 5x flakiness check per
 `.claude/rules/check-tests-for-flakiness.md`.
 
-### Phase 2 — `dlopen(path, symbols)` (bun-shaped)
-
-1. New JS-visible `dlopen(path, symbolSpecs)` that: opens the library, for
-   each key in `symbolSpecs` does the dlsym lookup, builds a `CFunction`
-   (see [`doc/c-function.md`](doc/c-function.md)), and returns
-   `{ symbols: { ...name: CFunction }, close() }`.
-2. `close()` calls `dlclose` and drops references to the wrapped functions
-   (they may still be reachable/callable-until-GC if the user kept a
-   reference — match Bun's documented behavior here, or note the deviation).
-3. Keep the legacy `dlopen(path, flags)` (raw handle, int flags) *name*
-   colliding — needs a decision: overload by argument shape (string+object vs
-   string+number) or pick a new name and deprecate the old one. Flag this as
-   an explicit decision point, don't guess silently.
-4. **Verify**: port a `test.js`/`test2.js` case to the new `dlopen` end-to-end.
+Phase 2 (`dlopen(path, symbolSpecs)`, bun-shaped) is done: `js_dlopen()` in
+`ffi.c` dispatches to `js_dlopen_symbols()` when `argv[1]` is an object
+(overload by argument shape, resolving the naming-collision decision point —
+legacy `dlopen(path, flags)` is untouched for the number-flags call shape).
+It `dlsym()`s each key in `symbolSpecs`, builds a `CFunction` per symbol via
+the now-exported `js_cfunction_ctor` (`c-function.h`), and returns
+`{ symbols: { ...name: CFunction }, close() }` where `close()` `dlclose()`s
+the handle. Verified in `tests/test-dlopen-symbols.js` (legacy form still
+works, symbol-not-found and bad-path both throw `TypeError`, `close()`
+actually releases the handle).
 
 ### Phase 4 — pointer/buffer helper parity
 

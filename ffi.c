@@ -531,12 +531,19 @@ js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   return JS_NewInt32(ctx, errno);
 }
 
-/* h = dlopen(name, flags) */
+static JSValue js_dlopen_symbols(JSContext*, JSValueConst path_val, JSValueConst symbol_specs);
+
+/* h = dlopen(name, flags)
+ * { symbols, close() } = dlopen(name, symbolSpecs) -- bun-shaped overload,
+ * picked when argv[1] is an object rather than a number (TODO.md Phase 2).
+ */
 static JSValue
 js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   const char* s;
-  void* res;
   uint32_t n;
+
+  if(argc > 1 && JS_IsObject(argv[1]))
+    return js_dlopen_symbols(ctx, argv[0], argv[1]);
 
   if(JS_IsNull(argv[0]))
     s = NULL;
@@ -546,7 +553,7 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   if(JS_ToUint32(ctx, &n, argv[1]))
     return JS_EXCEPTION;
 
-  res = dlopen(s, n);
+  void* res = dlopen(s, n);
 
   if(s)
     JS_FreeCString(ctx, s);
@@ -579,7 +586,6 @@ js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) 
 /* p = dlsym(h, name) */
 static JSValue
 js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  void* res;
   int64_t n;
   const char* s;
 
@@ -589,7 +595,7 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   if(!(s = JS_ToCString(ctx, argv[1])))
     return JS_EXCEPTION;
 
-  res = dlsym((void*)(ptrdiff_t)n, s);
+  void* res = dlsym((void*)(ptrdiff_t)n, s);
 
   if(s)
     JS_FreeCString(ctx, s);
@@ -600,18 +606,113 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   return JS_NewInt64(ctx, (ptrdiff_t)res);
 }
 
+/* n = dlopen(path, symbolSpecs).close() -- frees the func_data-captured handle */
+static JSValue
+js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValue* func_data) {
+  int64_t h = 0;
+
+  JS_ToInt64(ctx, &h, func_data[0]);
+  return JS_NewInt32(ctx, dlclose((void*)(ptrdiff_t)h));
+}
+
+/* { symbols, close() } = dlopen(path, symbolSpecs) -- bun-shaped overload,
+ * dispatched to from js_dlopen() when argv[1] is an object rather than a
+ * flags number (TODO.md Phase 2). Opens the library, dlsym()s each key in
+ * symbolSpecs, and wraps each as a CFunction (see doc/c-function.md) --
+ * no name-keyed registry, no strcmp scan at call time.
+ */
+static JSValue
+js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_specs) {
+  const char* path = NULL;
+  uint32_t i, len = 0;
+
+  if(JS_IsNull(path_val))
+    path = NULL;
+  else if(!(path = JS_ToCString(ctx, path_val)))
+    return JS_EXCEPTION;
+
+  void* handle = dlopen(path, RTLD_NOW);
+
+  if(path)
+    JS_FreeCString(ctx, path);
+
+  if(!handle)
+    return JS_ThrowTypeError(ctx, "dlopen: %s", dlerror());
+
+  JSPropertyEnum* tab = NULL;
+
+  if(JS_GetOwnPropertyNames(ctx, &tab, &len, symbol_specs, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY)) {
+    dlclose(handle);
+    return JS_EXCEPTION;
+  }
+
+  JSValue symbols = JS_NewObject(ctx);
+
+  for(i = 0; i < len; i++) {
+    const char* name = JS_AtomToCString(ctx, tab[i].atom);
+    void* fp;
+
+    if(!name)
+      goto fail;
+
+    if(!(fp = dlsym(handle, name))) {
+      JS_ThrowTypeError(ctx, "dlopen: symbol not found: %s", name);
+      JS_FreeCString(ctx, name);
+      goto fail;
+    }
+
+    JSValue spec = JS_GetPropertyStr(ctx, symbol_specs, name);
+    JS_FreeCString(ctx, name);
+
+    JSValue opts = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, opts, "ptr", JS_NewInt64(ctx, (int64_t)(ptrdiff_t)fp));
+    JS_SetPropertyStr(ctx, opts, "args", JS_GetPropertyStr(ctx, spec, "args"));
+    JS_SetPropertyStr(ctx, opts, "returns", JS_GetPropertyStr(ctx, spec, "returns"));
+    JS_SetPropertyStr(ctx, opts, "abi", JS_GetPropertyStr(ctx, spec, "abi"));
+    JS_FreeValue(ctx, spec);
+
+    JSValue fn = JS_Call(ctx, js_cfunction_ctor, JS_UNDEFINED, 1, (JSValueConst*)&opts);
+    JS_FreeValue(ctx, opts);
+
+    if(JS_IsException(fn))
+      goto fail;
+
+    /* JS_DefinePropertyValue() does not consume `prop` -- the shape's own
+     * property table dups its own atom reference internally (see
+     * add_shape_property() in quickjs.c) -- so this atom is still ours to
+     * free right here, same as every other path out of this loop body. */
+    JS_DefinePropertyValue(ctx, symbols, tab[i].atom, fn, JS_PROP_C_W_E);
+    JS_FreeAtom(ctx, tab[i].atom);
+  }
+
+  js_free(ctx, tab);
+
+  JSValue close_data = JS_NewInt64(ctx, (int64_t)(ptrdiff_t)handle);
+  JSValue close_fn = JS_NewCFunctionData(ctx, js_dlopen_symbols_close, 0, 0, 1, (JSValueConst*)&close_data);
+  JS_FreeValue(ctx, close_data);
+
+  JSValue result = JS_NewObject(ctx);
+  JS_SetPropertyStr(ctx, result, "symbols", symbols);
+  JS_SetPropertyStr(ctx, result, "close", close_fn);
+  return result;
+
+fail:
+  for(; i < len; i++)
+    JS_FreeAtom(ctx, tab[i].atom);
+
+  js_free(ctx, tab);
+  JS_FreeValue(ctx, symbols);
+  dlclose(handle);
+  return JS_EXCEPTION;
+}
+
 #define MAX_PARAMETERS 30
 
 /* define(name, fp, abi, ret, p1,...pn) */
 static JSValue
 js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  const char* name = NULL;
+  const char *name, *abi, *rtype;
   int64_t fp = 0;
-  const char* abi = NULL;
-  const char* rtype = NULL;
-  const char* params[MAX_PARAMETERS + 1];
-  int i, nparams = 0;
-  JSValue r = JS_FALSE;
 
   if(!(name = JS_ToCString(ctx, argv[0])))
     goto error;
@@ -627,15 +728,15 @@ js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   if(!(rtype = JS_ToCString(ctx, argv[3])))
     goto error;
 
-  nparams = 0;
-  for(i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i)
+  int nparams = 0;
+  const char* params[MAX_PARAMETERS + 1];
+
+  for(int i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i)
     params[nparams++] = JS_ToCString(ctx, argv[i]);
+
   params[nparams] = NULL;
 
-  if(define_function(name, (void*)(ptrdiff_t)fp, abi, rtype, params))
-    r = JS_TRUE;
-  else
-    r = JS_FALSE;
+  return define_function(name, (void*)(ptrdiff_t)fp, abi, rtype, params) ? JS_TRUE : JS_FALSE;
 
 error:
   if(name)
@@ -644,10 +745,10 @@ error:
     JS_FreeCString(ctx, rtype);
   if(abi)
     JS_FreeCString(ctx, abi);
-  for(i = 0; i < nparams; ++i)
+  for(int i = 0; i < nparams; ++i)
     JS_FreeCString(ctx, params[i]);
 
-  return r;
+  return JS_EXCEPTION;
 }
 
 /* For 2020-01-19 support */
@@ -664,18 +765,18 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   JSValue r = JS_EXCEPTION;
   typed_argument args[MAX_PARAMETERS];
   const char* strings[MAX_PARAMETERS];
-  int i, fl = 0;
+  int fl = 0;
   JSCallback* closure;
 
   if(!(name = JS_ToCString(ctx, argv[0])))
     goto error;
 
-  for(i = 0; i < MAX_PARAMETERS; ++i) {
+  for(int i = 0; i < MAX_PARAMETERS; ++i) {
     args[i].arg.ll = 0;
     args[i].type = TYPE_INTEGRAL;
   }
 
-  for(i = 1; (i < argc) && (i <= MAX_PARAMETERS); ++i) {
+  for(int i = 1; (i < argc) && (i <= MAX_PARAMETERS); ++i) {
     if(JS_IsNull(argv[i])) {
       ;
     } else if(JS_IsBool(argv[i])) {
