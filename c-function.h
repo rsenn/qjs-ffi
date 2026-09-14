@@ -10,8 +10,10 @@
  *   const fn = CFunction({ ptr: dlsym(h, "strdup"), args: ["cstring"], returns: "cstring" });
  *   fn("hello");
  *
- * The returned JS function's own closure data holds the ffi_cif/fp/arg-type
- * array built once at construction time -- calling it invokes libffi
+ * The returned object is itself the opaque holder of the ffi_cif/fp/arg-type
+ * array built once at construction time, and is made callable via the
+ * `.call` entry in its own JSClassDef (the same pattern qjs-lws's
+ * JSCClosure uses, see js-utils.c:405-409) -- calling it invokes libffi
  * directly against that stored cif, so there is nothing to look up (no
  * strcmp scan, unlike ffi.c's legacy define()/call()).
  */

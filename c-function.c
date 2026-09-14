@@ -290,9 +290,14 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
   return cf;
 }
 
+/* The CFunction instance's own .call handler (JSClassDef.call): the object
+ * returned by CFunction() IS the callable, opaque-holding object -- no
+ * separate JS_NewCFunctionData wrapper/holder pair needed (same pattern as
+ * qjs-lws's JSCClosure, see js-utils.c:405-409).
+ */
 static JSValue
-js_cfunction_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValue* func_data) {
-  CFunctionData* cf = JS_GetOpaque(func_data[0], js_cfunction_class_id);
+js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, int argc, JSValueConst* argv, int flags) {
+  CFunctionData* cf = JS_GetOpaque(func_obj, js_cfunction_class_id);
   union native_value args_storage[CFUNCTION_MAX_ARGS];
   void* ptrs[CFUNCTION_MAX_ARGS];
   const char* cstrings[CFUNCTION_MAX_ARGS];
@@ -335,49 +340,60 @@ js_cfunction_finalizer(JSRuntime* rt, JSValue val) {
   if((cf = JS_GetOpaque(val, js_cfunction_class_id))) {
     if(cf->arg_types)
       js_free_rt(rt, cf->arg_types);
+
     if(cf->arg_kind)
       js_free_rt(rt, cf->arg_kind);
+
     js_free_rt(rt, cf);
   }
 }
 
 static JSClassDef js_cfunction_class = {
-    .class_name = "CFunctionData",
+    .class_name = "CFunction",
     .finalizer = js_cfunction_finalizer,
+    .call = js_cfunction_invoke,
 };
+
+/* Function.prototype, fetched the same way qjs-lws's js_function_prototype()
+ * does (js-utils.c:9-15): a throwaway JS_NewCFunction exists only to read
+ * its [[Prototype]] off of.
+ */
+static JSValue
+js_function_prototype(JSContext* ctx) {
+  JSValue fn = JS_NewCFunction(ctx, NULL, "", 0);
+  JSValue proto = JS_GetPrototype(ctx, fn);
+  JS_FreeValue(ctx, fn);
+  return proto;
+}
 
 /* fn = CFunction({ ptr, args, returns, abi }) */
 static JSValue
 js_cfunction_ctor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   JSValueConst options = argc > 0 ? argv[0] : JS_UNDEFINED;
   CFunctionData* cf;
-  JSValue holder, func;
-
+  
   if(!(cf = js_cfunction_new(ctx, options)))
     return JS_EXCEPTION;
 
-  holder = JS_NewObjectClass(ctx, js_cfunction_class_id);
+  JSValue func_proto = js_function_prototype(ctx);
+  JSValue func_obj = JS_NewObjectProtoClass(ctx, func_proto, js_cfunction_class_id);
+  JS_FreeValue(ctx, func_proto);
 
-  if(JS_IsException(holder)) {
+  if(JS_IsException(func_obj)) {
     js_cfunction_data_free(ctx, cf);
     return JS_EXCEPTION;
   }
 
-  JS_SetOpaque(holder, cf);
-
-  func = JS_NewCFunctionData(ctx, js_cfunction_call, cf->argc, 0, 1, &holder);
-  JS_FreeValue(ctx, holder);
-  return func;
+  JS_SetOpaque(func_obj, cf);
+  return func_obj;
 }
 
 int
 js_cfunction_init(JSContext* ctx, JSModuleDef* m) {
-  JSValue ctor;
-
   JS_NewClassID(&js_cfunction_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cfunction_class_id, &js_cfunction_class);
 
-  ctor = JS_NewCFunction(ctx, js_cfunction_ctor, "CFunction", 1);
+  JSValue ctor = JS_NewCFunction(ctx, js_cfunction_ctor, "CFunction", 1);
 
   if(m)
     JS_SetModuleExport(ctx, m, "CFunction", ctor);
