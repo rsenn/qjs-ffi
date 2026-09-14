@@ -1,6 +1,7 @@
 #ifndef QJSFFI_JS_HELPERS_H
 #define QJSFFI_JS_HELPERS_H
 
+#include <stddef.h>
 #include <quickjs.h>
 
 #ifndef MIN

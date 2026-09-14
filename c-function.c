@@ -1,5 +1,4 @@
 #include "c-function.h"
-#include <stddef.h>
 #include "js-helpers.h"
 #include <cutils.h>
 #include <ffi.h>
@@ -8,7 +7,7 @@
 #define CFUNCTION_MAX_ARGS 32
 
 /* Marshaling kinds, matching bun:ffi's FFIType vocabulary (see the
- * `FFIType` export in ffi.c and doc/c-function.md). Kept local to this
+ * `FFIType` export in ffi-type.c and doc/c-function.md). Kept local to this
  * file, same as js-callback.c: c-function.c doesn't depend on ffi.c's
  * mutable, string-keyed type registry.
  */

@@ -119,7 +119,18 @@ endif(NOT CMAKE_INSTALL_LIBDIR)
 if(NOT QUICKJS_C_MODULE_DIR)
   set(QUICKJS_C_MODULE_DIR "${CMAKE_INSTALL_LIBDIR}/quickjs")
 endif(NOT QUICKJS_C_MODULE_DIR)
+if(NOT CMAKE_INSTALL_BINDIR)
+  set(CMAKE_INSTALL_BINDIR bin)
+endif(NOT CMAKE_INSTALL_BINDIR)
 
 install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
+                    WORLD_EXECUTE)
+
+# tools/gen-bindings.js: a qjsm script (shebang #!/usr/bin/env qjsm), not a
+# compiled binary -- installed as a plain executable file, not a CMake
+# target.
+install(PROGRAMS tools/gen-bindings.js DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME qjs-ffi-genbindings
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
                     WORLD_EXECUTE)

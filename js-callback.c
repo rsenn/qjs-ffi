@@ -10,7 +10,7 @@ static struct list_head callback_list;
 #define JS_CALLBACK_MAX_ARGS 32
 
 /* Marshaling kinds, matching bun:ffi's FFIType vocabulary (see the
- * `FFIType` export in ffi.c and doc/js-callback.md). Kept local to this
+ * `FFIType` export in ffi-type.c and doc/js-callback.md). Kept local to this
  * file: js-callback.c doesn't depend on ffi.c's mutable, string-keyed type
  * registry.
  */

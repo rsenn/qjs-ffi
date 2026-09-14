@@ -37,7 +37,8 @@ arguments/return value per a declared `(args, returns)` signature. See
 ### Build/test surface
 
 - `CMakeLists.txt` builds one shared module per binding (`ffi.c` +
-  `js-callback.c` + `c-function.c` → `quickjs-ffi` MODULE, `CMakeLists.txt:110`).
+  `js-callback.c` + `c-function.c` + `ffi-type.c` → `quickjs-ffi` MODULE,
+  `CMakeLists.txt:110`).
 - Existing smoke tests: `test.js`, `test2.js`, `test-ffi.js`, `test-portmidi.js`
   (manual, run under `qjsm`/`qjs`, no assertions/harness — visual inspection
   of `console.log` output).
@@ -133,7 +134,8 @@ Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
 2. Once nothing in-tree uses them, delete `function_s`, `define_function`,
    `call_function`, and the global `ffi_type_head` list/`find_ffi_type`/
    `find_type` (superseded by the static `FFIType` export, done — see
-   `ffitype_names`/`js_ffitype_new` in `ffi.c`).
+   `js_ffitype_funcs` in `ffi-type.c`, spliced into `ffi.c`'s `js_funcs` via
+   `JS_OBJECT_DEF`).
 3. This is the step that actually deletes the strcmp-scanning code the user
    flagged — everything before this phase is additive, so the old path keeps
    working throughout the migration and can be dropped only when nothing
