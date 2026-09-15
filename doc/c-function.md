@@ -35,7 +35,7 @@ fn = CFunction({ ptr, args, returns, abi })
 
 | Option    | Required | Description                                                                                       |
 | --------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `ptr`     | yes      | The native function pointer to call. Anything accepted by `toPointer`/`js_ptr` works: a number/BigInt address (e.g. from `dlsym()`), or an ArrayBuffer/TypedArray. |
+| `ptr`     | yes      | The native function pointer to call. Anything accepted by `toPointer`/`js_ptr` works: `null`, a number/BigInt address (e.g. from `dlsym()`, which itself returns `null` for a NULL pointer), or an ArrayBuffer/TypedArray. |
 | `args`    | no       | Array of type names (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments. |
 | `returns` | no       | Type name for the return value (see [Types](#types)). Defaults to `"void"`.                       |
 | `abi`     | no       | Call ABI name (see [ABI](#abi)). Defaults to `"default"`.                                          |
@@ -66,7 +66,7 @@ Same vocabulary as [`JSCallback`](js-callback.md#types), matching
 | `"i64_fast"`, `"u64_fast"` | `int64_t`, `uint64_t`          | `number` -- fast to convert, but lossy above 2^53         |
 | `"f32"`                 | `float`                           | `number`                                                 |
 | `"f64"`                 | `double`                          | `number`                                                 |
-| `"pointer"` / `"ptr"` / `"function"` | `void *`             | `number` address (via `JS_NewInt64`/BigInt handling of the value passed in) |
+| `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise `number` if the address fits in 32 bits, `bigint` otherwise |
 | `"cstring"`             | `char *`                          | `string` (return) / `string` (argument, copied via `JS_ToCString`) -- decoded/encoded as a NUL-terminated C string |
 
 An unrecognized type name in `args` silently falls back to `"i32"`; an

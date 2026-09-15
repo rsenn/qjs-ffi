@@ -44,7 +44,7 @@ fail (e.g. the platform is out of executable closure trampoline memory).
 
 | Property    | Type      | Description                                                                 |
 | ----------- | --------- | ----------------------------------------------------------------------------- |
-| `.ptr`      | `number`  | The native function pointer. Pass this to any C API expecting a callback of the declared signature. |
+| `.ptr`      | `number` \| `bigint` \| `null` | The native function pointer: `number` if it fits in 32 bits, `bigint` otherwise, or `null` after `.close()` (the trampoline is gone, there is no pointer). Pass this to any C API expecting a callback of the declared signature. |
 | `.called`   | `number`  | How many times the trampoline has been invoked by native code so far.        |
 | `.funcObj`  | `Function`| The wrapped JS function passed to the constructor.                          |
 | `.exception`| any       | The exception thrown by the JS function on its most recent invocation, or `undefined` if it didn't throw. Reset to `undefined` at the start of each invocation. |
@@ -77,7 +77,7 @@ Same vocabulary as [`CFunction`](c-function.md#types), matching
 | `"i64_fast"`, `"u64_fast"` | `int64_t`, `uint64_t`          | `number` -- fast to convert, but lossy above 2^53         |
 | `"f32"`                 | `float`                           | `number`                                                 |
 | `"f64"`                 | `double`                          | `number`                                                 |
-| `"pointer"` / `"ptr"` / `"function"` | `void *`             | `number` address                                          |
+| `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise `number` if the address fits in 32 bits, `bigint` otherwise |
 | `"cstring"`             | `char *`                          | `string` -- the argument value is decoded from the incoming C string; returning `"cstring"` from `fn` is not automatically re-encoded to a native pointer (the return conversion writes the string's JS pointer representation, not a fresh C allocation) -- prefer numeric/`"pointer"` returns unless you know what you're doing |
 
 An unrecognized type name in `args` silently falls back to `"i32"`; an
