@@ -28,7 +28,7 @@ endfunction(checkout_libffi)
 # via ExternalProject_Add's autotools (configure/make) support - pass PIC
 # to compile it with -fPIC (for linking into the quickjs-ffi MODULE), omit
 # it for the quickjs-ffi-static STATIC target. Called twice, under two
-# different target names, when BUILD_STATIC_MODULE is also set, since one
+# different target names, when BUILD_STATIC_MODULES is also set, since one
 # build tree can't hold both a -fPIC and a non--fPIC libffi.a at once.
 #
 # Sets, in the parent scope: <target>_LIBRARY, <target>_INCLUDE_DIR.

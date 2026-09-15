@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 project(qjs-ffi VERSION 0.9 LANGUAGES C)
 
-option(BUILD_STATIC_MODULE "Also build a static quickjs-ffi module (${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.a)" OFF)
+option(BUILD_STATIC_MODULES "Also build a static quickjs-ffi module (${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.a)" OFF)
 option(BUILD_LIBFFI "Checkout libffi into third_party/libffi and build it from source instead of using the system library" OFF)
 
 message("Building project [1;31m${PROJECT_NAME}[0m")
@@ -18,7 +18,7 @@ endif(NOT PKG_CONFIG_FOUND)
 if(BUILD_LIBFFI)
   # quickjs-ffi (MODULE, needs -fPIC code) always gets the PIC build;
   # quickjs-ffi-static gets its own non--fPIC build further down, once
-  # BUILD_STATIC_MODULE's target exists to link it into.
+  # BUILD_STATIC_MODULES's target exists to link it into.
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLibFFI.cmake)
   build_libffi(libffi-shared PIC)
   set(LIBFFI_LIBRARY "${libffi-shared_LIBRARY}")
@@ -99,7 +99,7 @@ if(BUILD_LIBFFI)
   add_dependencies(quickjs-ffi libffi-shared)
 endif(BUILD_LIBFFI)
 
-if(BUILD_STATIC_MODULE)
+if(BUILD_STATIC_MODULES)
   # Statically-linked module: no JS_SHARED_LIBRARY define, so ffi.c's
   # JS_INIT_MODULE macro resolves to js_init_module_ffi (the symbol a host
   # embedding this module statically calls by name), not js_init_module
@@ -139,7 +139,7 @@ if(BUILD_STATIC_MODULE)
 set(QUICKJS_FFI_LIBRARIES \"${QUICKJS_FFI_LIBRARIES}\")
 set(QUICKJS_FFI_LINK_FLAGS \"${QUICKJS_FFI_LINK_FLAGS}\")
 ")
-endif(BUILD_STATIC_MODULE)
+endif(BUILD_STATIC_MODULES)
 
 if(NOT CMAKE_INSTALL_LIBDIR)
   set(CMAKE_INSTALL_LIBDIR lib)
