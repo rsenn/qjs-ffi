@@ -116,12 +116,4 @@ js_function_prototype(JSContext* ctx) {
   return proto;
 }
 
-/* A callable JS function backed by a plain C function pointer + an opaque
- * `void*` (rather than JSValue func_data), same shape as qjs-lws's
- * JSCClosure (js-utils.c:348-442). Implementation in js-helpers.c.
- */
-typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
-
-JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*opaque_finalize)(void*));
-
 #endif /* defined(QJSFFI_JS_HELPERS_H) */
