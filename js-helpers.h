@@ -27,8 +27,9 @@ typedef struct buf {
 } ptr_len;
 
 int js_toptr(JSContext*, void*, JSValueConst);
+int js_offsetlength(JSContext*, ofs_len*, int, JSValueConst[]);
 int js_buf(JSContext*, ptr_len*, JSValueConst);
-int js_bufargv(JSContext*, ptr_len*, int, JSValueConst[]);
+int js_buf_arguments(JSContext*, ptr_len*, int, JSValueConst[]);
 int64_t js_array_length(JSContext*, JSValueConst);
 
 static inline ofs_len
@@ -43,13 +44,6 @@ offset_length_wrap(ofs_len ol, size_t size) {
   };
 }
 
-static inline ofs_len
-offset_length_clamp(ofs_len ol, size_t size) {
-  int64_t ofs = CLAMP(ol.ofs, 0, size);
-  size -= ofs;
-  return (ofs_len){ofs, CLAMP(ol.len, 0, size)};
-}
-
 static inline void
 offset_length_apply(ofs_len ol, ptr_len* buf) {
   buf->ptr += ol.ofs;
@@ -57,13 +51,8 @@ offset_length_apply(ofs_len ol, ptr_len* buf) {
   buf->len = MIN(remain, ol.len);
 }
 
-static inline ptr_len
-offset_length_buf(ofs_len ol, ptr_len buf) {
-  return (ptr_len){buf.ptr + ol.ofs, ol.len};
-}
-
 static inline int
-js_index(JSContext* ctx, JSValueConst value, int64_t* pval) {
+js_index(JSContext* ctx, int64_t* pval, JSValueConst value) {
   int64_t ofs = 0;
 
   if(JS_ToInt64Ext(ctx, &ofs, value))
@@ -86,21 +75,6 @@ js_newptr(JSContext* ctx, void* ptr) {
     return JS_NewInt32(ctx, addr);
 
   return JS_NewBigInt64(ctx, addr);
-}
-
-static inline int
-js_offsetlength(JSContext* ctx, ofs_len* out, int argc, JSValueConst argv[]) {
-  ofs_len ol = {0, INT64_MAX};
-  int i = 0;
-
-  if(i < argc && !js_index(ctx, argv[i], &ol.ofs))
-    if(++i < argc && !js_index(ctx, argv[i], &ol.len))
-      i++;
-
-  if(out)
-    *out = ol;
-
-  return i;
 }
 
 static inline uint8_t*

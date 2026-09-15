@@ -575,7 +575,7 @@ js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[])
 /* n = dlclose(h) */
 static JSValue
 js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
-   void* ptr;
+  void* ptr;
 
   if(js_toptr(ctx, &ptr, argv[0]))
     return JS_EXCEPTION;
@@ -854,7 +854,7 @@ static JSValue
 js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   ptr_len buf;
 
-  if(!js_bufargv(ctx, &buf, argc, argv)) {
+  if(!js_buf_arguments(ctx, &buf, argc, argv)) {
     ofs_len ol = {0, INT64_MAX};
 
     if(!js_offsetlength(ctx, &ol, argc, argv))
@@ -903,7 +903,7 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
   if(argc > 1) {
     int64_t len;
 
-    if(js_index(ctx, argv[1], &len))
+    if(js_index(ctx, &len, argv[1]))
       return JS_EXCEPTION;
 
     if(buf.len) {
@@ -933,7 +933,7 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[
   if(argc > 1) {
     int64_t ofs = 0;
 
-    if(!js_index(ctx, argv[1], &ofs))
+    if(!js_index(ctx, &ofs, argv[1]))
       ptr += ofs;
   }
 

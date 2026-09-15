@@ -8,7 +8,7 @@ js_toptr(JSContext* ctx, void* pptr, JSValueConst value) {
 
   if(JS_IsNull(value))
     addr = 0;
-  else if(JS_ToInt64Ext(ctx, &addr, value) || addr == 0) {
+  else if(JS_ToInt64Ext(ctx, &addr, value)) {
     JS_ThrowTypeError(ctx, "value must be null, Number, BigInt or something convertible");
     return 1;
   }
@@ -17,6 +17,21 @@ js_toptr(JSContext* ctx, void* pptr, JSValueConst value) {
     *(void**)pptr = (void*)(intptr_t)addr;
 
   return 0;
+}
+
+int
+js_offsetlength(JSContext* ctx, ofs_len* out, int argc, JSValueConst argv[]) {
+  ofs_len ol = {0, INT64_MAX};
+  int i = 0;
+
+  if(i < argc && !js_index(ctx, &ol.ofs, argv[i]))
+    if(++i < argc && !js_index(ctx, &ol.len, argv[i]))
+      i++;
+
+  if(out)
+    *out = ol;
+
+  return i;
 }
 
 int
@@ -46,7 +61,7 @@ js_buf(JSContext* ctx, ptr_len* buf, JSValueConst obj) {
 }
 
 int
-js_bufargv(JSContext* ctx, ptr_len* pbuf, int argc, JSValueConst argv[]) {
+js_buf_arguments(JSContext* ctx, ptr_len* pbuf, int argc, JSValueConst argv[]) {
   int i = 1;
 
   if((pbuf->ptr = js_ptrlen(ctx, &pbuf->len, argv[0]))) {
@@ -59,7 +74,7 @@ js_bufargv(JSContext* ctx, ptr_len* pbuf, int argc, JSValueConst argv[]) {
   } else if(argc > 1 && !js_ptr(ctx, &pbuf->ptr, argv[0])) {
     int64_t n;
 
-    if(js_index(ctx, argv[1], &n))
+    if(js_index(ctx, &n, argv[1]))
       return 0;
 
     pbuf->len = n;
