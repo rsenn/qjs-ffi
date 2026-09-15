@@ -26,6 +26,11 @@ typedef struct buf {
   size_t len;
 } ptr_len;
 
+int js_toptr(JSContext*, void*, JSValueConst);
+int js_buf(JSContext*, ptr_len*, JSValueConst);
+int js_bufargv(JSContext*, ptr_len*, int, JSValueConst[]);
+int64_t js_array_length(JSContext*, JSValueConst);
+
 static inline ofs_len
 offset_length_wrap(ofs_len ol, size_t size) {
   int64_t offset = WRAP(ol.ofs, size);
@@ -70,6 +75,19 @@ js_index(JSContext* ctx, JSValueConst value, int64_t* pval) {
   return 0;
 }
 
+static inline JSValue
+js_newptr(JSContext* ctx, void* ptr) {
+  intptr_t addr = (intptr_t)ptr;
+
+  if(!addr)
+    return JS_NULL;
+
+  if((int64_t)addr == (int32_t)addr)
+    return JS_NewInt32(ctx, addr);
+
+  return JS_NewBigInt64(ctx, addr);
+}
+
 static inline int
 js_offsetlength(JSContext* ctx, ofs_len* out, int argc, JSValueConst argv[]) {
   ofs_len ol = {0, INT64_MAX};
@@ -85,32 +103,6 @@ js_offsetlength(JSContext* ctx, ofs_len* out, int argc, JSValueConst argv[]) {
   return i;
 }
 
-static inline int
-js_buf(JSContext* ctx, ptr_len* buf, JSValueConst obj) {
-  size_t offset, bytes, bytes_per_element;
-  JSValue buffer = JS_GetTypedArrayBuffer(ctx, obj, &offset, &bytes, &bytes_per_element);
-  int ret = 0;
-
-  if(JS_IsException(buffer)) {
-    /* JS_GetTypedArrayBuffer threw; discard the exception so the caller can
-     * treat this as a silent "not a typed array" probe. */
-    JS_FreeValue(ctx, JS_GetException(ctx));
-    buffer = JS_DupValue(ctx, obj);
-    offset = 0;
-    bytes = SIZE_MAX;
-  }
-
-  if((buf->ptr = JS_GetArrayBuffer(ctx, &buf->len, buffer)))
-    offset_length_apply((ofs_len){offset, (int64_t)bytes < 0 ? INT64_MAX : (int64_t)bytes}, buf);
-
-  JS_FreeValue(ctx, buffer);
-
-  if(!buf->ptr)
-    JS_FreeValue(ctx, JS_GetException(ctx));
-
-  return buf->ptr ? 0 : -1;
-}
-
 static inline uint8_t*
 js_ptrlen(JSContext* ctx, size_t* p_len, JSValueConst obj) {
   ptr_len buf;
@@ -124,40 +116,38 @@ js_ptrlen(JSContext* ctx, size_t* p_len, JSValueConst obj) {
   return buf.ptr;
 }
 
-static inline void*
-js_ptr(JSContext* ctx, JSValueConst value) {
-  int64_t n = (ptrdiff_t)js_ptrlen(ctx, NULL, value);
-
-  if(!n)
-    if(js_index(ctx, value, &n))
-      return 0;
-
-  return (void*)(ptrdiff_t)n;
-}
-
 static inline int
-js_bufargv(JSContext* ctx, ptr_len* pbuf, int argc, JSValueConst argv[]) {
-  int i = 1;
+js_ptr(JSContext* ctx, void* pptr, JSValueConst value) {
+  void* p;
 
-  if((pbuf->ptr = js_ptrlen(ctx, &pbuf->len, argv[0]))) {
-    ofs_len ol;
+  if(!(p = js_ptrlen(ctx, NULL, value)))
+    if(js_toptr(ctx, &p, value))
+      return 1;
 
-    if((i += js_offsetlength(ctx, &ol, argc - i, argv + i)) > 0) {
-      ol = offset_length_wrap(ol, pbuf->len);
-      offset_length_apply(ol, pbuf);
-    }
-  } else if(argc > 1 && (pbuf->ptr = js_ptr(ctx, argv[0]))) {
-    int64_t n;
+  if(pptr)
+    *(void**)pptr = p;
 
-    if(js_index(ctx, argv[1], &n))
-      return 0;
-
-    pbuf->len = n;
-  } else {
-    return 0;
-  }
-
-  return i;
+  return 0;
 }
+
+/* Function.prototype, fetched the same way qjs-lws's js_function_prototype()
+ * does (js-utils.c:9-15): a throwaway JS_NewCFunction exists only to read
+ * its [[Prototype]] off of.
+ */
+static inline JSValue
+js_function_prototype(JSContext* ctx) {
+  JSValue fn = JS_NewCFunction(ctx, NULL, "", 0);
+  JSValue proto = JS_GetPrototype(ctx, fn);
+  JS_FreeValue(ctx, fn);
+  return proto;
+}
+
+/* A callable JS function backed by a plain C function pointer + an opaque
+ * `void*` (rather than JSValue func_data), same shape as qjs-lws's
+ * JSCClosure (js-utils.c:348-442). Implementation in js-helpers.c.
+ */
+typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
+
+JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*opaque_finalize)(void*));
 
 #endif /* defined(QJSFFI_JS_HELPERS_H) */

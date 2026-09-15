@@ -14,7 +14,7 @@ await tests({
   'legacy dlopen(path, flags) still works'() {
     const h = dlopen(null, 2);
     assert(h !== null, 'legacy dlopen should return a handle');
-    eq('number', typeof h);
+    assert(typeof h === 'number' || typeof h === 'bigint', 'handle should be a number or bigint address');
   },
 
   'dlopen(path, symbolSpecs) returns { symbols, close }'() {

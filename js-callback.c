@@ -1,4 +1,5 @@
 #include "js-callback.h"
+#include "js-helpers.h"
 #include <cutils.h>
 #include <string.h>
 
@@ -89,7 +90,7 @@ native_to_js(JSContext* ctx, int kind, void* p) {
     case K_U64_FAST: return JS_NewFloat64(ctx, (double)*(uint64_t*)p);
     case K_F32: return JS_NewFloat64(ctx, *(float*)p);
     case K_F64: return JS_NewFloat64(ctx, *(double*)p);
-    case K_POINTER: return JS_NewInt64(ctx, (int64_t)(intptr_t)(*(void**)p));
+    case K_POINTER: return js_newptr(ctx, *(void**)p);
     case K_CSTRING: {
       char* s = *(char**)p;
       return s ? JS_NewString(ctx, s) : JS_NULL;
@@ -241,20 +242,16 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   int kinds[JS_CALLBACK_MAX_ARGS];
   ffi_type* ret_type = &ffi_type_void;
   int ret_kind = K_VOID;
-  uint32_t argc = 0, i;
+  int64_t argc = 0;
 
   if(!JS_IsUndefined(options) && !JS_IsNull(options)) {
     JSValue args_val = JS_GetPropertyStr(ctx, options, "args");
 
-    if(JS_IsArray(ctx, args_val)) {
-      JSValue len_val = JS_GetPropertyStr(ctx, args_val, "length");
-      JS_ToUint32(ctx, &argc, len_val);
-      JS_FreeValue(ctx, len_val);
-
+    if((argc = js_array_length(ctx, args_val)) >= 0) {
       if(argc > JS_CALLBACK_MAX_ARGS)
         argc = JS_CALLBACK_MAX_ARGS;
 
-      for(i = 0; i < argc; i++) {
+      for(int64_t i = 0; i < argc; i++) {
         JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
         const char* s = JS_ToCString(ctx, item);
         int kind = K_I32;
@@ -320,8 +317,7 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
     return NULL;
   }
 
-  if(ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->argc, cl->ret_type, cl->arg_types) != FFI_OK ||
-     ffi_prep_closure_loc(cl->closure, &cl->cif, js_callback_handler, cl, cl->code) != FFI_OK) {
+  if(ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->argc, cl->ret_type, cl->arg_types) != FFI_OK || ffi_prep_closure_loc(cl->closure, &cl->cif, js_callback_handler, cl, cl->code) != FFI_OK) {
     JS_FreeValue(ctx, cl->func);
     js_callback_release(ctx, cl);
     js_free(ctx, cl);
@@ -450,7 +446,7 @@ js_callback_get(JSContext* ctx, JSValueConst this_val, int magic) {
       return ret;
     }
 
-    case PROP_PTR: return JS_NewInt64(ctx, (int64_t)(intptr_t)cl->code);
+    case PROP_PTR: return js_newptr(ctx, cl->code);
     case PROP_CALLED: return JS_NewInt32(ctx, cl->called);
     case PROP_FUNCOBJ: return JS_DupValue(ctx, cl->func);
     case PROP_EXCEPTION: return JS_DupValue(ctx, cl->exception);

@@ -39,18 +39,18 @@ await tests({
     cb.close();
   },
 
-  'ptr is non-zero while open, and zero after close()'() {
+  'ptr is non-zero while open, and null after close()'() {
     const cb = new JSCallback(() => 0, { returns: 'i32' });
-    assert(typeof cb.ptr === 'number' && cb.ptr !== 0, 'ptr should be a non-zero address');
+    assert((typeof cb.ptr === 'number' || typeof cb.ptr === 'bigint') && cb.ptr !== 0, 'ptr should be a non-zero address');
     cb.close();
-    eq(0, cb.ptr);
+    eq(null, cb.ptr);
   },
 
   'close() is idempotent'() {
     const cb = new JSCallback(() => 0, { returns: 'i32' });
     cb.close();
     cb.close(); // must not throw
-    eq(0, cb.ptr);
+    eq(null, cb.ptr);
   },
 
   'funcObj returns the exact function passed to the constructor'() {

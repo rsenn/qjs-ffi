@@ -157,7 +157,7 @@ js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst
       out->f64 = d;
       break;
 
-    case K_POINTER: out->ptr = js_ptr(ctx, v); break;
+    case K_POINTER: js_ptr(ctx, &out->ptr, v); break;
 
     default: out->i64 = 0; break;
   }
@@ -181,7 +181,7 @@ native_ret_to_js(JSContext* ctx, int kind, union native_value* rc) {
     case K_U64_FAST: return JS_NewFloat64(ctx, (double)rc->u64);
     case K_F32: return JS_NewFloat64(ctx, rc->f32);
     case K_F64: return JS_NewFloat64(ctx, rc->f64);
-    case K_POINTER: return JS_NewInt64(ctx, (int64_t)(intptr_t)rc->ptr);
+    case K_POINTER: return js_newptr(ctx, rc->ptr);
     case K_CSTRING: return rc->ptr ? JS_NewString(ctx, rc->ptr) : JS_NULL;
     default: return JS_UNDEFINED;
   }
@@ -206,7 +206,7 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
   ffi_type* ret_type = &ffi_type_void;
   int ret_kind = K_VOID;
   int abi = FFI_DEFAULT_ABI;
-   uint32_t argc = 0;
+  int64_t argc = 0;
 
   if(!JS_IsObject(options)) {
     JS_ThrowTypeError(ctx, "CFunction: argument 1 must be an object");
@@ -214,25 +214,23 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
   }
 
   JSValue ptr_val = JS_GetPropertyStr(ctx, options, "ptr");
-  void* fp = js_ptr(ctx, ptr_val);
-  JS_FreeValue(ctx, ptr_val);
+  void* fp;
 
-  if(!fp) {
+  if(js_toptr(ctx, &fp, ptr_val) || !fp) {
+    JS_FreeValue(ctx, ptr_val);
     JS_ThrowTypeError(ctx, "CFunction: options.ptr must be a valid function pointer");
     return NULL;
   }
 
+  JS_FreeValue(ctx, ptr_val);
+
   JSValue args_val = JS_GetPropertyStr(ctx, options, "args");
 
-  if(JS_IsArray(ctx, args_val)) {
-    JSValue len_val = JS_GetPropertyStr(ctx, args_val, "length");
-    JS_ToUint32(ctx, &argc, len_val);
-    JS_FreeValue(ctx, len_val);
-
+  if((argc = js_array_length(ctx, args_val)) >= 0) {
     if(argc > CFUNCTION_MAX_ARGS)
       argc = CFUNCTION_MAX_ARGS;
 
-    for(uint32_t i = 0; i < argc; i++) {
+    for(int64_t i = 0; i < argc; i++) {
       JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
       const char* s = JS_ToCString(ctx, item);
       int kind = K_I32;
@@ -312,20 +310,18 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
  * qjs-lws's JSCClosure, see js-utils.c:405-409).
  */
 static JSValue
-js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, int argc, JSValueConst* argv, int flags) {
+js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, int argc, JSValueConst argv[], int flags) {
   CFunctionData* cf = JS_GetOpaque(func_obj, js_cfunction_class_id);
   union native_value args_storage[CFUNCTION_MAX_ARGS];
   void* ptrs[CFUNCTION_MAX_ARGS];
   const char* cstrings[CFUNCTION_MAX_ARGS];
   int cstring_count = 0;
   union native_value rc;
-  int i;
-  JSValue ret;
 
   if(!cf)
     return JS_ThrowTypeError(ctx, "CFunction: invalid function");
 
-  for(i = 0; i < cf->argc; i++) {
+  for(int i = 0; i < cf->argc; i++) {
     JSValueConst v = i < argc ? argv[i] : JS_UNDEFINED;
 
     if(cf->arg_kind[i] == K_CSTRING) {
@@ -341,7 +337,7 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
 
   ffi_call(&cf->cif, cf->fp, &rc, cf->argc ? ptrs : NULL);
 
-  ret = native_ret_to_js(ctx, cf->ret_kind, &rc);
+  JSValue ret = native_ret_to_js(ctx, cf->ret_kind, &rc);
 
   while(cstring_count > 0)
     JS_FreeCString(ctx, cstrings[--cstring_count]);
@@ -372,7 +368,7 @@ static JSClassDef js_cfunction_class = {
 
 /* fn = CFunction({ ptr, args, returns, abi }) */
 static JSValue
-js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   JSValueConst options = argc > 0 ? argv[0] : JS_UNDEFINED;
   CFunctionData* cf;
 

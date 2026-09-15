@@ -521,13 +521,13 @@ error:
 
 /* debug() */
 static JSValue
-js_debug(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_debug(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   return JS_NULL;
 }
 
 /* errno() */
 static JSValue
-js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   return JS_NewInt32(ctx, errno);
 }
 
@@ -538,7 +538,7 @@ static JSValue js_dlopen_symbols(JSContext*, JSValueConst path_val, JSValueConst
  * picked when argv[1] is an object rather than a number (TODO.md Phase 2).
  */
 static JSValue
-js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   const char* s;
   uint32_t n;
 
@@ -561,12 +561,12 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   if(res == NULL)
     return JS_NULL;
 
-  return JS_NewInt64(ctx, (ptrdiff_t)res);
+  return js_newptr(ctx, res);
 }
 
 /* s = dlerror() */
 static JSValue
-js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   char* res = dlerror();
 
   return res ? JS_NewString(ctx, res) : JS_NULL;
@@ -574,28 +574,31 @@ js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) 
 
 /* n = dlclose(h) */
 static JSValue
-js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  int64_t n;
+js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+   void* ptr;
 
-  if(JS_ToInt64(ctx, &n, argv[0]))
+  if(js_toptr(ctx, &ptr, argv[0]))
     return JS_EXCEPTION;
 
-  return JS_NewInt32(ctx, dlclose((void*)(ptrdiff_t)n));
+  if(ptr == NULL)
+    return JS_ThrowTypeError(ctx, "argument 1 must be a non-NULL pointer");
+
+  return JS_NewInt32(ctx, dlclose(ptr));
 }
 
 /* p = dlsym(h, name) */
 static JSValue
-js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  int64_t n;
+js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  void* ptr;
   const char* s;
 
-  if(JS_ToInt64(ctx, &n, argv[0]))
+  if(js_toptr(ctx, &ptr, argv[0]))
     return JS_EXCEPTION;
 
   if(!(s = JS_ToCString(ctx, argv[1])))
     return JS_EXCEPTION;
 
-  void* res = dlsym((void*)(ptrdiff_t)n, s);
+  void* res = dlsym(ptr, s);
 
   if(s)
     JS_FreeCString(ctx, s);
@@ -603,16 +606,23 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   if(res == NULL)
     return JS_NULL;
 
-  return JS_NewInt64(ctx, (ptrdiff_t)res);
+  return js_newptr(ctx, res);
 }
 
-/* n = dlopen(path, symbolSpecs).close() -- frees the func_data-captured handle */
+/* n = dlopen(path, symbolSpecs).close() -- frees the dlopen() handle, passed
+ * through js_function_cclosure()'s `opaque` (see js-helpers.c/.h) rather
+ * than boxed into a func_data JSValue. */
 static JSValue
-js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValue* func_data) {
-  int64_t h = 0;
+js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst data[]) {
+  void* ptr;
+  JSValue ret = JS_UNDEFINED;
 
-  JS_ToInt64(ctx, &h, func_data[0]);
-  return JS_NewInt32(ctx, dlclose((void*)(ptrdiff_t)h));
+  if(!js_toptr(ctx, &ptr, data[0]))
+    ret = JS_NewInt32(ctx, dlclose(ptr));
+
+  JS_FreeValue(ctx, data[0]);
+  data[0] = JS_UNDEFINED;
+  return ret;
 }
 
 /* { symbols, close() } = dlopen(path, symbolSpecs) -- bun-shaped overload,
@@ -665,7 +675,7 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
     JS_FreeCString(ctx, name);
 
     JSValue opts = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, opts, "ptr", JS_NewInt64(ctx, (int64_t)(ptrdiff_t)fp));
+    JS_SetPropertyStr(ctx, opts, "ptr", js_newptr(ctx, fp));
     JS_SetPropertyStr(ctx, opts, "args", JS_GetPropertyStr(ctx, spec, "args"));
     JS_SetPropertyStr(ctx, opts, "returns", JS_GetPropertyStr(ctx, spec, "returns"));
     JS_SetPropertyStr(ctx, opts, "abi", JS_GetPropertyStr(ctx, spec, "abi"));
@@ -687,8 +697,8 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
 
   js_free(ctx, tab);
 
-  JSValue close_data = JS_NewInt64(ctx, (int64_t)(ptrdiff_t)handle);
-  JSValue close_fn = JS_NewCFunctionData(ctx, js_dlopen_symbols_close, 0, 0, 1, (JSValueConst*)&close_data);
+  JSValue close_data = js_newptr(ctx, handle);
+  JSValue close_fn = JS_NewCFunctionData(ctx, js_dlopen_symbols_close, 0, 0, 1, &close_data);
   JS_FreeValue(ctx, close_data);
 
   JSValue result = JS_NewObject(ctx);
@@ -710,15 +720,21 @@ fail:
 
 /* define(name, fp, abi, ret, p1,...pn) */
 static JSValue
-js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  const char *name, *abi, *rtype;
-  int64_t fp = 0;
+js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  const char *name, *abi = NULL, *rtype = NULL;
+  void* fp = 0;
+  JSValue r = JS_EXCEPTION;
 
   if(!(name = JS_ToCString(ctx, argv[0])))
     goto error;
 
-  if(JS_ToInt64(ctx, &fp, argv[1]))
+  if(js_toptr(ctx, &fp, argv[1]))
     goto error;
+
+  if(fp == NULL) {
+    JS_ThrowTypeError(ctx, "argument 2 must be a pointer that is not NULL");
+    goto error;
+  }
 
   if(JS_IsNull(argv[2]))
     abi = NULL;
@@ -728,15 +744,15 @@ js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
   if(!(rtype = JS_ToCString(ctx, argv[3])))
     goto error;
 
-  int nparams = 0;
   const char* params[MAX_PARAMETERS + 1];
+  int nparams = 0;
 
   for(int i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i)
     params[nparams++] = JS_ToCString(ctx, argv[i]);
 
   params[nparams] = NULL;
 
-  return define_function(name, (void*)(ptrdiff_t)fp, abi, rtype, params) ? JS_TRUE : JS_FALSE;
+  r = define_function(name, fp, abi, rtype, params) ? JS_TRUE : JS_FALSE;
 
 error:
   if(name)
@@ -748,7 +764,7 @@ error:
   for(int i = 0; i < nparams; ++i)
     JS_FreeCString(ctx, params[i]);
 
-  return JS_EXCEPTION;
+  return r;
 }
 
 /* For 2020-01-19 support */
@@ -760,7 +776,7 @@ JS_IsInteger(JSValueConst v) {
 
 /* r = call(name, p1,...pn) */
 static JSValue
-js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   const char* name = NULL;
   JSValue r = JS_EXCEPTION;
   typed_argument args[MAX_PARAMETERS];
@@ -784,10 +800,10 @@ js_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
 
       if(args[i - 1].arg.ll < 0)
         goto error;
-    } else if(JS_IsInteger(argv[i])) {
+    } else if(JS_IsInteger(argv[i]) || JS_IsBigInt(ctx, argv[i])) {
       int64_t v;
 
-      if(JS_ToInt64(ctx, &v, argv[i]))
+      if(JS_ToInt64Ext(ctx, &v, argv[i]))
         goto error;
       args[i - 1].arg.ll = v;
     } else if(JS_IsNumber(argv[i])) {
@@ -835,7 +851,7 @@ error:
 
 /* s = toString(BUF[, ofs, len] or PTR[, len]) */
 static JSValue
-js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   ptr_len buf;
 
   if(!js_bufargv(ctx, &buf, argc, argv)) {
@@ -863,7 +879,7 @@ free_objptr(JSRuntime* rt, void* opaque, void* ptr) {
 
 /* b = toArrayBuffer(ArrayBuffer|Number|string[, size]) */
 static JSValue
-js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   ptr_len buf = {0, SIZE_MAX};
   void* opaque = 0;
   int copy = -1;
@@ -880,7 +896,7 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
     buf.ptr = (uint8_t*)JS_ToCStringLen(ctx, &buf.len, argv[0]);
     copy = TRUE;
   } else {
-    if(!(buf.ptr = js_ptr(ctx, argv[0])))
+    if(js_ptr(ctx, &buf.ptr, argv[0]))
       return JS_EXCEPTION;
   }
 
@@ -908,10 +924,10 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
  * indicating an offset from the end of the buffer.
  */
 static JSValue
-js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* ptr = NULL;
 
-  if(!(ptr = js_ptr(ctx, argv[0])))
+  if(js_ptr(ctx, &ptr, argv[0]))
     return JS_EXCEPTION;
 
   if(argc > 1) {
@@ -928,8 +944,8 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
 
 /* p = JSContext() */
 static JSValue
-js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  return JS_NewInt64(ctx, (ptrdiff_t)ctx);
+js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  return js_newptr(ctx, ctx);
 }
 
 static const JSCFunctionListEntry js_funcs[] = {
