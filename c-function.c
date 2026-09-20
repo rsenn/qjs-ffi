@@ -1,73 +1,9 @@
 #include "c-function.h"
+#include "ffi-type.h"
 #include "js-helpers.h"
 #include <cutils.h>
 #include <ffi.h>
 #include <string.h>
-
-#define CFUNCTION_MAX_ARGS 32
-
-/* Marshaling kinds, matching bun:ffi's FFIType vocabulary (see the
- * `FFIType` export in ffi-type.c and doc/c-function.md). Kept local to this
- * file, same as js-callback.c: c-function.c doesn't depend on ffi.c's
- * mutable, string-keyed type registry.
- */
-enum {
-  K_VOID = 0,
-  K_BOOL,
-  K_I8,
-  K_U8,
-  K_I16,
-  K_U16,
-  K_I32,
-  K_U32,
-  K_I64,
-  K_U64,
-  K_I64_FAST,
-  K_U64_FAST,
-  K_F32,
-  K_F64,
-  K_POINTER,
-  K_CSTRING,
-};
-
-static const struct {
-  const char* name;
-  ffi_type* type;
-  int kind;
-} type_table[] = {
-    {"void", &ffi_type_void, K_VOID},
-    {"bool", &ffi_type_uint8, K_BOOL},
-    {"i8", &ffi_type_sint8, K_I8},
-    {"u8", &ffi_type_uint8, K_U8},
-    {"i16", &ffi_type_sint16, K_I16},
-    {"u16", &ffi_type_uint16, K_U16},
-    {"i32", &ffi_type_sint32, K_I32},
-    {"u32", &ffi_type_uint32, K_U32},
-    {"i64", &ffi_type_sint64, K_I64},
-    {"u64", &ffi_type_uint64, K_U64},
-    {"i64_fast", &ffi_type_sint64, K_I64_FAST},
-    {"u64_fast", &ffi_type_uint64, K_U64_FAST},
-    {"f32", &ffi_type_float, K_F32},
-    {"f64", &ffi_type_double, K_F64},
-    {"pointer", &ffi_type_pointer, K_POINTER},
-    {"ptr", &ffi_type_pointer, K_POINTER},
-    {"function", &ffi_type_pointer, K_POINTER},
-    {"cstring", &ffi_type_pointer, K_CSTRING},
-};
-
-static ffi_type*
-resolve_type(const char* name, int* kind) {
-  size_t i;
-
-  if(name)
-    for(i = 0; i < countof(type_table); i++)
-      if(!strcmp(type_table[i].name, name)) {
-        *kind = type_table[i].kind;
-        return type_table[i].type;
-      }
-
-  return NULL;
-}
 
 static int
 resolve_abi(const char* name) {
@@ -108,11 +44,7 @@ union native_value {
 typedef struct CFunctionData {
   void* fp;
   ffi_cif cif;
-  int argc;
-  ffi_type** arg_types;
-  int* arg_kind;
-  ffi_type* ret_type;
-  int ret_kind;
+  FFISignature sig;
 } CFunctionData;
 
 static JSClassID js_cfunction_class_id;
@@ -188,25 +120,15 @@ native_ret_to_js(JSContext* ctx, int kind, union native_value* rc) {
 }
 
 static void
-js_cfunction_data_free(JSContext* ctx, CFunctionData* cf) {
-  if(cf->arg_types)
-    js_free(ctx, cf->arg_types);
-
-  if(cf->arg_kind)
-    js_free(ctx, cf->arg_kind);
-
-  js_free(ctx, cf);
+js_cfunction_data_free(JSRuntime* rt, CFunctionData* cf) {
+  ffi_sig_free(rt, &cf->sig);
+  js_free_rt(rt, cf);
 }
 
 static CFunctionData*
 js_cfunction_new(JSContext* ctx, JSValueConst options) {
   CFunctionData* cf;
-  ffi_type* types[CFUNCTION_MAX_ARGS];
-  int kinds[CFUNCTION_MAX_ARGS];
-  ffi_type* ret_type = &ffi_type_void;
-  int ret_kind = K_VOID;
   int abi = FFI_DEFAULT_ABI;
-  int64_t argc = 0;
 
   if(!JS_IsObject(options)) {
     JS_ThrowTypeError(ctx, "CFunction: argument 1 must be an object");
@@ -224,47 +146,13 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
 
   JS_FreeValue(ctx, ptr_val);
 
-  JSValue args_val = JS_GetPropertyStr(ctx, options, "args");
+  if(!(cf = js_mallocz(ctx, sizeof(CFunctionData))))
+    return NULL;
 
-  if((argc = js_array_length(ctx, args_val)) < 0)
-    argc = 0;
-
-  if(argc > CFUNCTION_MAX_ARGS)
-    argc = CFUNCTION_MAX_ARGS;
-
-  for(int64_t i = 0; i < argc; i++) {
-    JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
-    const char* s = JS_ToCString(ctx, item);
-    int kind = K_I32;
-    ffi_type* t = resolve_type(s, &kind);
-
-    if(s)
-      JS_FreeCString(ctx, s);
-    JS_FreeValue(ctx, item);
-
-    types[i] = t ? t : &ffi_type_sint32;
-    kinds[i] = t ? kind : K_I32;
+  if(ffi_sig_parse(ctx, &cf->sig, options)) {
+    js_free(ctx, cf);
+    return NULL;
   }
-
-  JS_FreeValue(ctx, args_val);
-
-  JSValue ret_val = JS_GetPropertyStr(ctx, options, "returns");
-
-  if(!JS_IsUndefined(ret_val)) {
-    const char* s = JS_ToCString(ctx, ret_val);
-    int kind;
-    ffi_type* t = resolve_type(s, &kind);
-
-    if(s)
-      JS_FreeCString(ctx, s);
-
-    if(t) {
-      ret_type = t;
-      ret_kind = kind;
-    }
-  }
-
-  JS_FreeValue(ctx, ret_val);
 
   JSValue abi_val = JS_GetPropertyStr(ctx, options, "abi");
 
@@ -278,27 +166,11 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
 
   JS_FreeValue(ctx, abi_val);
 
-  if(!(cf = js_mallocz(ctx, sizeof(CFunctionData))))
-    return NULL;
-
-  if(argc) {
-    if(!(cf->arg_types = js_mallocz(ctx, sizeof(ffi_type*) * argc)) || !(cf->arg_kind = js_mallocz(ctx, sizeof(int) * argc))) {
-      js_cfunction_data_free(ctx, cf);
-      return NULL;
-    }
-
-    memcpy(cf->arg_types, types, sizeof(ffi_type*) * argc);
-    memcpy(cf->arg_kind, kinds, sizeof(int) * argc);
-  }
-
   cf->fp = fp;
-  cf->argc = argc;
-  cf->ret_type = ret_type;
-  cf->ret_kind = ret_kind;
 
-  if(ffi_prep_cif(&cf->cif, abi, cf->argc, cf->ret_type, cf->arg_types) != FFI_OK) {
+  if(ffi_prep_cif(&cf->cif, abi, cf->sig.argc, cf->sig.ret_type, cf->sig.arg_types) != FFI_OK) {
     JS_ThrowTypeError(ctx, "CFunction: ffi_prep_cif failed");
-    js_cfunction_data_free(ctx, cf);
+    js_cfunction_data_free(JS_GetRuntime(ctx), cf);
     return NULL;
   }
 
@@ -313,32 +185,32 @@ js_cfunction_new(JSContext* ctx, JSValueConst options) {
 static JSValue
 js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, int argc, JSValueConst argv[], int flags) {
   CFunctionData* cf = JS_GetOpaque(func_obj, js_cfunction_class_id);
-  union native_value args_storage[CFUNCTION_MAX_ARGS];
-  void* ptrs[CFUNCTION_MAX_ARGS];
-  const char* cstrings[CFUNCTION_MAX_ARGS];
+  union native_value args_storage[FFI_MAX_ARGS];
+  void* ptrs[FFI_MAX_ARGS];
+  const char* cstrings[FFI_MAX_ARGS];
   int cstring_count = 0;
   union native_value rc;
 
   if(!cf)
     return JS_ThrowTypeError(ctx, "CFunction: invalid function");
 
-  for(int i = 0; i < cf->argc; i++) {
+  for(int i = 0; i < cf->sig.argc; i++) {
     JSValueConst v = i < argc ? argv[i] : JS_UNDEFINED;
 
-    if(cf->arg_kind[i] == K_CSTRING) {
+    if(cf->sig.arg_kind[i] == K_CSTRING) {
       const char* s = JS_ToCString(ctx, v);
       cstrings[cstring_count++] = s;
       args_storage[i].ptr = (void*)s;
     } else {
-      js_to_native_arg(ctx, cf->arg_kind[i], &args_storage[i], v);
+      js_to_native_arg(ctx, cf->sig.arg_kind[i], &args_storage[i], v);
     }
 
     ptrs[i] = &args_storage[i];
   }
 
-  ffi_call(&cf->cif, cf->fp, &rc, cf->argc ? ptrs : NULL);
+  ffi_call(&cf->cif, cf->fp, &rc, cf->sig.argc ? ptrs : NULL);
 
-  JSValue ret = native_ret_to_js(ctx, cf->ret_kind, &rc);
+  JSValue ret = native_ret_to_js(ctx, cf->sig.ret_kind, &rc);
 
   while(cstring_count > 0)
     JS_FreeCString(ctx, cstrings[--cstring_count]);
@@ -350,15 +222,8 @@ static void
 js_cfunction_finalizer(JSRuntime* rt, JSValue val) {
   CFunctionData* cf;
 
-  if((cf = JS_GetOpaque(val, js_cfunction_class_id))) {
-    if(cf->arg_types)
-      js_free_rt(rt, cf->arg_types);
-
-    if(cf->arg_kind)
-      js_free_rt(rt, cf->arg_kind);
-
-    js_free_rt(rt, cf);
-  }
+  if((cf = JS_GetOpaque(val, js_cfunction_class_id)))
+    js_cfunction_data_free(rt, cf);
 }
 
 static JSClassDef js_cfunction_class = {
@@ -381,7 +246,7 @@ js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValu
   JS_FreeValue(ctx, func_proto);
 
   if(JS_IsException(func_obj)) {
-    js_cfunction_data_free(ctx, cf);
+    js_cfunction_data_free(JS_GetRuntime(ctx), cf);
     return JS_EXCEPTION;
   }
 

@@ -4,6 +4,7 @@
 #include <quickjs.h>
 #include <list.h>
 #include <ffi.h>
+#include "ffi-type.h"
 
 /* JSCallback: a native function pointer (.ptr) that, when called by C code,
  * invokes a JS function. Mirrors bun:ffi's JSCallback:
@@ -27,11 +28,7 @@ typedef struct JSCallback {
   ffi_cif cif;
   ffi_closure* closure;
   void* code;
-  int argc;
-  ffi_type** arg_types;
-  int* arg_kind;
-  ffi_type* ret_type;
-  int ret_kind;
+  FFISignature sig;
 } JSCallback;
 
 extern JSClassID js_callback_class_id;
