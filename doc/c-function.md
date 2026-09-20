@@ -36,7 +36,7 @@ fn = CFunction({ ptr, args, returns, abi })
 | Option    | Required | Description                                                                                       |
 | --------- | -------- | --------------------------------------------------------------------------------------------------- |
 | `ptr`     | yes      | The native function pointer to call. Anything accepted by `toPointer`/`js_ptr` works: `null`, a number/BigInt address (e.g. from `dlsym()`, which itself returns `null` for a NULL pointer), or an ArrayBuffer/TypedArray. |
-| `args`    | no       | Array of type names (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments. |
+| `args`    | no       | Array of type names (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
 | `returns` | no       | Type name for the return value (see [Types](#types)). Defaults to `"void"`.                       |
 | `abi`     | no       | Call ABI name (see [ABI](#abi)). Defaults to `"default"`.                                          |
 

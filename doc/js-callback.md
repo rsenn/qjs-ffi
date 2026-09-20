@@ -34,7 +34,7 @@ cb = new JSCallback(fn, { args, returns })
 | Parameter | Required | Description                                                                 |
 | --------- | -------- | ---------------------------------------------------------------------------- |
 | `fn`      | yes      | The JS function to call back into. Must be callable, or a `TypeError` is thrown. |
-| `args`    | no       | Array of type names (see [Types](#types)) declaring the native parameter list, in order. Omit or use `[]` for a callback that takes no arguments. Up to 32 arguments are supported; extras beyond that are dropped. |
+| `args`    | no       | Array of type names (see [Types](#types)) declaring the native parameter list, in order. Omit or use `[]` for a callback that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
 | `returns` | no       | Type name for the value the native return slot expects (see [Types](#types)). Defaults to `"void"`. |
 
 Throws if `ffi_closure_alloc()`/`ffi_prep_cif()`/`ffi_prep_closure_loc()`
