@@ -64,6 +64,17 @@ extern const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT];
 /* Looks up a type name; returns NULL (leaving *kind untouched) if unknown. */
 ffi_type* ffi_resolve_type(const char* name, int* kind);
 
+/* Native slot -> JSValue per kind: a JSCallback argument, or an ffi_call()
+ * return slot. Small integer returns are widened by libffi, which on
+ * little-endian leaves the declared-width value at the slot's start.
+ */
+JSValue ffi_native_to_js(JSContext* ctx, int kind, const void* p);
+
+/* Maps an ABI name to its libffi constant; NULL or unknown names give
+ * FFI_DEFAULT_ABI.
+ */
+int ffi_resolve_abi(const char* name);
+
 /* Parsed `{ args, returns }` options, shared by CFunction and JSCallback. */
 typedef struct FFISignature {
   int argc;

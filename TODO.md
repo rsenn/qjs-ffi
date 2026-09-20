@@ -94,7 +94,7 @@ Phase 2 (`dlopen(path, symbolSpecs)`, bun-shaped) is done: `js_dlopen()` in
 (overload by argument shape, resolving the naming-collision decision point —
 legacy `dlopen(path, flags)` is untouched for the number-flags call shape).
 It `dlsym()`s each key in `symbolSpecs`, builds a `CFunction` per symbol via
-the now-exported `js_cfunction_ctor` (`c-function.h`), and returns
+the exported `js_cfunction_create()` (`c-function.h`), and returns
 `{ symbols: { ...name: CFunction }, close() }` where `close()` `dlclose()`s
 the handle. Verified in `tests/test-dlopen-symbols.js` (legacy form still
 works, symbol-not-found and bad-path both throw `TypeError`, `close()`

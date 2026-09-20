@@ -145,42 +145,6 @@ define_ffi_type(const char* name, ffi_type* t) {
   p->type = t;
 }
 
-/* Return ABI */
-static int
-find_abi(const char* name) {
-  if(strcmp(name, "default") == 0)
-    return FFI_DEFAULT_ABI;
-#ifdef FFI_SYSV
-  if(strcmp(name, "sysv") == 0)
-    return FFI_SYSV;
-#endif
-#ifdef FFI_UNIX64
-  if(strcmp(name, "unix64") == 0)
-    return FFI_UNIX64;
-#endif
-#ifdef FFI_STDCALL
-  if(strcmp(name, "stdcall") == 0)
-    return FFI_STDCALL;
-#endif
-#ifdef FFI_THISCALL
-  if(strcmp(name, "thiscall") == 0)
-    return FFI_THISCALL;
-#endif
-#ifdef FFI_FASTCALL
-  if(strcmp(name, "fastcall") == 0)
-    return FFI_FASTCALL;
-#endif
-#ifdef FFI_MS_CDECL
-  if(strcmp(name, "ms_cdecl") == 0)
-    return FFI_MS_CDECL;
-#endif
-#ifdef FFI_WIN64
-  if(strcmp(name, "win64") == 0)
-    return FFI_WIN64;
-#endif
-  return FFI_DEFAULT_ABI;
-}
-
 /* Define standard types. */
 static void
 define_types(void) {
@@ -333,7 +297,7 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
   }
 
   /* Prepare cif. Add prepared function to function list and return TRUE. */
-  if(ffi_prep_cif(&(f->cif), find_abi(abi), f->nargs, f->rtype->type, f->args) == FFI_OK) {
+  if(ffi_prep_cif(&(f->cif), ffi_resolve_abi(abi), f->nargs, f->rtype->type, f->args) == FFI_OK) {
     f->next = function_list;
     function_list = f;
     return TRUE;
@@ -617,6 +581,9 @@ js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   void* ptr;
   JSValue ret = JS_UNDEFINED;
 
+  if(JS_IsUndefined(data[0]))
+    return JS_NewInt32(ctx, 0);
+
   if(!js_toptr(ctx, &ptr, data[0]))
     ret = JS_NewInt32(ctx, dlclose(ptr));
 
@@ -674,15 +641,11 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
     JSValue spec = JS_GetPropertyStr(ctx, symbol_specs, name);
     JS_FreeCString(ctx, name);
 
-    JSValue opts = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, opts, "ptr", js_newptr(ctx, fp));
-    JS_SetPropertyStr(ctx, opts, "args", JS_GetPropertyStr(ctx, spec, "args"));
-    JS_SetPropertyStr(ctx, opts, "returns", JS_GetPropertyStr(ctx, spec, "returns"));
-    JS_SetPropertyStr(ctx, opts, "abi", JS_GetPropertyStr(ctx, spec, "abi"));
-    JS_FreeValue(ctx, spec);
+    if(JS_IsException(spec))
+      goto fail;
 
-    JSValue fn = JS_Call(ctx, js_cfunction_ctor, JS_UNDEFINED, 1, (JSValueConst*)&opts);
-    JS_FreeValue(ctx, opts);
+    JSValue fn = js_cfunction_create(ctx, fp, spec);
+    JS_FreeValue(ctx, spec);
 
     if(JS_IsException(fn))
       goto fail;
@@ -723,6 +686,7 @@ static JSValue
 js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   const char *name, *abi = NULL, *rtype = NULL;
   void* fp = 0;
+  int nparams = 0;
   JSValue r = JS_EXCEPTION;
 
   if(!(name = JS_ToCString(ctx, argv[0])))
@@ -745,7 +709,6 @@ js_define(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) 
     goto error;
 
   const char* params[MAX_PARAMETERS + 1];
-  int nparams = 0;
 
   for(int i = 4; (i < argc) && (nparams < MAX_PARAMETERS); ++i)
     params[nparams++] = JS_ToCString(ctx, argv[i]);

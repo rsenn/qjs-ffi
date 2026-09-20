@@ -53,6 +53,12 @@ await tests({
     assert(e instanceof TypeError, 'expected TypeError, got ' + e);
   },
 
+  'close() called twice is a no-op'() {
+    const lib = dlopen(null, { getpid: { args: [], returns: 'i32' } });
+    eq(0, lib.close());
+    eq(0, lib.close());
+  },
+
   'close() actually dlcloses -- a second dlopen(same path) still works after close'() {
     const lib1 = dlopen(null, { getpid: { args: [], returns: 'i32' } });
     lib1.close();

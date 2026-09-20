@@ -17,7 +17,12 @@
  * directly against that stored cif, so there is nothing to look up (no
  * strcmp scan, unlike ffi.c's legacy define()/call()).
  */
-extern JSValue js_cfunction_ctor;
+
+/* Builds a CFunction around `fp` from a `{ args, returns, abi }` spec; a
+ * non-object spec yields a no-argument, void-returning function. Returns
+ * JS_EXCEPTION on failure.
+ */
+JSValue js_cfunction_create(JSContext*, void* fp, JSValueConst spec);
 
 int js_cfunction_init(JSContext*, JSModuleDef*);
 

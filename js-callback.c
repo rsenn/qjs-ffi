@@ -3,35 +3,9 @@
 #include <cutils.h>
 
 JSClassID js_callback_class_id;
-JSValue js_callback_proto, js_callback_ctor;
+static JSValue js_callback_proto;
 
 static struct list_head callback_list;
-
-/* Native argument (from libffi's `void** args`) -> JSValue, per declared kind. */
-static JSValue
-native_to_js(JSContext* ctx, int kind, void* p) {
-  switch(kind) {
-    case K_BOOL: return JS_NewBool(ctx, *(uint8_t*)p != 0);
-    case K_I8: return JS_NewInt32(ctx, *(int8_t*)p);
-    case K_U8: return JS_NewInt32(ctx, *(uint8_t*)p);
-    case K_I16: return JS_NewInt32(ctx, *(int16_t*)p);
-    case K_U16: return JS_NewInt32(ctx, *(uint16_t*)p);
-    case K_I32: return JS_NewInt32(ctx, *(int32_t*)p);
-    case K_U32: return JS_NewInt64(ctx, *(uint32_t*)p);
-    case K_I64: return JS_NewBigInt64(ctx, *(int64_t*)p);
-    case K_U64: return JS_NewBigUint64(ctx, *(uint64_t*)p);
-    case K_I64_FAST: return JS_NewFloat64(ctx, (double)*(int64_t*)p);
-    case K_U64_FAST: return JS_NewFloat64(ctx, (double)*(uint64_t*)p);
-    case K_F32: return JS_NewFloat64(ctx, *(float*)p);
-    case K_F64: return JS_NewFloat64(ctx, *(double*)p);
-    case K_POINTER: return js_newptr(ctx, *(void**)p);
-    case K_CSTRING: {
-      char* s = *(char**)p;
-      return s ? JS_NewString(ctx, s) : JS_NULL;
-    }
-    default: return JS_UNDEFINED;
-  }
-}
 
 /* JSValue (the JS function's return value) -> native return slot, per
  * declared kind.
@@ -128,7 +102,7 @@ js_callback_handler(ffi_cif* cif, void* ret, void** args, void* user_data) {
   int i;
 
   for(i = 0; i < cl->sig.argc; i++)
-    argv[i] = native_to_js(ctx, cl->sig.arg_kind[i], args[i]);
+    argv[i] = ffi_native_to_js(ctx, cl->sig.arg_kind[i], args[i]);
 
   JS_FreeValue(ctx, cl->exception);
   cl->exception = JS_UNDEFINED;
@@ -161,7 +135,7 @@ js_callback_release(JSContext* ctx, JSCallback* cl) {
   ffi_sig_free(JS_GetRuntime(ctx), &cl->sig);
 }
 
-JSCallback*
+static JSCallback*
 js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   JSCallback* cl;
 
@@ -179,14 +153,7 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   cl->exception = JS_UNDEFINED;
   cl->func = JS_DupValue(ctx, func_obj);
 
-  if(!(cl->closure = ffi_closure_alloc(sizeof(ffi_closure), &cl->code))) {
-    JS_FreeValue(ctx, cl->func);
-    js_callback_release(ctx, cl);
-    js_free(ctx, cl);
-    return NULL;
-  }
-
-  if(ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->sig.argc, cl->sig.ret_type, cl->sig.arg_types) != FFI_OK || ffi_prep_closure_loc(cl->closure, &cl->cif, js_callback_handler, cl, cl->code) != FFI_OK) {
+  if(!(cl->closure = ffi_closure_alloc(sizeof(ffi_closure), &cl->code)) || ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->sig.argc, cl->sig.ret_type, cl->sig.arg_types) != FFI_OK || ffi_prep_closure_loc(cl->closure, &cl->cif, js_callback_handler, cl, cl->code) != FFI_OK) {
     JS_FreeValue(ctx, cl->func);
     js_callback_release(ctx, cl);
     js_free(ctx, cl);
@@ -200,7 +167,7 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   return cl;
 }
 
-void
+static void
 js_callback_free(JSRuntime* rt, JSCallback* cl) {
   if(--cl->ref_count <= 0) {
     JS_FreeValueRT(rt, cl->func);
@@ -216,7 +183,7 @@ js_callback_free(JSRuntime* rt, JSCallback* cl) {
   }
 }
 
-JSValue
+static JSValue
 js_callback_wrap(JSContext* ctx, JSValueConst proto, JSCallback* cl) {
   JSValue obj = JS_NewObjectProtoClass(ctx, proto, js_callback_class_id);
 
@@ -246,15 +213,12 @@ js_callback_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     return JS_EXCEPTION;
   }
 
-  JSValue obj = JS_NewObjectProtoClass(ctx, proto, js_callback_class_id);
+  JSValue obj = js_callback_wrap(ctx, proto, cl);
   JS_FreeValue(ctx, proto);
 
-  if(JS_IsException(obj)) {
+  if(JS_IsException(obj))
     js_callback_free(JS_GetRuntime(ctx), cl);
-    return JS_EXCEPTION;
-  }
 
-  JS_SetOpaque(obj, cl);
   return obj;
 }
 
@@ -357,13 +321,15 @@ js_callback_init(JSContext* ctx, JSModuleDef* m) {
   JS_SetPropertyFunctionList(ctx, js_callback_proto, js_callback_proto_funcs, countof(js_callback_proto_funcs));
   JS_SetClassProto(ctx, js_callback_class_id, js_callback_proto);
 
-  js_callback_ctor = JS_NewCFunction2(ctx, js_callback_constructor, "JSCallback", 1, JS_CFUNC_constructor, 0);
+  JSValue ctor = JS_NewCFunction2(ctx, js_callback_constructor, "JSCallback", 1, JS_CFUNC_constructor, 0);
 
-  JS_SetConstructor(ctx, js_callback_ctor, js_callback_proto);
-  JS_SetPropertyFunctionList(ctx, js_callback_ctor, js_callback_static_funcs, countof(js_callback_static_funcs));
+  JS_SetConstructor(ctx, ctor, js_callback_proto);
+  JS_SetPropertyFunctionList(ctx, ctor, js_callback_static_funcs, countof(js_callback_static_funcs));
 
   if(m)
-    JS_SetModuleExport(ctx, m, "JSCallback", js_callback_ctor);
+    JS_SetModuleExport(ctx, m, "JSCallback", ctor);
+  else
+    JS_FreeValue(ctx, ctor);
 
   return 0;
 }

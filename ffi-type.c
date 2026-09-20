@@ -33,6 +33,66 @@ ffi_resolve_type(const char* name, int* kind) {
   return NULL;
 }
 
+int
+ffi_resolve_abi(const char* name) {
+  if(name == NULL || !strcmp(name, "default"))
+    return FFI_DEFAULT_ABI;
+#ifdef FFI_SYSV
+  if(!strcmp(name, "sysv"))
+    return FFI_SYSV;
+#endif
+#ifdef FFI_UNIX64
+  if(!strcmp(name, "unix64"))
+    return FFI_UNIX64;
+#endif
+#ifdef FFI_STDCALL
+  if(!strcmp(name, "stdcall"))
+    return FFI_STDCALL;
+#endif
+#ifdef FFI_THISCALL
+  if(!strcmp(name, "thiscall"))
+    return FFI_THISCALL;
+#endif
+#ifdef FFI_FASTCALL
+  if(!strcmp(name, "fastcall"))
+    return FFI_FASTCALL;
+#endif
+#ifdef FFI_MS_CDECL
+  if(!strcmp(name, "ms_cdecl"))
+    return FFI_MS_CDECL;
+#endif
+#ifdef FFI_WIN64
+  if(!strcmp(name, "win64"))
+    return FFI_WIN64;
+#endif
+  return FFI_DEFAULT_ABI;
+}
+
+JSValue
+ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
+  switch(kind) {
+    case K_BOOL: return JS_NewBool(ctx, *(const uint8_t*)p != 0);
+    case K_I8: return JS_NewInt32(ctx, *(const int8_t*)p);
+    case K_U8: return JS_NewInt32(ctx, *(const uint8_t*)p);
+    case K_I16: return JS_NewInt32(ctx, *(const int16_t*)p);
+    case K_U16: return JS_NewInt32(ctx, *(const uint16_t*)p);
+    case K_I32: return JS_NewInt32(ctx, *(const int32_t*)p);
+    case K_U32: return JS_NewInt64(ctx, *(const uint32_t*)p);
+    case K_I64: return JS_NewBigInt64(ctx, *(const int64_t*)p);
+    case K_U64: return JS_NewBigUint64(ctx, *(const uint64_t*)p);
+    case K_I64_FAST: return JS_NewFloat64(ctx, (double)*(const int64_t*)p);
+    case K_U64_FAST: return JS_NewFloat64(ctx, (double)*(const uint64_t*)p);
+    case K_F32: return JS_NewFloat64(ctx, *(const float*)p);
+    case K_F64: return JS_NewFloat64(ctx, *(const double*)p);
+    case K_POINTER: return js_newptr(ctx, *(void* const*)p);
+    case K_CSTRING: {
+      const char* s = *(const char* const*)p;
+      return s ? JS_NewString(ctx, s) : JS_NULL;
+    }
+    default: return JS_UNDEFINED;
+  }
+}
+
 static ffi_type*
 value_to_type(JSContext* ctx, JSValueConst value, int* kind) {
   const char* s = JS_ToCString(ctx, value);

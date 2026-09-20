@@ -3,30 +3,6 @@
 #include "js-helpers.h"
 #include <cutils.h>
 #include <ffi.h>
-#include <string.h>
-
-static int
-resolve_abi(const char* name) {
-  if(name == NULL || !strcmp(name, "default"))
-    return FFI_DEFAULT_ABI;
-#ifdef FFI_SYSV
-  if(!strcmp(name, "sysv"))
-    return FFI_SYSV;
-#endif
-#ifdef FFI_UNIX64
-  if(!strcmp(name, "unix64"))
-    return FFI_UNIX64;
-#endif
-#ifdef FFI_STDCALL
-  if(!strcmp(name, "stdcall"))
-    return FFI_STDCALL;
-#endif
-#ifdef FFI_WIN64
-  if(!strcmp(name, "win64"))
-    return FFI_WIN64;
-#endif
-  return FFI_DEFAULT_ABI;
-}
 
 /* Storage for one argument, or the return value. Only one member is ever
  * live at a time; which one depends on the declared kind. Relies on the
@@ -68,10 +44,6 @@ js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst
     case K_U8:
     case K_U16:
     case K_U32:
-      JS_ToInt64Ext(ctx, &i64, v);
-      out->i64 = i64;
-      break;
-
     case K_I64:
     case K_I64_FAST:
     case K_U64:
@@ -95,30 +67,6 @@ js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst
   }
 }
 
-/* Return-value slot -> JSValue, per declared kind. */
-static JSValue
-native_ret_to_js(JSContext* ctx, int kind, union native_value* rc) {
-  switch(kind) {
-    case K_VOID: return JS_UNDEFINED;
-    case K_BOOL: return JS_NewBool(ctx, rc->i64 != 0);
-    case K_I8:
-    case K_I16:
-    case K_I32: return JS_NewInt32(ctx, (int32_t)rc->i64);
-    case K_U8:
-    case K_U16: return JS_NewInt32(ctx, (int32_t)rc->i64);
-    case K_U32: return JS_NewInt64(ctx, (int64_t)(uint32_t)rc->i64);
-    case K_I64: return JS_NewBigInt64(ctx, rc->i64);
-    case K_U64: return JS_NewBigUint64(ctx, rc->u64);
-    case K_I64_FAST: return JS_NewFloat64(ctx, (double)rc->i64);
-    case K_U64_FAST: return JS_NewFloat64(ctx, (double)rc->u64);
-    case K_F32: return JS_NewFloat64(ctx, rc->f32);
-    case K_F64: return JS_NewFloat64(ctx, rc->f64);
-    case K_POINTER: return js_newptr(ctx, rc->ptr);
-    case K_CSTRING: return rc->ptr ? JS_NewString(ctx, rc->ptr) : JS_NULL;
-    default: return JS_UNDEFINED;
-  }
-}
-
 static void
 js_cfunction_data_free(JSRuntime* rt, CFunctionData* cf) {
   ffi_sig_free(rt, &cf->sig);
@@ -126,45 +74,29 @@ js_cfunction_data_free(JSRuntime* rt, CFunctionData* cf) {
 }
 
 static CFunctionData*
-js_cfunction_new(JSContext* ctx, JSValueConst options) {
+js_cfunction_new(JSContext* ctx, void* fp, JSValueConst spec) {
   CFunctionData* cf;
   int abi = FFI_DEFAULT_ABI;
-
-  if(!JS_IsObject(options)) {
-    JS_ThrowTypeError(ctx, "CFunction: argument 1 must be an object");
-    return NULL;
-  }
-
-  JSValue ptr_val = JS_GetPropertyStr(ctx, options, "ptr");
-  void* fp;
-
-  if(js_toptr(ctx, &fp, ptr_val) || !fp) {
-    JS_FreeValue(ctx, ptr_val);
-    JS_ThrowTypeError(ctx, "CFunction: options.ptr must be a valid function pointer");
-    return NULL;
-  }
-
-  JS_FreeValue(ctx, ptr_val);
 
   if(!(cf = js_mallocz(ctx, sizeof(CFunctionData))))
     return NULL;
 
-  if(ffi_sig_parse(ctx, &cf->sig, options)) {
+  if(ffi_sig_parse(ctx, &cf->sig, spec)) {
     js_free(ctx, cf);
     return NULL;
   }
 
-  JSValue abi_val = JS_GetPropertyStr(ctx, options, "abi");
+  if(JS_IsObject(spec)) {
+    JSValue abi_val = JS_GetPropertyStr(ctx, spec, "abi");
 
-  if(!JS_IsUndefined(abi_val)) {
-    const char* s = JS_ToCString(ctx, abi_val);
-    abi = resolve_abi(s);
-
-    if(s)
+    if(!JS_IsUndefined(abi_val)) {
+      const char* s = JS_ToCString(ctx, abi_val);
+      abi = ffi_resolve_abi(s);
       JS_FreeCString(ctx, s);
-  }
+    }
 
-  JS_FreeValue(ctx, abi_val);
+    JS_FreeValue(ctx, abi_val);
+  }
 
   cf->fp = fp;
 
@@ -210,7 +142,7 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
 
   ffi_call(&cf->cif, cf->fp, &rc, cf->sig.argc ? ptrs : NULL);
 
-  JSValue ret = native_ret_to_js(ctx, cf->sig.ret_kind, &rc);
+  JSValue ret = ffi_native_to_js(ctx, cf->sig.ret_kind, &rc);
 
   while(cstring_count > 0)
     JS_FreeCString(ctx, cstrings[--cstring_count]);
@@ -232,13 +164,11 @@ static JSClassDef js_cfunction_class = {
     .call = js_cfunction_invoke,
 };
 
-/* fn = CFunction({ ptr, args, returns, abi }) */
-static JSValue
-js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
-  JSValueConst options = argc > 0 ? argv[0] : JS_UNDEFINED;
+JSValue
+js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec) {
   CFunctionData* cf;
 
-  if(!(cf = js_cfunction_new(ctx, options)))
+  if(!(cf = js_cfunction_new(ctx, fp, spec)))
     return JS_EXCEPTION;
 
   JSValue func_proto = js_function_prototype(ctx);
@@ -254,22 +184,33 @@ js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValu
   return func_obj;
 }
 
-/* Kept as a global, like js_callback_ctor in js-callback.h, so other
- * translation units (ffi.c's dlopen(path, symbolSpecs), Phase 2 of
- * TODO.md) can build CFunction objects via JS_Call() without duplicating
- * js_cfunction_new()'s option-parsing/ffi_cif setup.
- */
-JSValue js_cfunction_ctor;
+/* fn = CFunction({ ptr, args, returns, abi }) */
+static JSValue
+js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  JSValueConst options = argc > 0 ? argv[0] : JS_UNDEFINED;
+
+  if(!JS_IsObject(options))
+    return JS_ThrowTypeError(ctx, "CFunction: argument 1 must be an object");
+
+  JSValue ptr_val = JS_GetPropertyStr(ctx, options, "ptr");
+  void* fp;
+
+  if(js_toptr(ctx, &fp, ptr_val) || !fp) {
+    JS_FreeValue(ctx, ptr_val);
+    return JS_ThrowTypeError(ctx, "CFunction: options.ptr must be a valid function pointer");
+  }
+
+  JS_FreeValue(ctx, ptr_val);
+  return js_cfunction_create(ctx, fp, options);
+}
 
 int
 js_cfunction_init(JSContext* ctx, JSModuleDef* m) {
   JS_NewClassID(&js_cfunction_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cfunction_class_id, &js_cfunction_class);
 
-  js_cfunction_ctor = JS_NewCFunction(ctx, js_cfunction_constructor, "CFunction", 1);
-
   if(m)
-    JS_SetModuleExport(ctx, m, "CFunction", js_cfunction_ctor);
+    JS_SetModuleExport(ctx, m, "CFunction", JS_NewCFunction(ctx, js_cfunction_constructor, "CFunction", 1));
 
   return 0;
 }

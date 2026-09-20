@@ -32,11 +32,7 @@ typedef struct JSCallback {
 } JSCallback;
 
 extern JSClassID js_callback_class_id;
-extern JSValue js_callback_proto, js_callback_ctor;
 
-JSCallback* js_callback_new(JSContext*, JSValueConst func, JSValueConst options);
-void js_callback_free(JSRuntime*, JSCallback*);
-JSValue js_callback_wrap(JSContext*, JSValueConst proto, JSCallback*);
 int js_callback_init(JSContext*, JSModuleDef*);
 
 static inline JSCallback*
