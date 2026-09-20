@@ -1,9 +1,0 @@
-- jscallback-bool-returns-crash (js-callback.c): `new JSCallback(fn, { returns: 'bool' })` throws
-  `TypeError: cannot read property 'length' of undefined` from inside the native
-  constructor. Confirmed against both the system libffi build and a
-  BUILD_LIBFFI=ON (vendored libffi) build, so it's not a libffi-variant issue.
-  Not yet root-caused.
-
-    import { JSCallback } from 'ffi';
-    new JSCallback(() => true, { returns: 'bool' });
-

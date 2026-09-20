@@ -88,8 +88,19 @@ js_buf_arguments(JSContext* ctx, ptr_len* pbuf, int argc, JSValueConst argv[]) {
 int64_t
 js_array_length(JSContext* ctx, JSValueConst obj) {
   int64_t len = -1;
-  JSValue val = JS_GetPropertyStr(ctx, obj, "length");
-  JS_ToInt64(ctx, &len, val);
-  JS_FreeValue(ctx, val);
+
+  if(JS_IsObject(obj)) {
+    JSValue val = JS_GetPropertyStr(ctx, obj, "length");
+
+    if(JS_IsException(val) || JS_ToInt64(ctx, &len, val)) {
+      /* Callers treat -1 as "no usable length" and don't propagate errors, so
+       * a pending exception would leak out of an otherwise successful call. */
+      JS_FreeValue(ctx, JS_GetException(ctx));
+      len = -1;
+    }
+
+    JS_FreeValue(ctx, val);
+  }
+
   return len;
 }

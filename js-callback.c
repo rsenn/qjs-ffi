@@ -247,23 +247,24 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   if(!JS_IsUndefined(options) && !JS_IsNull(options)) {
     JSValue args_val = JS_GetPropertyStr(ctx, options, "args");
 
-    if((argc = js_array_length(ctx, args_val)) >= 0) {
-      if(argc > JS_CALLBACK_MAX_ARGS)
-        argc = JS_CALLBACK_MAX_ARGS;
+    if((argc = js_array_length(ctx, args_val)) < 0)
+      argc = 0;
 
-      for(int64_t i = 0; i < argc; i++) {
-        JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
-        const char* s = JS_ToCString(ctx, item);
-        int kind = K_I32;
-        ffi_type* t = resolve_type(s, &kind);
+    if(argc > JS_CALLBACK_MAX_ARGS)
+      argc = JS_CALLBACK_MAX_ARGS;
 
-        if(s)
-          JS_FreeCString(ctx, s);
-        JS_FreeValue(ctx, item);
+    for(int64_t i = 0; i < argc; i++) {
+      JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
+      const char* s = JS_ToCString(ctx, item);
+      int kind = K_I32;
+      ffi_type* t = resolve_type(s, &kind);
 
-        types[i] = t ? t : &ffi_type_sint32;
-        kinds[i] = t ? kind : K_I32;
-      }
+      if(s)
+        JS_FreeCString(ctx, s);
+      JS_FreeValue(ctx, item);
+
+      types[i] = t ? t : &ffi_type_sint32;
+      kinds[i] = t ? kind : K_I32;
     }
 
     JS_FreeValue(ctx, args_val);
