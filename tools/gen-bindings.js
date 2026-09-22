@@ -225,8 +225,14 @@ const BASE_TYPES = {
  * define()/call(). Only scalar and single-level-pointer types are
  * supported -- struct/union-by-value, arrays and varargs need libffi
  * struct/array support this module doesn't have (see TODO.md).
+ *
+ * `typedefs` (name -> underlying type string, from collectTypedefs()) is
+ * consulted when `t` is itself an unresolved typedef name -- needed for
+ * return types, since a FunctionDecl's own qualType is never desugared by
+ * clang (unlike ParmVarDecl's, which normally arrives pre-resolved via
+ * desugaredQualType and hits BASE_TYPES/enum directly without this).
  */
-function mapCType(qualTypeRaw) {
+function mapCType(qualTypeRaw, typedefs, depth) {
   const t = normalizeType(qualTypeRaw);
 
   if(/\(\s*\*\s*\)\s*\(/.test(t)) return { cf: 'function', def: 'callback', supported: true };
@@ -246,7 +252,31 @@ function mapCType(qualTypeRaw) {
   const known = BASE_TYPES[t];
   if(known) return { cf: known.cf, def: known.def, supported: true };
 
+  // Depth-guarded in case a typedef ever resolves back to its own name (seen
+  // with clang's `typedef enum { ... } Name;` idiom, where the anonymous
+  // enum's synthesized tag is also spelled `Name`) -- falls through to the
+  // "unrecognized" error below rather than looping.
+  if(typedefs && Object.prototype.hasOwnProperty.call(typedefs, t) && (depth || 0) < 8) return mapCType(typedefs[t], typedefs, (depth || 0) + 1);
+
   return { supported: false, reason: 'unrecognized C type "' + qualTypeRaw + '"' };
+}
+
+/* Builds a name -> underlying-type-string map from every top-level
+ * TypedefDecl, for resolving a return type's typedef name in mapCType().
+ * Prefers desugaredQualType (clang's fully-resolved canonical type, present
+ * whenever it differs from qualType) over qualType, so most real-world
+ * typedefs (FT_Error -> int, cairo_status_t -> enum _cairo_status) resolve
+ * in a single lookup.
+ */
+function collectTypedefs(root) {
+  const typedefs = {};
+
+  for(const node of root.inner || []) {
+    if(node.kind === 'TypedefDecl' && node.name && node.type && !Object.prototype.hasOwnProperty.call(typedefs, node.name))
+      typedefs[node.name] = node.type.desugaredQualType || node.type.qualType;
+  }
+
+  return typedefs;
 }
 
 /* Walks the translation unit's top-level declarations, tracking the
@@ -261,6 +291,7 @@ function collectFunctions(root, sourceFile) {
   const functions = [];
   const skipped = [];
   const seen = new Set();
+  const typedefs = collectTypedefs(root);
   let currentFile = null;
 
   for(const node of root.inner || []) {
@@ -283,7 +314,7 @@ function collectFunctions(root, sourceFile) {
       continue;
     }
 
-    const retMap = mapCType(split.returnType);
+    const retMap = mapCType(split.returnType, typedefs);
     if(!retMap.supported) {
       skipped.push({ name: node.name, reason: 'return type: ' + retMap.reason });
       continue;
@@ -296,7 +327,7 @@ function collectFunctions(root, sourceFile) {
       if(child.kind !== 'ParmVarDecl') continue;
 
       const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || '';
-      const pm = mapCType(qualType);
+      const pm = mapCType(qualType, typedefs);
 
       if(!pm.supported) {
         badParam = 'parameter ' + (child.name || '#' + params.length) + ' (' + qualType + '): ' + pm.reason;
