@@ -6,9 +6,7 @@
  * Usage: qjsm examples/cairo.js [out.png]
  */
 import * as cairo from '../lib/cairo.js';
-
-const CAIRO_FORMAT_ARGB32 = 0;
-const CAIRO_STATUS_SUCCESS = 0;
+import { CAIRO_FORMAT_ARGB32, CAIRO_STATUS_SUCCESS, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD } from '../lib/cairo.js';
 
 function main(args) {
   const outPath = args[0] || '.tmp/cairo-example.png';
@@ -35,7 +33,7 @@ function main(args) {
   cairo.cairo_curve_to(cr, width / 3, 40, (2 * width) / 3, height - 40, width - 40, 40);
   cairo.cairo_stroke(cr);
 
-  cairo.cairo_select_font_face(cr, 'sans-serif', 0, 1 /* CAIRO_FONT_WEIGHT_BOLD */);
+  cairo.cairo_select_font_face(cr, 'sans-serif', CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
   cairo.cairo_set_font_size(cr, 28);
   cairo.cairo_set_source_rgb(cr, 1, 1, 1);
   cairo.cairo_move_to(cr, 30, 40);

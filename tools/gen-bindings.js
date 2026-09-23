@@ -10,6 +10,10 @@
  *   --api=define              -- one `define()`+`call()` pair per function,
  *                                 wrapped in a plain JS function (legacy API)
  *
+ * Also emits `export const NAME = value;` for every enum reachable from a
+ * bound function's args/returns (enum-typed or enum-typedef-typed), so
+ * callers get the same symbolic constants the C API uses.
+ *
  * Usage:
  *   qjsm gen-bindings.js [options] <source.c>
  *
@@ -220,9 +224,9 @@ const BASE_TYPES = {
 };
 
 /* Maps one C type string (a return type or a single parameter's type) to
- * { cf, def, supported, reason }: `cf` is the bun-style FFIType name used
- * for CFunction/JSCallback, `def` is the legacy ffi.c type name used for
- * define()/call(). Only scalar and single-level-pointer types are
+ * { cf, def, supported, reason, enumId }: `cf` is the bun-style FFIType
+ * name used for CFunction/JSCallback, `def` is the legacy ffi.c type name
+ * used for define()/call(). Only scalar and single-level-pointer types are
  * supported -- struct/union-by-value, arrays and varargs need libffi
  * struct/array support this module doesn't have (see TODO.md).
  *
@@ -231,8 +235,13 @@ const BASE_TYPES = {
  * return types, since a FunctionDecl's own qualType is never desugared by
  * clang (unlike ParmVarDecl's, which normally arrives pre-resolved via
  * desugaredQualType and hits BASE_TYPES/enum directly without this).
+ *
+ * `enumIndex` (from collectEnumIndex()) is consulted alongside `typedefs`
+ * so a resolved enum type carries back which EnumDecl backs it (`enumId`),
+ * letting collectFunctions() know which enums are actually reachable from a
+ * bindable function's signature.
  */
-function mapCType(qualTypeRaw, typedefs, depth) {
+function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
   const t = normalizeType(qualTypeRaw);
 
   if(/\(\s*\*\s*\)\s*\(/.test(t)) return { cf: 'function', def: 'callback', supported: true };
@@ -246,17 +255,22 @@ function mapCType(qualTypeRaw, typedefs, depth) {
     return { cf: 'pointer', def: 'pointer', supported: true };
   }
 
+  const enumMatch = t.match(/^enum\s+(\S+)$/);
+  if(enumMatch) return { cf: 'i32', def: 'sint32', supported: true, enumId: enumIndex && enumIndex.tagToId[enumMatch[1]] };
   if(/^enum\b/.test(t)) return { cf: 'i32', def: 'sint32', supported: true };
   if(/^(struct|union)\b/.test(t)) return { supported: false, reason: 'struct/union passed by value is not supported' };
 
   const known = BASE_TYPES[t];
   if(known) return { cf: known.cf, def: known.def, supported: true };
 
+  if(enumIndex && Object.prototype.hasOwnProperty.call(enumIndex.typedefToEnumId, t))
+    return { cf: 'i32', def: 'sint32', supported: true, enumId: enumIndex.typedefToEnumId[t] };
+
   // Depth-guarded in case a typedef ever resolves back to its own name (seen
   // with clang's `typedef enum { ... } Name;` idiom, where the anonymous
   // enum's synthesized tag is also spelled `Name`) -- falls through to the
   // "unrecognized" error below rather than looping.
-  if(typedefs && Object.prototype.hasOwnProperty.call(typedefs, t) && (depth || 0) < 8) return mapCType(typedefs[t], typedefs, (depth || 0) + 1);
+  if(typedefs && Object.prototype.hasOwnProperty.call(typedefs, t) && (depth || 0) < 8) return mapCType(typedefs[t], typedefs, enumIndex, (depth || 0) + 1);
 
   return { supported: false, reason: 'unrecognized C type "' + qualTypeRaw + '"' };
 }
@@ -279,6 +293,62 @@ function collectTypedefs(root) {
   return typedefs;
 }
 
+/* Resolves one EnumConstantDecl's value: the explicit initializer's
+ * evaluated value (clang's ast-dump always gives this as a plain decimal
+ * string, even for hex literals or `A | B`-style expressions), or the
+ * previous constant's value + 1 for an implicit one -- same rule the C
+ * standard uses.
+ */
+function enumConstants(enumDecl) {
+  const constants = [];
+  let next = 0;
+
+  for(const c of enumDecl.inner || []) {
+    if(c.kind !== 'EnumConstantDecl') continue;
+
+    const init = (c.inner || []).find(x => 'value' in x);
+    const value = init ? Number(init.value) : next;
+
+    constants.push({ name: c.name, value });
+    next = value + 1;
+  }
+
+  return constants;
+}
+
+/* Builds an index for resolving enum-typed return/parameter types back to
+ * their full enumerator list:
+ *   - enumsById: EnumDecl node id -> { name (tag, or null if anonymous),
+ *     constants }, from every top-level EnumDecl that carries its full
+ *     definition (a bare forward-reference node has no `inner`).
+ *   - tagToId: enum tag name -> id, for the "enum TAG" spelling mapCType()
+ *     sees directly (e.g. cairo_status_t's own qualType is "enum _cairo_status").
+ *   - typedefToEnumId: typedef name -> id, for the `typedef enum { ... }
+ *     Name;` idiom (named or anonymous tag), where mapCType() instead sees
+ *     the bare typedef name. clang links a TypedefDecl to the EnumDecl it
+ *     wraps via an intermediate ElaboratedType child's `ownedTagDecl.id`,
+ *     which is the same id as that EnumDecl's own top-level definition.
+ */
+function collectEnumIndex(root) {
+  const enumsById = {};
+  const tagToId = {};
+  const typedefToEnumId = {};
+
+  for(const node of root.inner || []) {
+    if(node.kind === 'EnumDecl' && node.inner) {
+      enumsById[node.id] = { name: node.name || null, constants: enumConstants(node) };
+      if(node.name) tagToId[node.name] = node.id;
+    } else if(node.kind === 'TypedefDecl' && node.inner) {
+      const elaborated = node.inner.find(c => c.kind === 'ElaboratedType');
+      const owned = elaborated && elaborated.ownedTagDecl;
+
+      if(owned && owned.kind === 'EnumDecl') typedefToEnumId[node.name] = owned.id;
+    }
+  }
+
+  return { enumsById, tagToId, typedefToEnumId };
+}
+
 /* Walks the translation unit's top-level declarations, tracking the
  * "current file" the way clang's own -ast-dump=json does: a node's
  * loc.file is only present when it differs from the previous node's, so a
@@ -292,7 +362,17 @@ function collectFunctions(root, sourceFile) {
   const skipped = [];
   const seen = new Set();
   const typedefs = collectTypedefs(root);
+  const enumIndex = collectEnumIndex(root);
+  const usedEnumIds = [];
+  const seenEnumIds = new Set();
   let currentFile = null;
+
+  function useEnum(enumId) {
+    if(enumId !== undefined && !seenEnumIds.has(enumId)) {
+      seenEnumIds.add(enumId);
+      usedEnumIds.push(enumId);
+    }
+  }
 
   for(const node of root.inner || []) {
     if(node.loc && node.loc.file !== undefined) currentFile = node.loc.file;
@@ -314,7 +394,7 @@ function collectFunctions(root, sourceFile) {
       continue;
     }
 
-    const retMap = mapCType(split.returnType, typedefs);
+    const retMap = mapCType(split.returnType, typedefs, enumIndex);
     if(!retMap.supported) {
       skipped.push({ name: node.name, reason: 'return type: ' + retMap.reason });
       continue;
@@ -327,7 +407,7 @@ function collectFunctions(root, sourceFile) {
       if(child.kind !== 'ParmVarDecl') continue;
 
       const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || '';
-      const pm = mapCType(qualType, typedefs);
+      const pm = mapCType(qualType, typedefs, enumIndex);
 
       if(!pm.supported) {
         badParam = 'parameter ' + (child.name || '#' + params.length) + ' (' + qualType + '): ' + pm.reason;
@@ -344,9 +424,13 @@ function collectFunctions(root, sourceFile) {
 
     seen.add(node.name);
     functions.push({ name: node.name, returnType: retMap, params });
+    useEnum(retMap.enumId);
+    for(const p of params) useEnum(p.type.enumId);
   }
 
-  return { functions, skipped };
+  const enums = usedEnumIds.map(id => enumIndex.enumsById[id]).filter(Boolean);
+
+  return { functions, skipped, enums };
 }
 
 /* --- code generation ----------------------------------------------------- */
@@ -393,7 +477,34 @@ function skippedComment(skipped) {
   return '\n// Skipped (unsupported):\n' + skipped.map(s => '//   - ' + s.name + ': ' + s.reason).join('\n') + '\n';
 }
 
-function generateCFunction(functions, skipped, opts) {
+/* Emits `export const NAME = value;` for every enum reachable from a
+ * bindable function's signature (see collectEnumIndex()), one group per
+ * enum with a header comment naming its tag (or "(anonymous)"). A constant
+ * already emitted by an earlier group is skipped rather than re-declared --
+ * C forbids two enums from sharing a constant name at file scope, so this
+ * is only a defensive backstop, not expected to ever trigger.
+ */
+function enumConstantsCode(enums) {
+  if(!enums.length) return '';
+
+  const emitted = new Set();
+  let out = '';
+
+  for(const e of enums) {
+    const fresh = e.constants.filter(c => !emitted.has(c.name));
+    if(!fresh.length) continue;
+
+    out += '\n// enum ' + (e.name || '(anonymous)') + '\n';
+    for(const c of fresh) {
+      emitted.add(c.name);
+      out += 'export const ' + safeIdent(c.name) + ' = ' + c.value + ';\n';
+    }
+  }
+
+  return out;
+}
+
+function generateCFunction(functions, skipped, enums, opts) {
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
   const imports = ['CFunction', 'dlsym', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
 
@@ -402,7 +513,9 @@ function generateCFunction(functions, skipped, opts) {
 
   if(opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 
-  out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n\n';
+  out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
+  out += enumConstantsCode(enums);
+  out += '\n';
 
   for(const fn of functions) {
     const args = fn.params.map(p => JSON.stringify(p.type.cf));
@@ -415,7 +528,7 @@ function generateCFunction(functions, skipped, opts) {
   return out;
 }
 
-function generateDefine(functions, skipped, opts) {
+function generateDefine(functions, skipped, enums, opts) {
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
   const imports = ['dlsym', 'define', 'call', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
 
@@ -433,7 +546,9 @@ function generateDefine(functions, skipped, opts) {
     '  if (!define(name, p, null, rtype, ...argtypes))\n' +
     '    throw new Error("gen-bindings: define() failed for " + name);\n' +
     '  return (...args) => call(name, ...args);\n' +
-    '}\n\n';
+    '}\n';
+  out += enumConstantsCode(enums);
+  out += '\n';
 
   for(const fn of functions) {
     const args = fn.params.map(p => JSON.stringify(p.type.def));
@@ -466,11 +581,11 @@ function main() {
     std.exit(1);
   }
 
-  const { functions, skipped } = collectFunctions(root, opts.source);
+  const { functions, skipped, enums } = collectFunctions(root, opts.source);
 
   if(!functions.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + opts.source + '\n');
 
-  const out = opts.api === 'cfunction' ? generateCFunction(functions, skipped, opts) : generateDefine(functions, skipped, opts);
+  const out = opts.api === 'cfunction' ? generateCFunction(functions, skipped, enums, opts) : generateDefine(functions, skipped, enums, opts);
 
   if(opts.output) {
     const f = std.open(opts.output, 'w');
