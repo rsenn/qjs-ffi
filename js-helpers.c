@@ -1,6 +1,5 @@
 #include "js-helpers.h"
 #include <cutils.h>
-#include <alloca.h>
 
 int
 js_toptr(JSContext* ctx, void* pptr, JSValueConst value) {
