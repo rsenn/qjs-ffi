@@ -1,0 +1,30 @@
+/* qjs-ffi — a bridge between two worlds. Purple-magenta on plum ink,
+   C's "::" scope operator before headings, a dot grid like a memory dump. */
+:root {
+  --bg:          light-dark(#fcfafd, #17111b);
+  --bg-raised:   light-dark(#ffffff, #201826);
+  --bg-sunken:   light-dark(#f4eff7, #120d16);
+  --bg-code:     light-dark(#f7f2f9, #201826);
+  --fg:          light-dark(#1e1922, #ece6f0);
+  --fg-muted:    light-dark(#645a6c, #aa9fb5);
+  --fg-faint:    light-dark(#92889b, #7a6e87);
+  --line:        light-dark(#e8dfee, #2f2338);
+  --line-strong: light-dark(#d5c8de, #45345a);
+  --accent:      light-dark(#8a2fa0, #d08de0);
+  --accent-fg:   light-dark(#ffffff, #17111b);
+  --accent-soft: light-dark(#f3e6f7, #2d1834);
+
+  --t-kw:  light-dark(#8a2fa0, #d9a3e8);
+  --t-fn:  light-dark(#1f5fa8, #82b4f0);
+
+  --radius: 6px;
+  --hero-bg:
+    radial-gradient(color-mix(in srgb, var(--accent) 28%, transparent) 1px, transparent 1.5px) 0 0 / 18px 18px,
+    radial-gradient(48rem 16rem at 50% 0%, var(--accent-soft), transparent 70%);
+  --card-shadow: 0 8px 28px -18px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.doc h1::before, .doc h2::before, .landing h2::before {
+  content: "::"; color: var(--accent); margin-right: 0.3em; font-family: var(--mono);
+}
+.card { border-top: 2px solid var(--accent); }

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFunction — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/c-function.html">CFunction</a>
+    <a href="../docs/js-callback.html">JSCallback</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="c-function.html" class="here">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="cfunction"><a class="anchor" href="#cfunction" aria-hidden="true">#</a>CFunction</h1>
+<p><code>CFunction</code> wraps an already-resolved native function pointer as a plain,
+directly-callable JavaScript function. It mirrors <a href="https://bun.com/docs/runtime/ffi#cfunction" target="_blank" rel="noopener">bun:ffi's
+<code>CFunction</code></a>.</p>
+<p>Unlike the legacy <a href="../getting-started.html#define-call-tostring-toarraybuffer"><code>define()</code>/<code>call()</code></a>
+pair, there is no name-keyed registry: the <code>ffi_cif</code> (libffi's prepared call
+interface) is built once, at construction time, and stored directly on the
+returned function's closure data. Calling the function invokes libffi
+against that stored <code>cif</code>/function pointer with no string lookup involved.</p>
+<h2 id="usage"><a class="anchor" href="#usage" aria-hidden="true">#</a>Usage</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">fp</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"strdup"</span>);
+
+<span class="t-kw">const</span> <span class="t-id">strdup</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-id">fp</span>,
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"cstring"</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"cstring"</span>,
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">"hello"</span>)); <span class="t-cm">// "hello"</span></code></pre></div>
+<p><code>CFunction()</code> is a factory function, not a constructor -- call it directly,
+without <code>new</code>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">fn</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span>, <span class="t-id">args</span>, <span class="t-id">returns</span>, <span class="t-id">abi</span> })</code></pre></div>
+<div class="tablewrap"><table><thead><tr><th>Option</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>yes</td><td>The native function pointer to call. Anything accepted by <code>toPointer</code>/<code>js_ptr</code> works: <code>null</code>, a number/BigInt address (e.g. from <code>dlsym()</code>, which itself returns <code>null</code> for a NULL pointer), or an ArrayBuffer/TypedArray.</td></tr><tr><td><code>args</code></td><td>no</td><td>Array of type names (see <a href="#types">Types</a>) declaring the parameter list, in order. Omit or use <code>[]</code> for a function that takes no arguments; a value with no usable <code>length</code> (not an object, or a <code>length</code> that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped.</td></tr><tr><td><code>returns</code></td><td>no</td><td>Type name for the return value (see <a href="#types">Types</a>). Defaults to <code>"void"</code>.</td></tr><tr><td><code>abi</code></td><td>no</td><td>Call ABI name (see <a href="#abi">ABI</a>). Defaults to <code>"default"</code>.</td></tr></tbody></table></div>
+<p>If <code>ptr</code> cannot be resolved to a non-null pointer, or the declared types
+can't be turned into a working <code>ffi_cif</code>, <code>CFunction()</code> throws a
+<code>TypeError</code>.</p>
+<p>The returned function's <code>.length</code> matches the declared <code>args</code> count. Extra
+arguments passed at call time are ignored; missing ones are treated as
+<code>undefined</code> (and converted per the declared type, e.g. <code>0</code>/<code>NaN</code>-like for
+numeric types).</p>
+<h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
+<p>Same vocabulary as <a href="js-callback.html#types"><code>JSCallback</code></a>, matching
+<a href="https://bun.com/docs/runtime/ffi#ffitype" target="_blank" rel="noopener">bun:ffi's <code>FFIType</code></a>:</p>
+<div class="tablewrap"><table><thead><tr><th>Name</th><th>C type</th><th>JS value</th></tr></thead><tbody><tr><td><code>"void"</code></td><td><code>void</code></td><td><code>undefined</code> (only valid as <code>returns</code>)</td></tr><tr><td><code>"bool"</code></td><td><code>_Bool</code> / <code>uint8_t</code></td><td><code>boolean</code></td></tr><tr><td><code>"i8"</code>, <code>"u8"</code></td><td><code>int8_t</code>, <code>uint8_t</code></td><td><code>number</code></td></tr><tr><td><code>"i16"</code>, <code>"u16"</code></td><td><code>int16_t</code>, <code>uint16_t</code></td><td><code>number</code></td></tr><tr><td><code>"i32"</code></td><td><code>int32_t</code></td><td><code>number</code></td></tr><tr><td><code>"u32"</code></td><td><code>uint32_t</code></td><td><code>number</code></td></tr><tr><td><code>"i64"</code>, <code>"u64"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>bigint</code> -- exact, no precision loss</td></tr><tr><td><code>"i64_fast"</code>, <code>"u64_fast"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>number</code> -- fast to convert, but lossy above 2^53</td></tr><tr><td><code>"f32"</code></td><td><code>float</code></td><td><code>number</code></td></tr><tr><td><code>"f64"</code></td><td><code>double</code></td><td><code>number</code></td></tr><tr><td><code>"pointer"</code> / <code>"ptr"</code> / <code>"function"</code></td><td><code>void *</code></td><td><code>null</code> for a NULL pointer; otherwise <code>number</code> if the address fits in 32 bits, <code>bigint</code> otherwise</td></tr><tr><td><code>"cstring"</code></td><td><code>char *</code></td><td><code>string</code> (return) / <code>string</code> (argument, copied via <code>JS_ToCString</code>) -- decoded/encoded as a NUL-terminated C string</td></tr></tbody></table></div>
+<p>An unrecognized type name in <code>args</code> silently falls back to <code>"i32"</code>; an
+unrecognized <code>returns</code> falls back to <code>"void"</code>. This matches <code>JSCallback</code>'s
+behavior and is a known rough edge -- prefer sticking to the table above.</p>
+<p><code>"cstring"</code> arguments are converted with <code>JS_ToCString()</code> for the duration
+of the call and freed immediately afterward; the native function must not
+retain the pointer past the call returning.</p>
+<h2 id="abi"><a class="anchor" href="#abi" aria-hidden="true">#</a>ABI</h2>
+<div class="tablewrap"><table><thead><tr><th>Name</th><th>Notes</th></tr></thead><tbody><tr><td><code>"default"</code></td><td>Platform default. Used when <code>abi</code> is omitted.</td></tr><tr><td><code>"sysv"</code></td><td>Only available where libffi defines <code>FFI_SYSV</code>.</td></tr><tr><td><code>"unix64"</code></td><td>Only available where libffi defines <code>FFI_UNIX64</code>.</td></tr><tr><td><code>"stdcall"</code></td><td>Windows only (<code>FFI_STDCALL</code>).</td></tr><tr><td><code>"win64"</code></td><td>Windows only (<code>FFI_WIN64</code>).</td></tr></tbody></table></div>
+<p>An unrecognized or platform-unavailable ABI name falls back to
+<code>"default"</code>.</p>
+<h2 id="examples"><a class="anchor" href="#examples" aria-hidden="true">#</a>Examples</h2>
+<p>Calling a libm function with <code>f64</code> arguments and return:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">pow</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"pow"</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span>,
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">pow</span>(<span class="t-num">2</span>, <span class="t-num">10</span>)); <span class="t-cm">// 1024</span></code></pre></div>
+<p>64-bit integers round-trip exactly as <code>BigInt</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">llabs</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"llabs"</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i64"</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i64"</span>,
+});
+
+<span class="t-fn">llabs</span>(<span class="t-op">-</span><span class="t-num">9007199254740993n</span>); <span class="t-cm">// 9007199254740993n</span></code></pre></div>
+<p><code>malloc</code>/<code>free</code> via <code>pointer</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">malloc</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"malloc"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"u64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"pointer"</span> });
+<span class="t-kw">const</span> <span class="t-id">free</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"free"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"void"</span> });
+
+<span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">malloc</span>(<span class="t-num">16n</span>);
+<span class="t-fn">free</span>(<span class="t-id">p</span>);</code></pre></div>
+<h2 id="relationship-to-jscallback"><a class="anchor" href="#relationship-to-jscallback" aria-hidden="true">#</a>Relationship to JSCallback</h2>
+<p><code>CFunction</code> and <a href="js-callback.html"><code>JSCallback</code></a> are mirror images: <code>CFunction</code>
+lets JS call into native code, <code>JSCallback</code> lets native code call into JS.
+Passing a <code>JSCallback</code>'s <code>.ptr</code> as a <code>CFunction</code> argument (declared
+<code>"pointer"</code>) is how you hand a JS-backed callback to a native API expecting
+a function pointer.</p>
+<h2 id="see-also"><a class="anchor" href="#see-also" aria-hidden="true">#</a>See also</h2>
+<ul>
+<li><a href="js-callback.html"><code>doc/js-callback.md</code></a></li>
+<li><a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md" target="_blank" rel="noopener"><code>TODO.md</code></a> -- Phase 1 of the <code>bun:ffi</code>-compatible API migration this class is part of.</li>
+<li><a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi docs</a></li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/c-function.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#abi">ABI</a></li><li class="lvl2"><a href="#examples">Examples</a></li><li class="lvl2"><a href="#relationship-to-jscallback">Relationship to JSCallback</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qjs-ffi — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="assets/base.css">
+<link rel="stylesheet" href="assets/theme.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="">
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="getting-started.html">Get started</a>
+    <a href="docs/c-function.html">CFunction</a>
+    <a href="docs/js-callback.html">JSCallback</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="getting-started.html" class="here">Getting started</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="docs/c-function.html">CFunction</a></li><li><a href="docs/js-callback.html">JSCallback</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="qjs-ffi"><a class="anchor" href="#qjs-ffi" aria-hidden="true">#</a>qjs-ffi</h1>
+<h2 id="what-is-it"><a class="anchor" href="#what-is-it" aria-hidden="true">#</a>What is it?</h2>
+<p><strong>qjs-ffi</strong> is a foreign function interface for QuickJS
+<a href="https://bellard.org/quickjs/" target="_blank" rel="noopener">https://bellard.org/quickjs/</a>. It lets a script load shared libraries, call
+their C functions, and hand JavaScript functions back to C as function
+pointers.</p>
+<p>The API follows <a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi</a>: <code>dlopen()</code> with a
+symbol table returns directly callable functions, there is no name lookup at
+call time, and 64-bit integers come back as <code>BigInt</code>. The older
+<code>define()</code>/<code>call()</code> interface is still available, see <a href="#legacy-api">Legacy API</a>.</p>
+<p>libffi and libdl are required. Linux x86_64 is the main target, mingw64
+cross builds compile but have not been tested.</p>
+<p>See tests/ for small runnable examples, examples/ for bindings to real
+libraries (cairo, freetype, SDL2, zlib, portmidi) and doc/ for the reference
+pages of individual classes.</p>
+<h2 id="how-to-use-it"><a class="anchor" href="#how-to-use-it" aria-hidden="true">#</a>How to use it?</h2>
+<p>Use dlopen() with a table of symbols. Every entry becomes a function that can
+be called directly:</p>
+<div class="codeblock"><pre><code>    import { dlopen } from "ffi";
+
+    const lib = dlopen("libm.so.6", {
+      pow: { args: ["f64", "f64"], returns: "f64" },
+      sqrt: { args: ["f64"], returns: "f64" },
+    });
+
+    console.log(lib.symbols.pow(2, 10));  // 1024
+    console.log(lib.symbols.sqrt(144));  // 12
+
+    lib.close();</code></pre></div>
+<p><code>dlopen(path, symbolSpecs)</code> returns <code>{ symbols, close() }</code>. <code>path</code> may be
+null to search the symbols already loaded into the process. A missing library
+or symbol throws a TypeError.</p>
+<p>Each spec has the form <code>{ args, returns, abi }</code>, the same options as
+<a href="docs/c-function.html">CFunction</a>.</p>
+<h2 id="installation"><a class="anchor" href="#installation" aria-hidden="true">#</a>Installation</h2>
+<p>Installing qjs-ffi is done with CMake:</p>
+<div class="codeblock"><pre><code>$ cmake -S . -B build
+$ cmake --build build --target quickjs-ffi</code></pre></div>
+<p>This produces the module <code>build/ffi.so</code> (<code>ffi.dll</code> on Windows). Point QuickJS
+at it and import it as <code>ffi</code>:</p>
+<div class="codeblock"><pre><code>$ export QUICKJS_MODULE_PATH=$PWD/build
+$ qjsm script.js</code></pre></div>
+<p>CMake options:</p>
+<ul>
+<li><code>BUILD_STATIC_MODULES</code> also builds a static <code>quickjs-ffi.a</code></li>
+<li><code>BUILD_LIBFFI</code> checks out libffi into third_party/libffi and builds it
+instead of using the system library</li>
+</ul>
+<p>Run the tests with:</p>
+<div class="codeblock"><pre><code>$ tests/run-all.sh</code></pre></div>
+<p>Scripts in this project are run with <code>qjsm</code>, not <code>qjs</code>: <code>qjs</code> lacks
+<code>process</code> and other globals, and swallows uncaught errors in module mode.</p>
+<h2 id="available-imports"><a class="anchor" href="#available-imports" aria-hidden="true">#</a>Available imports</h2>
+<div class="codeblock"><pre><code>  import { dlopen, dlsym, dlclose, dlerror, errno,
+           linkSymbols, CFunction, JSCallback,
+           ptr, toBuffer, toArrayBuffer, toPointer, toString, CString,
+           FFIType, suffix, pointerSize, JSContext, debug,
+           define, call,
+           RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
+           RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND,
+           RTLD_DEFAULT, RTLD_NEXT } from "ffi";</code></pre></div>
+<p>The RTLD_* constants are only published if the platform defines them.</p>
+<h2 id="dlopen-dlsym-dlclose-dlerror-errno"><a class="anchor" href="#dlopen-dlsym-dlclose-dlerror-errno" aria-hidden="true">#</a>dlopen, dlsym, dlclose, dlerror, errno</h2>
+<p>dlopen() has two call shapes, picked by the type of the second argument:</p>
+<div class="codeblock"><pre><code>  lib = dlopen(path, symbolSpecs)   // object: bun-shaped, see above
+  h   = dlopen(path, flags)         // number: raw libdl handle</code></pre></div>
+<p>The raw form, dlsym(), dlclose() and dlerror() are thin wrappers around the
+libdl functions of the same name, described in the <strong>man</strong> pages, which also
+describe the RTLD_* constants. Note that errno() is a function.</p>
+<p>dlsym() returns the address as a Number or BigInt, or null if not found.</p>
+<h2 id="cfunction"><a class="anchor" href="#cfunction" aria-hidden="true">#</a>CFunction</h2>
+<p>CFunction() wraps an already resolved function pointer, for example one from
+dlsym(), as a plain callable function:</p>
+<div class="codeblock"><pre><code>    import { dlsym, CFunction, RTLD_DEFAULT } from "ffi";
+
+    const strdup = CFunction({
+      ptr: dlsym(RTLD_DEFAULT, "strdup"),
+      args: ["cstring"],
+      returns: "cstring",
+    });
+
+    console.log(strdup("hello"));</code></pre></div>
+<p>The prepared libffi call interface is built once, when the function is
+created. See <a href="docs/c-function.html">doc/c-function.md</a>.</p>
+<h2 id="linksymbols"><a class="anchor" href="#linksymbols" aria-hidden="true">#</a>linkSymbols</h2>
+<p>linkSymbols() is dlopen() without opening a library. Each entry is resolved
+from its own <code>ptr</code>, or else with <code>dlsym(RTLD_DEFAULT, name)</code>:</p>
+<div class="codeblock"><pre><code>    import { linkSymbols } from "ffi";
+
+    const { symbols } = linkSymbols({
+      abs: { args: ["i32"], returns: "i32" },
+      strlen: { args: ["cstring"], returns: "u64" },
+    });
+
+    symbols.abs(-5);         // 5
+    symbols.strlen("hello"); // 5n</code></pre></div>
+<p>It returns <code>{ symbols }</code> and has no close(), since nothing was opened.
+<code>suffix</code> is <code>"so"</code> (<code>"dll"</code> on Windows), for building library file names:</p>
+<div class="codeblock"><pre><code>    dlopen(`libz.${suffix}.1`, { ... });</code></pre></div>
+<h2 id="jscallback"><a class="anchor" href="#jscallback" aria-hidden="true">#</a>JSCallback</h2>
+<p>new JSCallback(fn, { args, returns }) turns a JavaScript function into a
+native function pointer. Pass its <code>.ptr</code> to C code that expects a callback,
+and call <code>.close()</code> when done:</p>
+<div class="codeblock"><pre><code>    import { JSCallback } from "ffi";
+
+    const cb = new JSCallback((a, b) =&gt; a + b, { args: ["i32", "i32"], returns: "i32" });
+
+    someNativeFunction(cb.ptr);
+
+    cb.close();</code></pre></div>
+<p>See <a href="docs/js-callback.html">doc/js-callback.md</a>.</p>
+<h2 id="pointers-and-buffers"><a class="anchor" href="#pointers-and-buffers" aria-hidden="true">#</a>Pointers and buffers</h2>
+<ul>
+<li><code>p = ptr(buffer[, offset])</code> returns the address of an ArrayBuffer (or typed
+array) as a Number or BigInt.</li>
+<li><code>b = toBuffer(p, n)</code> creates an ArrayBuffer of length n from pointer p.
+This is the same function as toArrayBuffer().</li>
+<li><code>b = toArrayBuffer(p, n[, copy])</code> does the same. The contents are copied
+unless <code>copy</code> is <code>false</code>, in which case the ArrayBuffer views the original
+memory and the caller must keep it alive.</li>
+<li><code>s = toString(p[, n])</code> converts a pointer to a C string, n bytes long if n
+is given.</li>
+<li><code>s = toPointer(buffer[, offset])</code> is like ptr(), but returns the address
+as a string such as <code>"0x55d0c8a4e2a0"</code>.</li>
+<li><code>new CString(p[, byteOffset[, byteLength]])</code> wraps a C string. <code>.ptr</code> is
+the address, <code>.length</code> its length in bytes and <code>.toString()</code> decodes it.
+Without byteLength the string ends at the first NUL byte.</li>
+</ul>
+<div class="codeblock"><pre><code>    const src = new Uint8Array([1, 2, 3, 4]);
+    const back = new Uint8Array(toBuffer(ptr(src.buffer), src.length));</code></pre></div>
+<p>Note that a string passed to toArrayBuffer() is taken as content, not as an
+address. That is why ptr() returns a number and toPointer() should only be used
+for display.</p>
+<h2 id="ffitype"><a class="anchor" href="#ffitype" aria-hidden="true">#</a>FFIType</h2>
+<p><code>FFIType</code> holds the type names as constants, so <code>FFIType.i32</code> can be used
+where <code>"i32"</code> is written above.</p>
+<h2 id="abi"><a class="anchor" href="#abi" aria-hidden="true">#</a>ABI</h2>
+<p>ABI is the call type for a function pointer. The following values are allowed.
+Not specifying an abi is the same as "default". Names that are unknown, or not
+available on the platform, fall back to "default".</p>
+<ul>
+<li>"default"</li>
+<li>"sysv"</li>
+<li>"unix64"</li>
+<li>"stdcall"</li>
+<li>"win64"</li>
+</ul>
+<h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>TYPES</h2>
+<p>Types define parameter and return types. NOTE: structure passing by value is not
+yet supported. "void" is only useful as a return type.</p>
+<ul>
+<li>"void"</li>
+<li>"bool"</li>
+<li>"i8", "u8"</li>
+<li>"i16", "u16"</li>
+<li>"i32", "u32"</li>
+<li>"i64", "u64" (BigInt, exact)</li>
+<li>"i64_fast", "u64_fast" (Number, lossy above 2^53)</li>
+<li>"f32", "f64"</li>
+<li>"pointer", "ptr", "function" (null for NULL, else Number or BigInt)</li>
+<li>"cstring" (JavaScript string, converted for the duration of the call)</li>
+</ul>
+<p>An unrecognized parameter type falls back to "i32", an unrecognized return type
+to "void".</p>
+<h2 id="generating-bindings"><a class="anchor" href="#generating-bindings" aria-hidden="true">#</a>Generating bindings</h2>
+<p>tools/gen-bindings.js reads C headers with clang and writes a JavaScript module
+with one CFunction per function, plus an export for every enum used:</p>
+<div class="codeblock"><pre><code>$ qjsm tools/gen-bindings.js --library=libcairo.so.2 /usr/include/cairo/cairo.h -o lib/cairo.js</code></pre></div>
+<p>Useful options are <code>--follow-includes</code> to also bind the headers included by
+the source, <code>--exclude=&lt;name&gt;</code> to skip a function, <code>-I</code> and <code>-D</code> for clang, and
+<code>--api=define</code> to target the legacy API. Ready made bindings are in lib/.</p>
+<div class="codeblock"><pre><code>    import * as cairo from "./lib/cairo.js";
+
+    const surface = cairo.cairo_image_surface_create(cairo.CAIRO_FORMAT_ARGB32, 320, 240);</code></pre></div>
+<p>See examples/cairo.js and tests/test-cairo.js, which draws to PNG and SVG.</p>
+<h2 id="jscontext"><a class="anchor" href="#jscontext" aria-hidden="true">#</a>JSContext</h2>
+<p>Returns the current JSContext *ctx. This allows functions within the
+QuickJS C API to be called from within a js module. This allows for
+limited "introspection".</p>
+<h2 id="debug"><a class="anchor" href="#debug" aria-hidden="true">#</a>debug</h2>
+<p>This is provided as a convenience feature, to allow debugging of ffi.so. If
+ffi.so is compiled with debug (-g), debugging with gdb can be done:</p>
+<div class="codeblock"><pre><code>$ gdb qjsm
+(gdb) set args script.js
+(gdb) b js_debug
+Make breakpoint pending on future shared library load? (y or [n]) y
+(gdb) run</code></pre></div>
+<p>The breakpoint is triggered on the first call to debug() in the JavaScript.</p>
+<h2 id="legacy-api"><a class="anchor" href="#legacy-api" aria-hidden="true">#</a>Legacy API</h2>
+<p>The original interface registers functions by name in a global list. It still
+works and is unchanged, but every call() searches that list by string
+comparison, and every result is a double. Prefer dlopen() or CFunction().</p>
+<div class="codeblock"><pre><code>    import { dlsym, define, call, toString, RTLD_DEFAULT } from "ffi";
+
+    define("strdup", dlsym(RTLD_DEFAULT, "strdup"), null, "char *", "char *");
+    var p = call("strdup", "hello");
+    console.log(toString(p));</code></pre></div>
+<p>define(name, function_pointer, abi, ret_type, types...) returns true if the
+function has been defined. n = call(name, params...) calls it.</p>
+<ul>
+<li>call() always returns a double, which presumes that all integers and
+pointers fit into 52 bits.</li>
+<li>JavaScript strings are copied and passed as a pointer to the copy. They
+cannot be altered by the C function.</li>
+<li>ArrayBuffers are passed as a pointer, and their contents can be written.</li>
+<li>true and false become 1 and 0, null becomes NULL.</li>
+<li>Up to 30 parameters can be defined.</li>
+<li>If null is passed as the function pointer, define() substitutes a dummy
+function that prints "dummy function in ffi" on stderr.</li>
+</ul>
+<p>Legacy types are the libffi names ("sint8", "uint32", "double", "pointer",
+...), C-like aliases ("int", "long", "size_t", "unsigned char", "char *",
+"void *") and the semantic types "string" (JavaScript string) and "buffer"
+(ArrayBuffer).</p>
+<h2 id="limitations"><a class="anchor" href="#limitations" aria-hidden="true">#</a>Limitations</h2>
+<ul>
+<li>No structure pass by value</li>
+<li>No varargs</li>
+<li>No C structure access, use toBuffer() and a typed array or DataView</li>
+<li>Only little-endian</li>
+<li>Only the legacy API is limited to double return values</li>
+</ul>
+<h2 id="todo"><a class="anchor" href="#todo" aria-hidden="true">#</a>TODO</h2>
+<ul>
+<li>Remove the legacy define()/call() (postponed, see TODO.md)</li>
+<li>Update examples/ and the older test scripts to the new API</li>
+<li>Test the mingw64 build</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/README.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#what-is-it">What is it?</a></li><li class="lvl2"><a href="#how-to-use-it">How to use it?</a></li><li class="lvl2"><a href="#installation">Installation</a></li><li class="lvl2"><a href="#available-imports">Available imports</a></li><li class="lvl2"><a href="#dlopen-dlsym-dlclose-dlerror-errno">dlopen, dlsym, dlclose, dlerror, errno</a></li><li class="lvl2"><a href="#cfunction">CFunction</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#jscallback">JSCallback</a></li><li class="lvl2"><a href="#pointers-and-buffers">Pointers and buffers</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl2"><a href="#abi">ABI</a></li><li class="lvl2"><a href="#types">TYPES</a></li><li class="lvl2"><a href="#generating-bindings">Generating bindings</a></li><li class="lvl2"><a href="#jscontext">JSContext</a></li><li class="lvl2"><a href="#debug">debug</a></li><li class="lvl2"><a href="#legacy-api">Legacy API</a></li><li class="lvl2"><a href="#limitations">Limitations</a></li><li class="lvl2"><a href="#todo">TODO</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

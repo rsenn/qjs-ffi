@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qjs-ffi — Call any C library from QuickJS</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="assets/base.css">
+<link rel="stylesheet" href="assets/theme.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="landing" data-site="qjs-ffi" data-root="">
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="getting-started.html">Get started</a>
+    <a href="docs/c-function.html">CFunction</a>
+    <a href="docs/js-callback.html">JSCallback</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<section class="hero">
+  <div>
+    <span class="eyebrow">libffi + dlopen for QuickJS</span>
+    <h1>qjs-ffi: call C from JavaScript, no glue code</h1>
+    <p class="lede">Load a shared library, describe a prototype, call it. qjs-ffi is a small loadable QuickJS module built on libffi, with a bun:ffi-style API, native-to-JS callbacks, and a generator that turns a C header into a ready-made binding.</p>
+    <div class="cta">
+      <a class="btn primary" href="getting-started.html">Get started</a>
+      <a class="btn" href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+  <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, {
+  <span class="t-id">strlen</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'cstring'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'u64_fast'</span> },
+  <span class="t-id">getenv</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'cstring'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'cstring'</span> },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">strlen</span>(<span class="t-str">'hello, world'</span>)); <span class="t-cm">// 12</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">getenv</span>(<span class="t-str">'HOME'</span>));</code></pre></div>
+</section>
+
+<main>
+  <section class="section">
+    <h2>Why qjs-ffi</h2>
+    <p class="sub">Writing a QuickJS binding in C for every library is a lot of code for a few calls. This is the shortcut.</p>
+    <div class="grid">
+      <article class="card"><span class="ico">01</span><h3>Typed calls</h3><p><code>CFunction</code> prepares the libffi call interface once and returns a plain JS function. Types follow bun:ffi: <code>i32</code>, <code>u64</code> (exact <code>bigint</code>), <code>f64</code>, <code>pointer</code>, <code>cstring</code>.</p></article>
+      <article class="card"><span class="ico">02</span><h3>Callbacks both ways</h3><p><code>JSCallback</code> turns a JS function into a real native function pointer, so C code can call back into your script with properly marshalled arguments.</p></article>
+      <article class="card"><span class="ico">03</span><h3>Bindings included</h3><p><code>lib/</code> ships generated bindings for cairo, SDL2, freetype, libcurl, libusb, libarchive and zlib. <code>tools/gen-bindings.js</code> makes one for any other header, using clang's AST.</p></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Install</h2>
+    <p class="sub">Needs libffi and libdl, and QuickJS to load the module into.</p>
+    <div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">git</span> <span class="t-id">clone</span> <span class="t-id">https</span>://<span class="t-id">github.com</span>/<span class="t-id">rsenn</span>/<span class="t-id">qjs-ffi.git</span>
+<span class="t-id">cd</span> <span class="t-id">qjs-ffi</span>
+<span class="t-id">cmake</span> <span class="t-op">-B</span> <span class="t-id">build</span> &amp;&amp; <span class="t-id">cmake</span> <span class="t-op">--build</span> <span class="t-id">build</span>
+<span class="t-id">qjsm</span> <span class="t-id">examples</span>/<span class="t-id">cairo.js</span></code></pre></div>
+  </section>
+</main>
+
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>
