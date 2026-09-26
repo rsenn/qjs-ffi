@@ -6,3 +6,24 @@
     import { tests, eq } from './tinytest.js';
     await tests({ 'fails'() { eq(1, 2); } });
 
+
+- example-zlib-missing-os-import (examples/zlib.js:11): the example uses
+  os.open() but only imports from std, so it dies with "'os' is not defined"
+  right after printing the z_stream (found while testing the regenerated
+  lib/zlib.js; identical with the original files).
+
+    qjsm examples/zlib.js
+
+- zlib-z_stream-from-undefined-class (lib/zlib-extras.js:168): z_stream.from()
+  sets the prototype to z_stream_s.prototype, but no z_stream_s exists (the
+  class is called z_stream), so it throws a ReferenceError.
+
+    import { z_stream } from './lib/zlib-extras.js'; z_stream.from(0);
+
+- zlib-deflateinit-default-level (lib/zlib-extras.js:181): deflateInit() defaults
+  its level to Z_DEFAULT_STRATEGY (0, which is Z_NO_COMPRESSION) instead of
+  Z_DEFAULT_COMPRESSION (-1), so calling it with no level stores uncompressed
+  data (carried over unchanged from the old lib/zlib.js).
+
+    import { z_stream, deflateInit } from './lib/zlib-extras.js'; deflateInit(new z_stream());
+
