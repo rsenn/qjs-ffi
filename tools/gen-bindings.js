@@ -15,10 +15,18 @@
  * callers get the same symbolic constants the C API uses.
  *
  * Usage:
- *   qjsm gen-bindings.js [options] <source.c>
+ *   qjsm gen-bindings.js [options] <source.c>...
+ *
+ * Several sources are merged into one output, with a function or enum
+ * constant declared in more than one of them emitted once.
  *
  * Options:
  *   --api=cfunction|define   which qjs-ffi API to target (default: cfunction)
+ *   --follow-includes        also bind functions from every header under a
+ *                            source's own directory that it (transitively)
+ *                            includes, e.g. SDL.h -> SDL_video.h, SDL_render.h
+ *   --exclude=<name>         do not bind this function (repeatable), e.g. one
+ *                            the shared library does not actually export
  *   -I<dir>                  extra clang include dir (repeatable)
  *   -D<name[=val]>           extra clang macro define (repeatable)
  *   --library=<path>         dlopen() this shared library instead of
@@ -46,8 +54,10 @@ function usage() {
   std.err.puts(
     'Usage: ' +
       invocationName() +
-      ' [options] <source.c>\n' +
+      ' [options] <source.c>...\n' +
       '  --api=cfunction|define   which qjs-ffi API to target (default: cfunction)\n' +
+      '  --follow-includes        also bind headers included from under each source\'s directory\n' +
+      '  --exclude=<name>         do not bind this function (repeatable)\n' +
       '  -I<dir>                  extra clang include dir (repeatable)\n' +
       '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
       '  --library=<path>         dlopen() this shared library instead of RTLD_DEFAULT\n' +
@@ -58,7 +68,7 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, source: null };
+  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [] };
 
   for(let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -68,6 +78,10 @@ function parseArgs(argv) {
       std.exit(0);
     } else if(a.startsWith('--api=')) {
       opts.api = a.slice('--api='.length);
+    } else if(a.startsWith('--exclude=')) {
+      opts.excludes.push(a.slice('--exclude='.length));
+    } else if(a === '--follow-includes') {
+      opts.followIncludes = true;
     } else if(a.startsWith('-I')) {
       opts.includes.push(a.slice(2) || argv[++i]);
     } else if(a.startsWith('--include=')) {
@@ -87,12 +101,12 @@ function parseArgs(argv) {
     } else if(a.startsWith('-')) {
       throw new Error('unknown option: ' + a);
     } else {
-      opts.source = a;
+      opts.sources.push(a);
     }
   }
 
   if(opts.api !== 'cfunction' && opts.api !== 'define') throw new Error('--api must be "cfunction" or "define", got: ' + opts.api);
-  if(!opts.source) throw new Error('missing <source.c> argument');
+  if(!opts.sources.length) throw new Error('missing <source.c> argument');
 
   return opts;
 }
@@ -103,12 +117,12 @@ function shquote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
-function runClangAstDump(opts) {
+function runClangAstDump(opts, source) {
   const parts = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only'];
 
   for(const inc of opts.includes) parts.push('-I' + inc);
   for(const def of opts.defines) parts.push('-D' + def);
-  parts.push(opts.source);
+  parts.push(source);
 
   const cmd = parts.map(shquote).join(' ');
   const f = std.popen(cmd + ' 2>/dev/null', 'r');
@@ -355,9 +369,9 @@ function collectEnumIndex(root) {
  * node without one belongs to whatever file was last seen (see the sample
  * dump this was validated against -- system-header typedefs pulled in via
  * #include get their own file, then it switches back once real nodes from
- * `sourceFile` start).
+ * a file accepted by `isSourceFile` start).
  */
-function collectFunctions(root, sourceFile) {
+function collectFunctions(root, isSourceFile) {
   const functions = [];
   const skipped = [];
   const seen = new Set();
@@ -378,7 +392,7 @@ function collectFunctions(root, sourceFile) {
     if(node.loc && node.loc.file !== undefined) currentFile = node.loc.file;
 
     if(node.kind !== 'FunctionDecl') continue;
-    if(currentFile !== sourceFile) continue;
+    if(!isSourceFile(currentFile)) continue;
     if(node.storageClass === 'static') continue;
     if(node.isImplicit) continue;
     if(seen.has(node.name)) continue;
@@ -446,13 +460,13 @@ function safeIdent(name) {
 }
 
 function header(opts) {
-  const argv = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only', ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), opts.source];
+  const argv = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only', ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), '<source>'];
 
   return (
     '/* Auto-generated by ' +
     invocationName() +
     ' from ' +
-    opts.source +
+    opts.sources.join(', ') +
     ' -- do not edit by hand.\n' +
     ' * Regenerate with:\n' +
     ' *   ' +
@@ -460,12 +474,14 @@ function header(opts) {
     ' --api=' +
     opts.api +
     (opts.library ? ' --library=' + opts.library : '') +
+    (opts.followIncludes ? ' --follow-includes' : '') +
+    opts.excludes.map(n => ' --exclude=' + n).join('') +
     ' ' +
     opts.includes.map(i => '-I' + i).join(' ') +
     ' ' +
-    opts.source +
+    opts.sources.join(' ') +
     '\n' +
-    ' * (clang invocation used to build the AST: ' +
+    ' * (clang invocation used to build the AST, once per source: ' +
     argv.join(' ') +
     ')\n' +
     ' */\n'
@@ -573,17 +589,31 @@ function main() {
     std.exit(1);
   }
 
-  let root;
-  try {
-    root = runClangAstDump(opts);
-  } catch(e) {
-    std.err.puts('gen-bindings.js: ' + e.message + '\n');
-    std.exit(1);
+  const functions = [];
+  const skipped = [];
+  const enums = [];
+  const seenFunctions = new Set();
+  const seenSkipped = new Set();
+
+  for(const source of opts.sources) {
+    let root;
+    try {
+      root = runClangAstDump(opts, source);
+    } catch(e) {
+      std.err.puts('gen-bindings.js: ' + e.message + '\n');
+      std.exit(1);
+    }
+
+    const dir = source.replace(/[^/]*$/, '');
+    const isSourceFile = f => f === source || (opts.followIncludes && dir !== '' && f !== null && f.startsWith(dir));
+    const found = collectFunctions(root, isSourceFile);
+
+    if(!found.functions.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
+
+    for(const fn of found.functions) if(!seenFunctions.has(fn.name) && !opts.excludes.includes(fn.name)) (seenFunctions.add(fn.name), functions.push(fn));
+    for(const s of found.skipped) if(!seenSkipped.has(s.name)) (seenSkipped.add(s.name), skipped.push(s));
+    enums.push(...found.enums);
   }
-
-  const { functions, skipped, enums } = collectFunctions(root, opts.source);
-
-  if(!functions.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + opts.source + '\n');
 
   const out = opts.api === 'cfunction' ? generateCFunction(functions, skipped, enums, opts) : generateDefine(functions, skipped, enums, opts);
 
