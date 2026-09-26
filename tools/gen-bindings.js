@@ -25,6 +25,8 @@
  *   --follow-includes        also bind functions from every header under a
  *                            source's own directory that it (transitively)
  *                            includes, e.g. SDL.h -> SDL_video.h, SDL_render.h
+ *   --ffitype                write types as FFIType.i32 instead of "i32" (cfunction
+ *                            API only); imports FFIType from 'ffi'
  *   --exclude=<name>         do not bind this function (repeatable), e.g. one
  *                            the shared library does not actually export
  *   -I<dir>                  extra clang include dir (repeatable)
@@ -57,6 +59,7 @@ function usage() {
       ' [options] <source.c>...\n' +
       '  --api=cfunction|define   which qjs-ffi API to target (default: cfunction)\n' +
       '  --follow-includes        also bind headers included from under each source\'s directory\n' +
+      '  --ffitype                write types as FFIType.i32 instead of "i32" (cfunction API only)\n' +
       '  --exclude=<name>         do not bind this function (repeatable)\n' +
       '  -I<dir>                  extra clang include dir (repeatable)\n' +
       '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
@@ -68,7 +71,7 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [] };
+  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [], ffiType: false };
 
   for(let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -80,6 +83,8 @@ function parseArgs(argv) {
       opts.api = a.slice('--api='.length);
     } else if(a.startsWith('--exclude=')) {
       opts.excludes.push(a.slice('--exclude='.length));
+    } else if(a === '--ffitype') {
+      opts.ffiType = true;
     } else if(a === '--follow-includes') {
       opts.followIncludes = true;
     } else if(a.startsWith('-I')) {
@@ -106,6 +111,7 @@ function parseArgs(argv) {
   }
 
   if(opts.api !== 'cfunction' && opts.api !== 'define') throw new Error('--api must be "cfunction" or "define", got: ' + opts.api);
+  if(opts.ffiType && opts.api !== 'cfunction') throw new Error('--ffitype only applies to --api=cfunction');
   if(!opts.sources.length) throw new Error('missing <source.c> argument');
 
   return opts;
@@ -474,6 +480,7 @@ function header(opts) {
     ' --api=' +
     opts.api +
     (opts.library ? ' --library=' + opts.library : '') +
+    (opts.ffiType ? ' --ffitype' : '') +
     (opts.followIncludes ? ' --follow-includes' : '') +
     opts.excludes.map(n => ' --exclude=' + n).join('') +
     ' ' +
@@ -520,9 +527,17 @@ function enumConstantsCode(enums) {
   return out;
 }
 
+/* The names of the FFIType members (ffi-type.c), i.e. the type strings
+ * mapCType() may put in `.cf`. */
+const FFI_TYPE_NAMES = new Set(['void', 'bool', 'i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'i64', 'u64', 'i64_fast', 'u64_fast', 'f32', 'f64', 'pointer', 'ptr', 'function', 'cstring']);
+
+function cfType(name, opts) {
+  return opts.ffiType && FFI_TYPE_NAMES.has(name) ? 'FFIType.' + name : JSON.stringify(name);
+}
+
 function generateCFunction(functions, skipped, enums, opts) {
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
-  const imports = ['CFunction', 'dlsym', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
+  const imports = ['CFunction', opts.ffiType ? 'FFIType' : null, 'dlsym', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
 
   let out = header(opts);
   out += "import { " + imports.join(', ') + " } from 'ffi';\n\n";
@@ -534,9 +549,9 @@ function generateCFunction(functions, skipped, enums, opts) {
   out += '\n';
 
   for(const fn of functions) {
-    const args = fn.params.map(p => JSON.stringify(p.type.cf));
+    const args = fn.params.map(p => cfType(p.type.cf, opts));
     const ident = safeIdent(fn.name);
-    out += 'export const ' + ident + ' = CFunction({ ptr: __sym(' + JSON.stringify(fn.name) + '), args: [' + args.join(', ') + '], returns: ' + JSON.stringify(fn.returnType.cf) + ' });\n';
+    out += 'export const ' + ident + ' = CFunction({ ptr: __sym(' + JSON.stringify(fn.name) + '), args: [' + args.join(', ') + '], returns: ' + cfType(fn.returnType.cf, opts) + ' });\n';
     if(ident !== fn.name) out += '// note: "' + fn.name + '" is a reserved word, exported above as "' + ident + '"\n';
   }
 
