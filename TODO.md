@@ -100,28 +100,26 @@ the handle. Verified in `tests/test-dlopen-symbols.js` (legacy form still
 works, symbol-not-found and bad-path both throw `TypeError`, `close()`
 actually releases the handle).
 
-### Phase 4 — pointer/buffer helper parity
+Phase 4 (pointer/buffer helper parity) is done: `toBuffer` aliases
+`toArrayBuffer`; `ptr(buffer[, offset])` is its own small function
+(`js_ptr_address` in `ffi.c`) rather than an alias of `toPointer`, because
+`toPointer` returns a `"0x..."` string and `toArrayBuffer` reads a string
+argument as content, so the round trip needs a Number/BigInt address.
+`CString(ptr[, byteOffset[, byteLength]])` has `.ptr`, `.length` and
+`.toString()`; it decodes on demand. Verified in
+`tests/test-pointer-helpers.js`.
 
-1. Add `ptr(buffer)`, `toBuffer(ptr, len)` as bun-named wrappers over the
-   existing `toPointer`/`toArrayBuffer` implementations (thin aliasing, no new
-   logic).
-2. Add a `CString` class (lazy pointer→string, `.length`, `.ptr`) layered over
-   existing `toString()`.
-3. **Verify**: round-trip a buffer through `ptr()`/`toBuffer()` and compare
-   bytes.
-
-### Phase 5 — `linkSymbols`, `suffix` (low priority, additive)
-
-1. `suffix` constant (`"so"` on Linux — this project apparently only targets
-   Linux/Windows per README, so this can be a compile-time constant, no
-   runtime platform detection needed beyond what already exists).
-2. `linkSymbols(symbolSpecs)` — same as `dlopen` symbol-building path from
-   Phase 2, minus opening a new library (symbols pre-resolved, e.g. via
-   `RTLD_DEFAULT`).
-3. **Verify**: define two libc symbols via `RTLD_DEFAULT` through
-   `linkSymbols` and call both.
+Phase 5 (`linkSymbols`, `suffix`) is done: `suffix` is a compile-time
+`"so"`/`"dll"` string. `linkSymbols(symbolSpecs)` returns `{ symbols }` (no
+`close()`, nothing is opened) and resolves each spec from its own `ptr` (bun
+shape) or else `dlsym(RTLD_DEFAULT, name)`. It shares `js_build_symbols()` in
+`ffi.c` with the `dlopen(path, symbolSpecs)` path. Verified in
+`tests/test-link-symbols.js`.
 
 ### Phase 6 — deprecate/remove legacy `define`/`call`/`function_s`
+
+**Postponed by decision: legacy `define()`/`call()` stay, undeprecated and
+unchanged, until further notice.** Do not start this phase unprompted.
 
 Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
 `test-ffi.js`/`test-portmidi.js`/`examples/` has been ported to the new API:
@@ -140,5 +138,5 @@ Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
 ### Phase 7 — docs/examples pass
 
 1. Update `README.md` to document the new API as primary, old API as
-   "legacy" (or removed, depending on Phase 6 outcome).
+   "legacy" (Phase 6 is postponed, so the old API stays).
 2. Update `test-ffi.js`/`test.js`/`test2.js`/`examples/` to the new API.

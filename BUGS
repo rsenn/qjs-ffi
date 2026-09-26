@@ -1,0 +1,8 @@
+- tinytest-console-error (tests/tinytest.js:53): under qjsm console.error is
+  undefined, so a failing test throws "not a function" out of run() instead of
+  printing the failure, and the summary line never appears (found while
+  debugging a failing assertion in tests/test-pointer-helpers.js).
+
+    import { tests, eq } from './tinytest.js';
+    await tests({ 'fails'() { eq(1, 2); } });
+

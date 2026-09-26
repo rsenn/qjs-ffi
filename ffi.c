@@ -592,57 +592,55 @@ js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   return ret;
 }
 
-/* { symbols, close() } = dlopen(path, symbolSpecs) -- bun-shaped overload,
- * dispatched to from js_dlopen() when argv[1] is an object rather than a
- * flags number (TODO.md Phase 2). Opens the library, dlsym()s each key in
- * symbolSpecs, and wraps each as a CFunction (see doc/c-function.md) --
- * no name-keyed registry, no strcmp scan at call time.
- */
+/* symbols = { name: CFunction } for every key of symbol_specs, resolved with
+ * dlsym(handle, name). With `linked`, a spec's own `ptr` takes precedence over
+ * the dlsym() lookup (linkSymbols()). */
 static JSValue
-js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_specs) {
-  const char* path = NULL;
+js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, BOOL linked, const char* who) {
+  JSPropertyEnum* tab = NULL;
   uint32_t i, len = 0;
 
-  if(JS_IsNull(path_val))
-    path = NULL;
-  else if(!(path = JS_ToCString(ctx, path_val)))
+  if(JS_GetOwnPropertyNames(ctx, &tab, &len, symbol_specs, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY))
     return JS_EXCEPTION;
-
-  void* handle = dlopen(path, RTLD_NOW);
-
-  if(path)
-    JS_FreeCString(ctx, path);
-
-  if(!handle)
-    return JS_ThrowTypeError(ctx, "dlopen: %s", dlerror());
-
-  JSPropertyEnum* tab = NULL;
-
-  if(JS_GetOwnPropertyNames(ctx, &tab, &len, symbol_specs, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY)) {
-    dlclose(handle);
-    return JS_EXCEPTION;
-  }
 
   JSValue symbols = JS_NewObject(ctx);
 
   for(i = 0; i < len; i++) {
     const char* name = JS_AtomToCString(ctx, tab[i].atom);
-    void* fp;
+    void* fp = NULL;
 
     if(!name)
       goto fail;
 
-    if(!(fp = dlsym(handle, name))) {
-      JS_ThrowTypeError(ctx, "dlopen: symbol not found: %s", name);
+    JSValue spec = JS_GetPropertyStr(ctx, symbol_specs, name);
+
+    if(JS_IsException(spec)) {
       JS_FreeCString(ctx, name);
       goto fail;
     }
 
-    JSValue spec = JS_GetPropertyStr(ctx, symbol_specs, name);
-    JS_FreeCString(ctx, name);
+    if(linked && JS_IsObject(spec)) {
+      JSValue ptr_val = JS_GetPropertyStr(ctx, spec, "ptr");
+      int bad = !JS_IsUndefined(ptr_val) && (js_toptr(ctx, &fp, ptr_val) || !fp);
 
-    if(JS_IsException(spec))
+      JS_FreeValue(ctx, ptr_val);
+
+      if(bad) {
+        JS_ThrowTypeError(ctx, "%s: %s: ptr must be a valid function pointer", who, name);
+        JS_FreeCString(ctx, name);
+        JS_FreeValue(ctx, spec);
+        goto fail;
+      }
+    }
+
+    if(!fp && !(fp = dlsym(handle, name))) {
+      JS_ThrowTypeError(ctx, "%s: symbol not found: %s", who, name);
+      JS_FreeCString(ctx, name);
+      JS_FreeValue(ctx, spec);
       goto fail;
+    }
+
+    JS_FreeCString(ctx, name);
 
     JSValue fn = js_cfunction_create(ctx, fp, spec);
     JS_FreeValue(ctx, spec);
@@ -659,6 +657,46 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
   }
 
   js_free(ctx, tab);
+  return symbols;
+
+fail:
+  for(; i < len; i++)
+    JS_FreeAtom(ctx, tab[i].atom);
+
+  js_free(ctx, tab);
+  JS_FreeValue(ctx, symbols);
+  return JS_EXCEPTION;
+}
+
+/* { symbols, close() } = dlopen(path, symbolSpecs) -- bun-shaped overload,
+ * dispatched to from js_dlopen() when argv[1] is an object rather than a
+ * flags number (TODO.md Phase 2). Opens the library, dlsym()s each key in
+ * symbolSpecs, and wraps each as a CFunction (see doc/c-function.md) --
+ * no name-keyed registry, no strcmp scan at call time.
+ */
+static JSValue
+js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_specs) {
+  const char* path = NULL;
+
+  if(JS_IsNull(path_val))
+    path = NULL;
+  else if(!(path = JS_ToCString(ctx, path_val)))
+    return JS_EXCEPTION;
+
+  void* handle = dlopen(path, RTLD_NOW);
+
+  if(path)
+    JS_FreeCString(ctx, path);
+
+  if(!handle)
+    return JS_ThrowTypeError(ctx, "dlopen: %s", dlerror());
+
+  JSValue symbols = js_build_symbols(ctx, handle, symbol_specs, FALSE, "dlopen");
+
+  if(JS_IsException(symbols)) {
+    dlclose(handle);
+    return symbols;
+  }
 
   JSValue close_data = js_newptr(ctx, handle);
   JSValue close_fn = JS_NewCFunctionData(ctx, js_dlopen_symbols_close, 0, 0, 1, &close_data);
@@ -668,16 +706,27 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
   JS_SetPropertyStr(ctx, result, "symbols", symbols);
   JS_SetPropertyStr(ctx, result, "close", close_fn);
   return result;
-
-fail:
-  for(; i < len; i++)
-    JS_FreeAtom(ctx, tab[i].atom);
-
-  js_free(ctx, tab);
-  JS_FreeValue(ctx, symbols);
-  dlclose(handle);
-  return JS_EXCEPTION;
 }
+
+#ifdef RTLD_DEFAULT
+/* { symbols } = linkSymbols(symbolSpecs) -- like dlopen(path, symbolSpecs)
+ * without opening a library: each spec is resolved from its own `ptr` if it
+ * has one, else with dlsym(RTLD_DEFAULT, name). */
+static JSValue
+js_linksymbols(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  if(argc < 1 || !JS_IsObject(argv[0]))
+    return JS_ThrowTypeError(ctx, "linkSymbols: argument 1 must be an object");
+
+  JSValue symbols = js_build_symbols(ctx, RTLD_DEFAULT, argv[0], TRUE, "linkSymbols");
+
+  if(JS_IsException(symbols))
+    return symbols;
+
+  JSValue result = JS_NewObject(ctx);
+  JS_SetPropertyStr(ctx, result, "symbols", symbols);
+  return result;
+}
+#endif
 
 #define MAX_PARAMETERS 30
 
@@ -905,6 +954,137 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[
   return JS_NewString(ctx, str);
 }
 
+/* p = ptr(ArrayBuffer[, offset]) -- like toPointer(), but returns the address
+ * as a Number/BigInt so it can be fed back into toBuffer()/CString, where a
+ * string argument would be read as content rather than an address. */
+static JSValue
+js_ptr_address(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  uint8_t* ptr = NULL;
+
+  if(argc < 1 || js_ptr(ctx, &ptr, argv[0]))
+    return JS_ThrowTypeError(ctx, "argument 1 must be ArrayBuffer|Number");
+
+  if(argc > 1) {
+    int64_t ofs = 0;
+
+    if(!js_index(ctx, &ofs, argv[1]))
+      ptr += ofs;
+  }
+
+  return js_newptr(ctx, ptr);
+}
+
+typedef struct {
+  const char* ptr;
+  size_t len;
+} CStringData;
+
+static JSClassID js_cstring_class_id;
+
+static void
+js_cstring_finalizer(JSRuntime* rt, JSValue val) {
+  CStringData* cs;
+
+  if((cs = JS_GetOpaque(val, js_cstring_class_id)))
+    js_free_rt(rt, cs);
+}
+
+static JSClassDef js_cstring_class = {
+    .class_name = "CString",
+    .finalizer = js_cstring_finalizer,
+};
+
+static size_t
+js_cstring_length(const CStringData* cs) {
+  return cs->len != SIZE_MAX ? cs->len : cs->ptr ? strlen(cs->ptr) : 0;
+}
+
+/* s = new CString(ptr[, byteOffset[, byteLength]]) */
+static JSValue
+js_cstring_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
+  CStringData* cs;
+  uint8_t* p = NULL;
+  int64_t ofs = 0, len = -1;
+  JSValue proto, obj;
+
+  if(argc < 1 || js_ptr(ctx, &p, argv[0]))
+    return JS_ThrowTypeError(ctx, "CString: argument 1 must be a pointer");
+
+  if(argc > 1 && js_index(ctx, &ofs, argv[1]))
+    return JS_EXCEPTION;
+
+  if(argc > 2 && js_index(ctx, &len, argv[2]))
+    return JS_EXCEPTION;
+
+  proto = JS_GetPropertyStr(ctx, new_target, "prototype");
+  obj = JS_NewObjectProtoClass(ctx, proto, js_cstring_class_id);
+  JS_FreeValue(ctx, proto);
+
+  if(JS_IsException(obj))
+    return obj;
+
+  if(!(cs = js_malloc(ctx, sizeof(CStringData)))) {
+    JS_FreeValue(ctx, obj);
+    return JS_EXCEPTION;
+  }
+
+  cs->ptr = (const char*)(p + ofs);
+  cs->len = len < 0 ? SIZE_MAX : (size_t)len;
+  JS_SetOpaque(obj, cs);
+  return obj;
+}
+
+static JSValue
+js_cstring_get(JSContext* ctx, JSValueConst this_val, int magic) {
+  CStringData* cs;
+
+  if(!(cs = JS_GetOpaque2(ctx, this_val, js_cstring_class_id)))
+    return JS_EXCEPTION;
+
+  switch(magic) {
+    case 0: return js_newptr(ctx, (void*)cs->ptr);
+    case 1: return JS_NewInt64(ctx, js_cstring_length(cs));
+  }
+
+  return JS_UNDEFINED;
+}
+
+static JSValue
+js_cstring_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  CStringData* cs;
+
+  if(!(cs = JS_GetOpaque2(ctx, this_val, js_cstring_class_id)))
+    return JS_EXCEPTION;
+
+  return cs->ptr ? JS_NewStringLen(ctx, cs->ptr, js_cstring_length(cs)) : JS_NULL;
+}
+
+static const JSCFunctionListEntry js_cstring_proto_funcs[] = {
+    JS_CGETSET_MAGIC_DEF("ptr", js_cstring_get, 0, 0),
+    JS_CGETSET_MAGIC_DEF("length", js_cstring_get, 0, 1),
+    JS_CFUNC_DEF("toString", 0, js_cstring_tostring),
+};
+
+static int
+js_cstring_init(JSContext* ctx, JSModuleDef* m) {
+  JS_NewClassID(&js_cstring_class_id);
+  JS_NewClass(JS_GetRuntime(ctx), js_cstring_class_id, &js_cstring_class);
+
+  JSValue proto = JS_NewObject(ctx);
+  JS_SetPropertyFunctionList(ctx, proto, js_cstring_proto_funcs, countof(js_cstring_proto_funcs));
+
+  JSValue ctor = JS_NewCFunction2(ctx, js_cstring_constructor, "CString", 1, JS_CFUNC_constructor, 0);
+  JS_SetConstructor(ctx, ctor, proto);
+  JS_SetClassProto(ctx, js_cstring_class_id, proto);
+
+  if(m)
+    JS_SetModuleExport(ctx, m, "CString", ctor);
+  else
+    JS_FreeValue(ctx, ctor);
+
+  return 0;
+}
+
 /* p = JSContext() */
 static JSValue
 js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
@@ -922,6 +1102,11 @@ static const JSCFunctionListEntry js_funcs[] = {
     JS_CFUNC_DEF("toString", 1, js_tostring),
     JS_CFUNC_DEF("toArrayBuffer", 2, js_toarraybuffer),
     JS_CFUNC_DEF("toPointer", 1, js_topointer),
+    JS_CFUNC_DEF("ptr", 1, js_ptr_address),
+#ifdef RTLD_DEFAULT
+    JS_CFUNC_DEF("linkSymbols", 1, js_linksymbols),
+#endif
+    JS_CFUNC_DEF("toBuffer", 2, js_toarraybuffer),
     JS_CFUNC_DEF("errno", 0, js_errno),
     JS_CFUNC_DEF("JSContext", 0, js_context),
 #ifdef RTLD_LAZY
@@ -951,6 +1136,11 @@ static const JSCFunctionListEntry js_funcs[] = {
 #ifdef RTLD_NEXT
     JS_PROP_INT64_DEF("RTLD_NEXT", (ptrdiff_t)RTLD_NEXT, JS_PROP_CONFIGURABLE),
 #endif
+#ifdef _WIN32
+    JS_PROP_STRING_DEF("suffix", "dll", JS_PROP_CONFIGURABLE),
+#else
+    JS_PROP_STRING_DEF("suffix", "so", JS_PROP_CONFIGURABLE),
+#endif
     JS_PROP_INT32_DEF("pointerSize", sizeof(void*), JS_PROP_CONFIGURABLE),
     JS_OBJECT_DEF("FFIType", js_ffitype_funcs, FFI_TYPE_COUNT, JS_PROP_CONFIGURABLE),
 };
@@ -959,6 +1149,7 @@ static int
 js_init(JSContext* ctx, JSModuleDef* m) {
   js_callback_init(ctx, m);
   js_cfunction_init(ctx, m);
+  js_cstring_init(ctx, m);
 
   define_types();
   return JS_SetModuleExportList(ctx, m, js_funcs, countof(js_funcs));
@@ -979,6 +1170,7 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
 
   JS_AddModuleExport(ctx, m, "JSCallback");
   JS_AddModuleExport(ctx, m, "CFunction");
+  JS_AddModuleExport(ctx, m, "CString");
   JS_AddModuleExportList(ctx, m, js_funcs, countof(js_funcs));
   return m;
 }
