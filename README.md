@@ -2,237 +2,313 @@ qjs-ffi
 =======
 
 ## What is it? ##
-**qjs-ffi** is a simple interface to ffi from quickjs
-<https://bellard.org/quickjs/>.
+**qjs-ffi** is a foreign function interface for QuickJS
+<https://bellard.org/quickjs/>. It lets a script load shared libraries, call
+their C functions, and hand JavaScript functions back to C as function
+pointers.
 
-libffi and libdl are required. This has only been run on Linux x86_64 (Fedora 31).
+The API follows [bun:ffi](https://bun.com/docs/runtime/ffi): `dlopen()` with a
+symbol table returns directly callable functions, there is no name lookup at
+call time, and 64-bit integers come back as `BigInt`. The older
+`define()`/`call()` interface is still available, see [Legacy API](#legacy-api).
 
-See test.js for simple example and testing. libdl is needed to link to external shared objects (.so files). See the man pages for dlopen, dlerror, dlclose and dlsym.
+libffi and libdl are required. Linux x86_64 is the main target, mingw64
+cross builds compile but have not been tested.
+
+See tests/ for small runnable examples, examples/ for bindings to real
+libraries (cairo, freetype, SDL2, zlib, portmidi) and doc/ for the reference
+pages of individual classes.
 
 ## How to use it? ##
-Use dlopen() and dlsym() to get a function pointer to a desired function, use ffidefine() to create a ffi link to the function, then call() to execute the function:
+Use dlopen() with a table of symbols. Every entry becomes a function that can
+be called directly:
 
 ```
-	import { dlsym,
-	         define, call, toString, toArrayBuffer,
-	         RTLD_DEFAULT } from "./ffi.so";
+	import { dlopen } from "ffi";
 
-	var fp;
-	fp = dlsym(RTLD_DEFAULT, "strdup");
-	define("strdup", fp, null, "char *", "char *");
-	var p;
-	p = call("strdup", "hello");
+	const lib = dlopen("libm.so.6", {
+	  pow: { args: ["f64", "f64"], returns: "f64" },
+	  sqrt: { args: ["f64"], returns: "f64" },
+	});
+
+	console.log(lib.symbols.pow(2, 10));  // 1024
+	console.log(lib.symbols.sqrt(144));  // 12
+
+	lib.close();
 ```
-define(name, function_pointer, abi, ret_type, types...)
 
-name is the name you want to refer to the function as, function_pointer is obtained from dlsym(), abi is abi (if null, use default), ret_type is the return type and types... are the types (prototype).
+`dlopen(path, symbolSpecs)` returns `{ symbols, close() }`. `path` may be
+null to search the symbols already loaded into the process. A missing library
+or symbol throws a TypeError.
 
-n = call(name, params...) calls the function with the parameters.
-
-s = toString(p) converts a pointer p to a string.
-
-b = toArrayBuffer(p, n) converts pointer p, length n to ArrayBuffer.
+Each spec has the form `{ args, returns, abi }`, the same options as
+[CFunction](doc/c-function.md).
 
 ## Installation ##
-Installing qjs-ffi easy.
+Installing qjs-ffi is done with CMake:
 
 ```
-$ ./BUILD
+$ cmake -S . -B build
+$ cmake --build build --target quickjs-ffi
 ```
+
+This produces the module `build/ffi.so` (`ffi.dll` on Windows). Point QuickJS
+at it and import it as `ffi`:
+
+```
+$ export QUICKJS_MODULE_PATH=$PWD/build
+$ qjsm script.js
+```
+
+CMake options:
+
+*   `BUILD_STATIC_MODULES` also builds a static `quickjs-ffi.a`
+*   `BUILD_LIBFFI` checks out libffi into third_party/libffi and builds it
+    instead of using the system library
+
+Run the tests with:
+
+```
+$ tests/run-all.sh
+```
+
+Scripts in this project are run with `qjsm`, not `qjs`: `qjs` lacks
+`process` and other globals, and swallows uncaught errors in module mode.
+
+## Available imports ##
+```
+  import { dlopen, dlsym, dlclose, dlerror, errno,
+           linkSymbols, CFunction, JSCallback,
+           ptr, toBuffer, toArrayBuffer, toPointer, toString, CString,
+           FFIType, suffix, pointerSize, JSContext, debug,
+           define, call,
+           RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
+           RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND,
+           RTLD_DEFAULT, RTLD_NEXT } from "ffi";
+```
+
+The RTLD_* constants are only published if the platform defines them.
+
+## dlopen, dlsym, dlclose, dlerror, errno ##
+
+dlopen() has two call shapes, picked by the type of the second argument:
+
+```
+  lib = dlopen(path, symbolSpecs)   // object: bun-shaped, see above
+  h   = dlopen(path, flags)         // number: raw libdl handle
+```
+
+The raw form, dlsym(), dlclose() and dlerror() are thin wrappers around the
+libdl functions of the same name, described in the **man** pages, which also
+describe the RTLD_* constants. Note that errno() is a function.
+
+dlsym() returns the address as a Number or BigInt, or null if not found.
+
+## CFunction ##
+
+CFunction() wraps an already resolved function pointer, for example one from
+dlsym(), as a plain callable function:
+
+```
+	import { dlsym, CFunction, RTLD_DEFAULT } from "ffi";
+
+	const strdup = CFunction({
+	  ptr: dlsym(RTLD_DEFAULT, "strdup"),
+	  args: ["cstring"],
+	  returns: "cstring",
+	});
+
+	console.log(strdup("hello"));
+```
+
+The prepared libffi call interface is built once, when the function is
+created. See [doc/c-function.md](doc/c-function.md).
+
+## linkSymbols ##
+
+linkSymbols() is dlopen() without opening a library. Each entry is resolved
+from its own `ptr`, or else with `dlsym(RTLD_DEFAULT, name)`:
+
+```
+	import { linkSymbols } from "ffi";
+
+	const { symbols } = linkSymbols({
+	  abs: { args: ["i32"], returns: "i32" },
+	  strlen: { args: ["cstring"], returns: "u64" },
+	});
+
+	symbols.abs(-5);         // 5
+	symbols.strlen("hello"); // 5n
+```
+
+It returns `{ symbols }` and has no close(), since nothing was opened.
+`suffix` is `"so"` (`"dll"` on Windows), for building library file names:
+
+```
+	dlopen(`libz.${suffix}.1`, { ... });
+```
+
+## JSCallback ##
+
+new JSCallback(fn, { args, returns }) turns a JavaScript function into a
+native function pointer. Pass its `.ptr` to C code that expects a callback,
+and call `.close()` when done:
+
+```
+	import { JSCallback } from "ffi";
+
+	const cb = new JSCallback((a, b) => a + b, { args: ["i32", "i32"], returns: "i32" });
+
+	someNativeFunction(cb.ptr);
+
+	cb.close();
+```
+
+See [doc/js-callback.md](doc/js-callback.md).
+
+## Pointers and buffers ##
+
+*   `p = ptr(buffer[, offset])` returns the address of an ArrayBuffer (or typed
+    array) as a Number or BigInt.
+*   `b = toBuffer(p, n)` creates an ArrayBuffer of length n from pointer p.
+    This is the same function as toArrayBuffer().
+*   `b = toArrayBuffer(p, n[, copy])` does the same. The contents are copied
+    unless `copy` is `false`, in which case the ArrayBuffer views the original
+    memory and the caller must keep it alive.
+*   `s = toString(p[, n])` converts a pointer to a C string, n bytes long if n
+    is given.
+*   `s = toPointer(buffer[, offset])` is like ptr(), but returns the address
+    as a string such as `"0x55d0c8a4e2a0"`.
+*   `new CString(p[, byteOffset[, byteLength]])` wraps a C string. `.ptr` is
+    the address, `.length` its length in bytes and `.toString()` decodes it.
+    Without byteLength the string ends at the first NUL byte.
+
+```
+	const src = new Uint8Array([1, 2, 3, 4]);
+	const back = new Uint8Array(toBuffer(ptr(src.buffer), src.length));
+```
+
+Note that a string passed to toArrayBuffer() is taken as content, not as an
+address. That is why ptr() returns a number and toPointer() should only be used
+for display.
+
+## FFIType ##
+
+`FFIType` holds the type names as constants, so `FFIType.i32` can be used
+where `"i32"` is written above.
 
 ## ABI ##
 
-ABI is the call type for a function pointer. The following values are allowed (define). Note that null is the same as "default". On Windows, "fastcall", "stdcall", "ms_cdecl" and "win64" may be useful.
+ABI is the call type for a function pointer. The following values are allowed.
+Not specifying an abi is the same as "default". Names that are unknown, or not
+available on the platform, fall back to "default".
 
-*   null
 *   "default"
 *   "sysv"
 *   "unix64"
 *   "stdcall"
-*   "thiscall"
-*   "fastcall"
-*   "ms_cdecl"
 *   "win64"
 
 ## TYPES ##
-Types define parameter and return types. NOTE: structure passing by value is not yet supported. "void" is only useful as a return type. There are also C-like aliases, and a "string" semantic type. These types are used in define to declare the prototype for each function.
-
-These are the types from libffi:
+Types define parameter and return types. NOTE: structure passing by value is not
+yet supported. "void" is only useful as a return type.
 
 *   "void"
-*   "sint8"
-*   "sint16"
-*   "sint32"
-*   "sint64"
-*   "uint8"
-*   "uint16"
-*   "uint32"
-*   "uint64"
-*   "float"
-*   "double"
-*   "schar"
-*   "uchar"
-*   "sshort"
-*   "ushort"
-*   "sint"
-*   "uint"
-*   "slong"
-*   "ulong"
-*   "longdouble"
-*   "pointer"
+*   "bool"
+*   "i8", "u8"
+*   "i16", "u16"
+*   "i32", "u32"
+*   "i64", "u64" (BigInt, exact)
+*   "i64_fast", "u64_fast" (Number, lossy above 2^53)
+*   "f32", "f64"
+*   "pointer", "ptr", "function" (null for NULL, else Number or BigInt)
+*   "cstring" (JavaScript string, converted for the duration of the call)
 
-"C-like" types:
+An unrecognized parameter type falls back to "i32", an unrecognized return type
+to "void".
 
-*   "int" ("sint")
-*   "long" ("slong")
-*   "short" ("sshort")
-*   "char" ("schar")
-*   "size_t" ("uint")
-*   "unsigned char" ("uchar")
-*   "unsigned int" ("uint")
-*   "unsigned long" ("ulong")
-*   "void *" ("pointer")
-*   "char *" ("pointer")
+## Generating bindings ##
 
-Semantic types:
-
-*   "string" ("pointer", for JavaScript string)
-*   "buffer" ("pointer", for ArrayBuffer)
-
-Since call converts JavaScript strings into a pointer to the string data, "string" can be used as a parameter type to indicate that this is the intended behaviour (call with a C string constant).
-
-## Default Function Pointer ##
-If a null is passed as the function pointer to define, define will convert the null into a pointer to the following C function. This will display "dummy function in ffi" on stderr when fficall is used.
+tools/gen-bindings.js reads C headers with clang and writes a JavaScript module
+with one CFunction per function, plus an export for every enum used:
 
 ```
-    static int dummy_() {
-	    warn("dummy function in ffi");
-	    return 0;
-    }
+$ qjsm tools/gen-bindings.js --library=libcairo.so.2 /usr/include/cairo/cairo.h -o lib/cairo.js
 ```
 
-## Available imports ##
-```
-  import { debug, dlopen, dlerror, dlclose, dlsym,
-           define, call, toString, toArrayBuffer,
-           errno, JSContext,
-           RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
-           RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND,
-           RTLD_DEFAULT, RTLD_NEXT } from "./ffi.so";
-```
-
-## dlopen, dlerror, dlclose, dlsym, errno ##
-
-These functions are described in the **man** pages. The **man** pages also describe the constant RTLD_* that are available.
-
-Note that errno() is a function.
-
-## define, call, toString, toArrayBuffer ##
-
-define() defines a prototype for a FFI C function. Given a function pointer, it produces a callable function:
+Useful options are `--follow-includes` to also bind the headers included by
+the source, `--exclude=<name>` to skip a function, `-I` and `-D` for clang, and
+`--api=define` to target the legacy API. Ready made bindings are in lib/.
 
 ```
-  f = define(name, fp, abi, return, parameters...)
-```
-define() returns true or false -- true if the function has been defined, false otherwise. name is a string by which the function will be referenced. fp is a function pointer, usually derived from dlsym(). abi is the type of call (usually null meaning default abi), return is the return type, and parameters are the types of parameters.
+	import * as cairo from "./lib/cairo.js";
 
-For example:
-```
-  var malloc;
-  malloc = dlsym(RTLD_DEFAULT, "malloc");
-  if (malloc == null)
-    console.log(dlerror());
-  else {
-    if (define("malloc", malloc, null, "void *", "size_t");
-      console.log("malloc defined");
-    else
-      console.log("define failed");
-  }
-```
-Up to 30 parameters can be defined.
-
-```
-  result = call(name, actual parameters...)
-```
-call() calls an external function previously defined by define().
-
-For example:
-```
-  var p;
-  p = call("malloc", 10);
-```
-call() converts JavaScript strings (eg. "string") into a pointer to the C string. These strings **cannot** be altered by the FFI function. Use malloc to get memory that can be written. ArrayBuffer is converted to pointer as well, and the ArrayBuffer contents *can* be written.
-
-call() always returns a double. This presumes that **all integers and pointers fit into 52 bits**.
-
-If call() detects a problem before the actual invocation, it will return an exception. This happens if the function is not yet defined, or a parameter cannot be converted.
-
-true and false are converted to integer 1 and 0, null to pointer 0 (NULL), integers and float as defined by the types specified in the definition. Strings are copied, and a pointer to the copy is passed. These are the standard conversions. As well, libffi may do additional conversions as needed to execute the call. ArrayBuffer will be converted to a pointer, and the C function can change that memory.
-
-Some FFI functions will return or produce a pointer to a C string. toString() will convert that pointer into a JavaScript string:
-```
-  console.log(toString(p));
+	const surface = cairo.cairo_image_surface_create(cairo.CAIRO_FORMAT_ARGB32, 320, 240);
 ```
 
-If we have a pointer to memory, and a length, toArrayBuffer will create an ArrayBuffer with a copy of the storage.
+See examples/cairo.js and tests/test-cairo.js, which draws to PNG and SVG.
 
 ## JSContext ##
 
-Returns the current JSContext *ctx. This allow functions within the
+Returns the current JSContext *ctx. This allows functions within the
 QuickJS C API to be called from within a js module. This allows for
 limited "introspection".
 
 ## debug ##
 
-This is provided as a convenience feature, to allow debugging of ffi.so. Since the technique is useful, it is documented here.
-
-If ffi.so is compiled with debug (-g), debugging with gdb can be done:
+This is provided as a convenience feature, to allow debugging of ffi.so. If
+ffi.so is compiled with debug (-g), debugging with gdb can be done:
 ```
-$ gdb qjs
-(gdb) set args test.js
+$ gdb qjsm
+(gdb) set args script.js
 (gdb) b js_debug
-Function "js_debug" not defined.
 Make breakpoint pending on future shared library load? (y or [n]) y
-Breakpoint 1 (js_debug) pending.
 (gdb) run
-
-Breakpoint 1, js_debug (ctx=0x4d82d0, this_val=..., argc=0, 
-    argv=0x7fffffffca10) at ffi.c:494
-494	    return JS_NULL;
-(gdb)
 ```
 The breakpoint is triggered on the first call to debug() in the JavaScript.
 
-Breakpoints can then be set in other shared objects.
+## Legacy API ##
 
-## Changes ##
+The original interface registers functions by name in a global list. It still
+works and is unchanged, but every call() searches that list by string
+comparison, and every result is a double. Prefer dlopen() or CFunction().
 
-* Wed Jan 22 10:34:55 EST 2020
-* Note endian in Limitations
-* ArrayBuffer can be passed (converted to pointer like string)
-* Add ffitoarraybuffer(p, size)
-* Add type "buffer"
-* Add errno function
-* Only publish RTLD_ constants if available
-* Fri Jan 24 11:57:09 EST 2020
-* Add JSContext() to allow "introspective" functions
-* Rename ffidefine to define, fficall to call, ffitostring to toString and ffitoarraybuffer to toArrayBuffer
-* Add util.mjs and test2.js to illustrate how to use ffi a bit better.
+```
+	import { dlsym, define, call, toString, RTLD_DEFAULT } from "ffi";
 
+	define("strdup", dlsym(RTLD_DEFAULT, "strdup"), null, "char *", "char *");
+	var p = call("strdup", "hello");
+	console.log(toString(p));
+```
+
+define(name, function_pointer, abi, ret_type, types...) returns true if the
+function has been defined. n = call(name, params...) calls it.
+
+*   call() always returns a double, which presumes that all integers and
+    pointers fit into 52 bits.
+*   JavaScript strings are copied and passed as a pointer to the copy. They
+    cannot be altered by the C function.
+*   ArrayBuffers are passed as a pointer, and their contents can be written.
+*   true and false become 1 and 0, null becomes NULL.
+*   Up to 30 parameters can be defined.
+*   If null is passed as the function pointer, define() substitutes a dummy
+    function that prints "dummy function in ffi" on stderr.
+
+Legacy types are the libffi names ("sint8", "uint32", "double", "pointer",
+...), C-like aliases ("int", "long", "size_t", "unsigned char", "char *",
+"void *") and the semantic types "string" (JavaScript string) and "buffer"
+(ArrayBuffer).
 
 ## Limitations ##
 
-* Only **double** is returned
 * No structure pass by value
-* No C to JavaScript (without specific code for this, C function qsort() cannot be used with a JavaScript comparision function, for example).
-* Only little-endian (I don't have a big-endian test system)
+* No varargs
+* No C structure access, use toBuffer() and a typed array or DataView
+* Only little-endian
+* Only the legacy API is limited to double return values
 
 ## TODO ##
 
-ffi.so is useful, but some features would be worthwhile to add. I haven't needed these as yet (YAGNI)
-
-* JavaScript function to C function pointer
-* C structure access via pointer -- define setters/getters by type
-* Define and pass structures by value (new "types")
-* Expand return to return true 64 bit integers and pointers
-* Allow other endian
+* Remove the legacy define()/call() (postponed, see TODO.md)
+* Update examples/ and the older test scripts to the new API
+* Test the mingw64 build
