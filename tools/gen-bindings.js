@@ -60,7 +60,7 @@
  *   -h, --help               show this help
  */
 import * as std from 'std';
-import * as os from 'os';
+import { mkdir, realpath, remove, stat } from 'os';
 import { JsonParser } from 'json';
 
 const { NEED_DATA, NONE, OBJECT, OBJECT_END, ARRAY, ARRAY_END, KEY, STRING, TRUE, FALSE, NULL, NUMBER } = JsonParser;
@@ -350,7 +350,7 @@ function fnv1a(s) {
 }
 
 function mtime(path) {
-  const [st, err] = os.stat(path);
+  const [st, err] = stat(path);
   return err ? -1 : st.mtime;
 }
 
@@ -365,7 +365,7 @@ function mkdirs(dir) {
   let path = '';
   for(const part of dir.split('/')) {
     path += part + '/';
-    if(part && part !== '.') os.mkdir(path, 0o755);
+    if(part && part !== '.') mkdir(path, 0o755);
   }
 }
 
@@ -404,7 +404,7 @@ function runLayoutDump(opts, source, ast) {
   }
 
   const layouts = {};
-  const [real, err] = os.realpath(source);
+  const [real, err] = realpath(source);
   if(!types.length || err) return layouts;
 
   mkdirs(opts.cacheDir);
@@ -418,7 +418,7 @@ function runLayoutDump(opts, source, ast) {
   const out = p.readAsString();
 
   p.close();
-  os.remove(probe);
+  remove(probe);
 
   for(const block of out.split('*** Dumping AST Record Layout').slice(1)) {
     const type = /^Type: (.*)$/m.exec(block);
