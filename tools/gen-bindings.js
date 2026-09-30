@@ -17,9 +17,9 @@
  * The JS module emitted is either:
  *
  *   --api=cfunction (default) -- one `CFunction({ ptr, args, returns })`
- *                                 per function (see doc/c-function.md)
+ *                                 per function(see doc/c-function.md)
  *   --api=define              -- one `define()`+`call()` pair per function,
- *                                 wrapped in a plain JS function (legacy API)
+ *                                 wrapped in a plain JS function(legacy API)
  *
  * Also emits `export const NAME = value;` for every enum reachable from a
  * bound function's args/returns (enum-typed or enum-typedef-typed), so
@@ -44,7 +44,7 @@
  *                            accessors (struct_<name>, union_<name>, plus its
  *                            typedef names), and for every extern variable an
  *                            accessor { ptr, value }, resolved on first use
- *   --exclude=<name>         do not bind this function (repeatable), e.g. one
+ *   --exclude=<name>         do not bind this function(repeatable), e.g. one
  *                            the shared library does not actually export
  *   -I<dir>                  extra clang include dir (repeatable)
  *   -D<name[=val]>           extra clang macro define (repeatable)
@@ -62,6 +62,8 @@
 import * as std from 'std';
 import * as os from 'os';
 import { JsonParser } from 'json';
+
+const { NEED_DATA, NONE, OBJECT, OBJECT_END, ARRAY, ARRAY_END, KEY, STRING, TRUE, FALSE, NULL, NUMBER } = JsonParser;
 
 /* How this script is invoked, for use in the usage banner and the
  * generated file's "regenerate with:" comment. Installed (via
@@ -81,10 +83,10 @@ function usage() {
       invocationName() +
       ' [options] <source.c>... | --from-ir=<ir.json>\n' +
       '  --api=cfunction|define   which qjs-ffi API to target (default: cfunction)\n' +
-      '  --follow-includes        also bind headers included from under each source\'s directory\n' +
+      "  --follow-includes        also bind headers included from under each source's directory\n" +
       '  --ffitype                write types as FFIType.i32 instead of "i32" (cfunction API only)\n' +
       '  --structs                also emit struct/union layouts and extern variable accessors\n' +
-      '  --exclude=<name>         do not bind this function (repeatable)\n' +
+      '  --exclude=<name>         do not bind this function(repeatable)\n' +
       '  -I<dir>                  extra clang include dir (repeatable)\n' +
       '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
       '  --library=<path>         dlopen() this shared library instead of RTLD_DEFAULT\n' +
@@ -99,7 +101,23 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [], ffiType: false, structs: false, emitIr: null, fromIr: null, cacheDir: '.tmp/gen-bindings', cache: true };
+  const opts = {
+    api: 'cfunction',
+    includes: [],
+    defines: [],
+    library: null,
+    clang: 'clang',
+    output: null,
+    sources: [],
+    followIncludes: false,
+    excludes: [],
+    ffiType: false,
+    structs: false,
+    emitIr: null,
+    fromIr: null,
+    cacheDir: '.tmp/gen-bindings',
+    cache: true,
+  };
 
   for(let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -185,11 +203,16 @@ const EXPR_KIND = /(Expr|Literal|Operator)$/;
  */
 function nodePolicy(parent, kind) {
   switch (parent) {
-    case 'TranslationUnitDecl': return TOP_KINDS.has(kind) ? 'full' : 'shallow';
-    case 'FunctionDecl': return kind === 'ParmVarDecl' ? 'leaf' : 'skip';
-    case 'EnumDecl': return kind === 'EnumConstantDecl' ? 'full' : 'skip';
-    case 'RecordDecl': return kind === 'FieldDecl' || kind === 'RecordDecl' || kind === 'EnumDecl' || kind === 'AlignedAttr' ? 'full' : kind === 'PackedAttr' ? 'leaf' : 'skip';
-    case 'TypedefDecl': return kind === 'ElaboratedType' ? 'leaf' : 'skip';
+    case 'TranslationUnitDecl':
+      return TOP_KINDS.has(kind) ? 'full' : 'shallow';
+    case 'FunctionDecl':
+      return kind === 'ParmVarDecl' ? 'leaf' : 'skip';
+    case 'EnumDecl':
+      return kind === 'EnumConstantDecl' ? 'full' : 'skip';
+    case 'RecordDecl':
+      return kind === 'FieldDecl' || kind === 'RecordDecl' || kind === 'EnumDecl' || kind === 'AlignedAttr' ? 'full' : kind === 'PackedAttr' ? 'leaf' : 'skip';
+    case 'TypedefDecl':
+      return kind === 'ElaboratedType' ? 'leaf' : 'skip';
     case 'VarDecl':
     case 'EnumConstantDecl':
     case 'FieldDecl':
@@ -206,37 +229,42 @@ class AstCondenser {
 
   next() {
     const t = this.p.parse();
-    if(t === 'NEED_DATA') throw new Error('unexpected end of clang AST JSON');
+    if(t === NEED_DATA) throw new Error('unexpected end of clang AST JSON');
     return t;
   }
 
   scalar(t) {
     switch (t) {
-      case 'STRING': return this.p.token;
-      case 'NUMBER': return Number(this.p.token);
-      case 'TRUE': return true;
-      case 'FALSE': return false;
-      case 'NULL': return null;
+      case STRING:
+        return this.p.token;
+      case NUMBER:
+        return Number(this.p.token);
+      case TRUE:
+        return true;
+      case FALSE:
+        return false;
+      case NULL:
+        return null;
     }
     throw new Error('unexpected clang AST JSON token ' + t);
   }
 
   /* Consumes the rest of a value whose first token `t` was already read. */
   skip(t) {
-    if(t !== 'OBJECT' && t !== 'ARRAY') return;
+    if(t !== OBJECT && t !== ARRAY) return;
     for(let depth = 1; depth > 0; ) {
       const u = this.next();
-      if(u === 'OBJECT' || u === 'ARRAY') depth++;
-      else if(u === 'OBJECT_END' || u === 'ARRAY_END') depth--;
+      if(u === OBJECT || u === ARRAY) depth++;
+      else if(u === OBJECT_END || u === ARRAY_END) depth--;
     }
   }
 
   /* Reads any value, keeping only `keys` (or every key if null) of each
    * object; `t` is the value's first token. */
   plain(t, keys) {
-    if(t === 'OBJECT') {
+    if(t === OBJECT) {
       const o = {};
-      for(let u; (u = this.next()) !== 'OBJECT_END'; ) {
+      for(let u; (u = this.next()) !== OBJECT_END; ) {
         const key = this.p.token;
         const v = this.next();
         if(keys && !keys.has(key)) this.skip(v);
@@ -244,9 +272,9 @@ class AstCondenser {
       }
       return o;
     }
-    if(t === 'ARRAY') {
+    if(t === ARRAY) {
       const a = [];
-      for(let u; (u = this.next()) !== 'ARRAY_END'; ) a.push(this.plain(u, keys));
+      for(let u; (u = this.next()) !== ARRAY_END; ) a.push(this.plain(u, keys));
       return a;
     }
     return this.scalar(t);
@@ -256,9 +284,10 @@ class AstCondenser {
    * if `nodePolicy(parent, kind)` says to drop it. */
   node(parent) {
     const o = {};
-    let kind, policy = 'full';
+    let kind,
+      policy = 'full';
 
-    for(let u; (u = this.next()) !== 'OBJECT_END'; ) {
+    for(let u; (u = this.next()) !== OBJECT_END; ) {
       const key = this.p.token;
       const v = this.next();
 
@@ -268,7 +297,7 @@ class AstCondenser {
           kind = o.kind;
           policy = parent === null ? 'full' : nodePolicy(parent, kind);
           if(policy === 'skip') {
-            this.skip('OBJECT');
+            this.skip(OBJECT);
             return null;
           }
         }
@@ -292,9 +321,9 @@ class AstCondenser {
   }
 
   inner(parent, t) {
-    if(t !== 'ARRAY') throw new Error('clang AST: "inner" is not an array');
+    if(t !== ARRAY) throw new Error('clang AST: "inner" is not an array');
     const a = [];
-    for(let u; (u = this.next()) !== 'ARRAY_END'; ) {
+    for(let u; (u = this.next()) !== ARRAY_END; ) {
       const n = this.node(parent);
       if(n) a.push(n);
     }
@@ -302,7 +331,7 @@ class AstCondenser {
   }
 
   root() {
-    if(this.next() !== 'OBJECT') throw new Error('clang AST: root is not an object');
+    if(this.next() !== OBJECT) throw new Error('clang AST: root is not an object');
     return this.node(null);
   }
 }
@@ -419,7 +448,8 @@ function runClangAstDump(opts, source) {
   }
 
   const f = std.popen(cmd + ' 2>/dev/null', 'r');
-  let ast = null, error = null;
+  let ast = null,
+    error = null;
 
   try {
     ast = new AstCondenser(new JsonParser({ read: (buf, len) => f.read(buf, 0, len) }, source)).root();
@@ -584,8 +614,7 @@ function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
   const known = BASE_TYPES[t];
   if(known) return { cf: known.cf, def: known.def, supported: true };
 
-  if(enumIndex && Object.prototype.hasOwnProperty.call(enumIndex.typedefToEnumId, t))
-    return { cf: 'i32', def: 'sint32', supported: true, enumId: enumIndex.typedefToEnumId[t] };
+  if(enumIndex && Object.prototype.hasOwnProperty.call(enumIndex.typedefToEnumId, t)) return { cf: 'i32', def: 'sint32', supported: true, enumId: enumIndex.typedefToEnumId[t] };
 
   // Depth-guarded in case a typedef ever resolves back to its own name (seen
   // with clang's `typedef enum { ... } Name;` idiom, where the anonymous
@@ -607,8 +636,7 @@ function collectTypedefs(root) {
   const typedefs = {};
 
   for(const node of root.inner || []) {
-    if(node.kind === 'TypedefDecl' && node.name && node.type && !Object.prototype.hasOwnProperty.call(typedefs, node.name))
-      typedefs[node.name] = node.type.desugaredQualType || node.type.qualType;
+    if(node.kind === 'TypedefDecl' && node.name && node.type && !Object.prototype.hasOwnProperty.call(typedefs, node.name)) typedefs[node.name] = node.type.desugaredQualType || node.type.qualType;
   }
 
   return typedefs;
@@ -741,7 +769,7 @@ function collectIR(root, isSourceFile, idPrefix) {
     }
 
     const s = { name, kind: node.tagUsed || 'struct', fields };
-    if(layout) (s.size = layout.size), (s.align = layout.align);
+    if(layout) ((s.size = layout.size), (s.align = layout.align));
     if(aliases.length) s.typedefs = aliases;
     if(packed) s.packed = true;
     ir.structs.push(s);
@@ -924,9 +952,52 @@ function collectRecordTypedefs(root) {
 /* --- code generation ----------------------------------------------------- */
 
 const RESERVED = new Set([
-  'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'export', 'extends', 'finally', 'for',
-  'function', 'if', 'import', 'in', 'instanceof', 'new', 'return', 'super', 'switch', 'this', 'throw', 'try', 'typeof', 'var', 'void', 'while',
-  'with', 'yield', 'let', 'static', 'enum', 'await', 'implements', 'package', 'protected', 'interface', 'private', 'public', 'null', 'true', 'false',
+  'break',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'continue',
+  'debugger',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'export',
+  'extends',
+  'finally',
+  'for',
+  'function',
+  'if',
+  'import',
+  'in',
+  'instanceof',
+  'new',
+  'return',
+  'super',
+  'switch',
+  'this',
+  'throw',
+  'try',
+  'typeof',
+  'var',
+  'void',
+  'while',
+  'with',
+  'yield',
+  'let',
+  'static',
+  'enum',
+  'await',
+  'implements',
+  'package',
+  'protected',
+  'interface',
+  'private',
+  'public',
+  'null',
+  'true',
+  'false',
 ]);
 
 function safeIdent(name) {
@@ -1103,7 +1174,7 @@ function __variable(name, type) {
 }
 `;
 
-const DEFINE_SYM = 'function __sym(name) {\n  const p = dlsym(__LIB__, name);\n  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n  return p;\n}\n';
+const DEFINE_SYM = 'function __sym(name) {\n  const p = dlsym(__LIB__, name);\n  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n  return p;\n}\n';
 
 /* With --structs: the layouts of the structs/unions (size, alignment, every
  * field's type and byte offset) and an accessor for every extern variable
@@ -1127,7 +1198,7 @@ function structsCode(ir, opts) {
     s.fields.forEach((f, i) => {
       const e = { type: f.type };
       if(f.offset !== undefined) e.offset = f.offset;
-      if(f.bits !== undefined) (e.bits = f.bits), (e.bitOffset = f.bitOffset);
+      if(f.bits !== undefined) ((e.bits = f.bits), (e.bitOffset = f.bitOffset));
       if(!FFI_TYPE_NAMES.has(f.type)) e.cType = f.cType;
       fields[f.name || '__anon' + i] = e;
     });
@@ -1146,14 +1217,23 @@ function structsCode(ir, opts) {
 function generateCFunction(ir, opts) {
   const { functions, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
-  const imports = ['CFunction', opts.ffiType ? 'FFIType' : null, opts.structs ? 'toBuffer' : null, opts.structs ? 'ptr as __ptr' : null, opts.structs ? 'toString as __cstr' : null, 'dlsym', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
+  const imports = [
+    'CFunction',
+    opts.ffiType ? 'FFIType' : null,
+    opts.structs ? 'toBuffer' : null,
+    opts.structs ? 'ptr as __ptr' : null,
+    opts.structs ? 'toString as __cstr' : null,
+    'dlsym',
+    opts.library ? 'dlopen' : null,
+    opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
+  ].filter(Boolean);
 
   let out = header(opts);
-  out += "import { " + imports.join(', ') + " } from 'ffi';\n\n";
+  out += 'import { ' + imports.join(', ') + " } from 'ffi';\n\n";
 
   if(opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 
-  out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
+  out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
   out += structsCode(ir, opts);
@@ -1173,10 +1253,19 @@ function generateCFunction(ir, opts) {
 function generateDefine(ir, opts) {
   const { functions, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
-  const imports = ['dlsym', 'define', 'call', opts.structs ? 'toBuffer' : null, opts.structs ? 'ptr as __ptr' : null, opts.structs ? 'toString as __cstr' : null, opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
+  const imports = [
+    'dlsym',
+    'define',
+    'call',
+    opts.structs ? 'toBuffer' : null,
+    opts.structs ? 'ptr as __ptr' : null,
+    opts.structs ? 'toString as __cstr' : null,
+    opts.library ? 'dlopen' : null,
+    opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
+  ].filter(Boolean);
 
   let out = header(opts);
-  out += "import { " + imports.join(', ') + " } from 'ffi';\n\n";
+  out += 'import { ' + imports.join(', ') + " } from 'ffi';\n\n";
 
   if(opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 
@@ -1185,8 +1274,8 @@ function generateDefine(ir, opts) {
     '  const p = dlsym(' +
     lib +
     ', name);\n' +
-    '  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' +
-    '  if (!define(name, p, null, rtype, ...argtypes))\n' +
+    '  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' +
+    '  if(!define(name, p, null, rtype, ...argtypes))\n' +
     '    throw new Error("gen-bindings: define() failed for " + name);\n' +
     '  return (...args) => call(name, ...args);\n' +
     '}\n';
@@ -1262,7 +1351,8 @@ function main() {
     std.out.puts(out);
   }
 
-  if(ir.skipped.length) std.err.puts('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : ', see comment at end of output') + '\n');
+  if(ir.skipped.length)
+    std.err.puts('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : ', see comment at end of output') + '\n');
 }
 
 main();
