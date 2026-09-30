@@ -1,9 +1,20 @@
 #!/usr/bin/env qjsm
 /* gen-bindings.js -- generate qjs-ffi JS bindings from a C source file's AST.
  *
- * Runs `clang -Xclang -ast-dump=json -fsyntax-only` to get a real C AST
- * (rather than hand-rolling a C parser), walks it for top-level, externally
- * visible function declarations, and emits either:
+ * Runs in two phases joined by an intermediate JSON format (the "IR"):
+ *
+ *   1. clang -> IR:  `clang -Xclang -ast-dump=json -fsyntax-only` output is
+ *      tokenized with json.JsonParser and condensed on the fly to just the
+ *      nodes needed here (the condensed AST is cached, see --cache-dir), then
+ *      the top-level, externally visible functions, enums, structs/unions and
+ *      variables are extracted into an IR shaped like describeObject() /
+ *      describeClass() output (qjs-modules lib/describe-*.js): `methods` holds
+ *      kind:"function" entries with `arity`, `params` ("name: type") and
+ *      `returnType`, `fields` holds variables, `enums`/`structs` the compound
+ *      types.
+ *   2. IR -> JS:     the IR alone (no clang) is turned into a JS module.
+ *
+ * The JS module emitted is either:
  *
  *   --api=cfunction (default) -- one `CFunction({ ptr, args, returns })`
  *                                 per function (see doc/c-function.md)
@@ -16,6 +27,7 @@
  *
  * Usage:
  *   qjsm gen-bindings.js [options] <source.c>...
+ *   qjsm gen-bindings.js [options] --from-ir=<ir.json>
  *
  * Several sources are merged into one output, with a function or enum
  * constant declared in more than one of them emitted once.
@@ -35,10 +47,16 @@
  *                            assuming the symbols are already loaded
  *                            (RTLD_DEFAULT)
  *   --clang=<path>           clang binary to invoke (default: "clang")
+ *   --emit-ir=<file>         write the intermediate JSON and stop (no JS output)
+ *   --from-ir=<file>         generate from this IR instead of running clang
+ *   --cache-dir=<dir>        condensed-AST cache directory (default: .tmp/gen-bindings)
+ *   --no-cache               ignore and do not write the condensed-AST cache
  *   -o, --output=<path>      write generated JS here instead of stdout
  *   -h, --help               show this help
  */
 import * as std from 'std';
+import * as os from 'os';
+import { JsonParser } from 'json';
 
 /* How this script is invoked, for use in the usage banner and the
  * generated file's "regenerate with:" comment. Installed (via
@@ -56,7 +74,7 @@ function usage() {
   std.err.puts(
     'Usage: ' +
       invocationName() +
-      ' [options] <source.c>...\n' +
+      ' [options] <source.c>... | --from-ir=<ir.json>\n' +
       '  --api=cfunction|define   which qjs-ffi API to target (default: cfunction)\n' +
       '  --follow-includes        also bind headers included from under each source\'s directory\n' +
       '  --ffitype                write types as FFIType.i32 instead of "i32" (cfunction API only)\n' +
@@ -65,13 +83,17 @@ function usage() {
       '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
       '  --library=<path>         dlopen() this shared library instead of RTLD_DEFAULT\n' +
       '  --clang=<path>           clang binary to invoke (default: clang)\n' +
+      '  --emit-ir=<file>         write the intermediate JSON and stop\n' +
+      '  --from-ir=<file>         generate from this IR instead of running clang\n' +
+      '  --cache-dir=<dir>        condensed-AST cache directory (default: .tmp/gen-bindings)\n' +
+      '  --no-cache               ignore and do not write the condensed-AST cache\n' +
       '  -o, --output=<path>      write generated JS here instead of stdout\n' +
       '  -h, --help               show this help\n',
   );
 }
 
 function parseArgs(argv) {
-  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [], ffiType: false };
+  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [], ffiType: false, emitIr: null, fromIr: null, cacheDir: '.tmp/gen-bindings', cache: true };
 
   for(let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -97,6 +119,14 @@ function parseArgs(argv) {
       opts.defines.push(a.slice('--define='.length));
     } else if(a.startsWith('--library=')) {
       opts.library = a.slice('--library='.length);
+    } else if(a.startsWith('--emit-ir=')) {
+      opts.emitIr = a.slice('--emit-ir='.length);
+    } else if(a.startsWith('--from-ir=')) {
+      opts.fromIr = a.slice('--from-ir='.length);
+    } else if(a.startsWith('--cache-dir=')) {
+      opts.cacheDir = a.slice('--cache-dir='.length);
+    } else if(a === '--no-cache') {
+      opts.cache = false;
     } else if(a.startsWith('--clang=')) {
       opts.clang = a.slice('--clang='.length);
     } else if(a === '-o' || a === '--output') {
@@ -112,7 +142,9 @@ function parseArgs(argv) {
 
   if(opts.api !== 'cfunction' && opts.api !== 'define') throw new Error('--api must be "cfunction" or "define", got: ' + opts.api);
   if(opts.ffiType && opts.api !== 'cfunction') throw new Error('--ffitype only applies to --api=cfunction');
-  if(!opts.sources.length) throw new Error('missing <source.c> argument');
+  if(opts.fromIr && opts.sources.length) throw new Error('--from-ir takes no <source.c> arguments');
+  if(opts.fromIr && opts.emitIr) throw new Error('--from-ir and --emit-ir cannot be combined');
+  if(!opts.fromIr && !opts.sources.length) throw new Error('missing <source.c> argument');
 
   return opts;
 }
@@ -123,6 +155,199 @@ function shquote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
+/* --- streaming AST condenser ---------------------------------------------- */
+
+/* clang's JSON AST is megabytes per header (cairo.h: ~3.7MB), nearly all of
+ * it source ranges, function bodies and attributes irrelevant here. It is
+ * read token by token from clang's stdout with json.JsonParser and only the
+ * needed nodes/keys are ever materialized; everything else is consumed and
+ * dropped. Which children a node keeps is decided the moment its "kind" key
+ * arrives (clang always writes "id", then "kind", before anything else).
+ */
+const TOP_KINDS = new Set(['FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl']);
+const DROP_KEYS = new Set(['range', 'referencedDecl', 'previousDecl', 'parentDeclContext', 'valueCategory', 'isUsed', 'isReferenced']);
+const LOC_KEYS = new Set(['file', 'line', 'spellingLoc', 'expansionLoc']);
+const EXPR_KEYS = new Set(['kind', 'value', 'opcode', 'inner']);
+const EXPR_KIND = /(Expr|Literal|Operator)$/;
+
+/* 'skip': drop the node; 'shallow': keep only id/kind/name/loc (still needed
+ * for clang's "current file" tracking); 'leaf': keep its keys but not its
+ * children; 'expr': constant-expression node, keep EXPR_KEYS only; 'full':
+ * keep, and recurse with this same policy for its children.
+ */
+function nodePolicy(parent, kind) {
+  switch (parent) {
+    case 'TranslationUnitDecl': return TOP_KINDS.has(kind) ? 'full' : 'shallow';
+    case 'FunctionDecl': return kind === 'ParmVarDecl' ? 'leaf' : 'skip';
+    case 'EnumDecl': return kind === 'EnumConstantDecl' ? 'full' : 'skip';
+    case 'RecordDecl': return kind === 'FieldDecl' || kind === 'RecordDecl' || kind === 'EnumDecl' || kind === 'AlignedAttr' ? 'full' : kind === 'PackedAttr' ? 'leaf' : 'skip';
+    case 'TypedefDecl': return kind === 'ElaboratedType' ? 'leaf' : 'skip';
+    case 'VarDecl':
+    case 'EnumConstantDecl':
+    case 'FieldDecl':
+    case 'AlignedAttr':
+      return EXPR_KIND.test(kind) ? 'expr' : 'skip';
+  }
+  return EXPR_KIND.test(parent) && EXPR_KIND.test(kind) ? 'expr' : 'skip';
+}
+
+class AstCondenser {
+  constructor(parser) {
+    this.p = parser;
+  }
+
+  next() {
+    const t = this.p.parse();
+    if(t === 'NEED_DATA') throw new Error('unexpected end of clang AST JSON');
+    return t;
+  }
+
+  scalar(t) {
+    switch (t) {
+      case 'STRING': return this.p.token;
+      case 'NUMBER': return Number(this.p.token);
+      case 'TRUE': return true;
+      case 'FALSE': return false;
+      case 'NULL': return null;
+    }
+    throw new Error('unexpected clang AST JSON token ' + t);
+  }
+
+  /* Consumes the rest of a value whose first token `t` was already read. */
+  skip(t) {
+    if(t !== 'OBJECT' && t !== 'ARRAY') return;
+    for(let depth = 1; depth > 0; ) {
+      const u = this.next();
+      if(u === 'OBJECT' || u === 'ARRAY') depth++;
+      else if(u === 'OBJECT_END' || u === 'ARRAY_END') depth--;
+    }
+  }
+
+  /* Reads any value, keeping only `keys` (or every key if null) of each
+   * object; `t` is the value's first token. */
+  plain(t, keys) {
+    if(t === 'OBJECT') {
+      const o = {};
+      for(let u; (u = this.next()) !== 'OBJECT_END'; ) {
+        const key = this.p.token;
+        const v = this.next();
+        if(keys && !keys.has(key)) this.skip(v);
+        else o[key] = this.plain(v, keys);
+      }
+      return o;
+    }
+    if(t === 'ARRAY') {
+      const a = [];
+      for(let u; (u = this.next()) !== 'ARRAY_END'; ) a.push(this.plain(u, keys));
+      return a;
+    }
+    return this.scalar(t);
+  }
+
+  /* Reads one node object (its opening "{" already consumed); returns null
+   * if `nodePolicy(parent, kind)` says to drop it. */
+  node(parent) {
+    const o = {};
+    let kind, policy = 'full';
+
+    for(let u; (u = this.next()) !== 'OBJECT_END'; ) {
+      const key = this.p.token;
+      const v = this.next();
+
+      if(kind === undefined) {
+        o[key] = this.scalar(v);
+        if(key === 'kind') {
+          kind = o.kind;
+          policy = parent === null ? 'full' : nodePolicy(parent, kind);
+          if(policy === 'skip') {
+            this.skip('OBJECT');
+            return null;
+          }
+        }
+      } else if(policy === 'expr') {
+        if(EXPR_KEYS.has(key) && key !== 'inner') o[key] = this.plain(v, null);
+        else if(key === 'inner') o.inner = this.inner(kind, v);
+        else this.skip(v);
+      } else if(key === 'loc') {
+        if(parent === 'TranslationUnitDecl' || parent === null) o.loc = this.plain(v, LOC_KEYS);
+        else this.skip(v);
+      } else if(key === 'inner') {
+        if(policy === 'full') o.inner = this.inner(kind, v);
+        else this.skip(v);
+      } else if(DROP_KEYS.has(key) || (policy === 'shallow' && key !== 'name')) {
+        this.skip(v);
+      } else {
+        o[key] = this.plain(v, null);
+      }
+    }
+    return o;
+  }
+
+  inner(parent, t) {
+    if(t !== 'ARRAY') throw new Error('clang AST: "inner" is not an array');
+    const a = [];
+    for(let u; (u = this.next()) !== 'ARRAY_END'; ) {
+      const n = this.node(parent);
+      if(n) a.push(n);
+    }
+    return a;
+  }
+
+  root() {
+    if(this.next() !== 'OBJECT') throw new Error('clang AST: root is not an object');
+    return this.node(null);
+  }
+}
+
+/* Every distinct file a top-level node came from, for cache invalidation. */
+function astFiles(root) {
+  const files = new Set();
+  for(const node of root.inner || []) if(node.loc && node.loc.file !== undefined && !node.loc.file.startsWith('<')) files.add(node.loc.file);
+  return [...files];
+}
+
+function fnv1a(s) {
+  let h = 0x811c9dc5;
+  for(let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, '0');
+}
+
+function mtime(path) {
+  const [st, err] = os.stat(path);
+  return err ? -1 : st.mtime;
+}
+
+/* Bump when AstCondenser's output changes, so stale caches are not reused. */
+const AST_CACHE_VERSION = 1;
+
+function cachePath(opts, source, cmd) {
+  return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source) + '.ast.json';
+}
+
+function mkdirs(dir) {
+  let path = '';
+  for(const part of dir.split('/')) {
+    path += part + '/';
+    if(part && part !== '.') os.mkdir(path, 0o755);
+  }
+}
+
+/* Loads the condensed AST from the cache if no file it was built from is
+ * newer than it, else null. */
+function readAstCache(file) {
+  const cached = std.loadFile(file);
+  if(cached === null) return null;
+
+  const stamp = mtime(file);
+  let root;
+  try {
+    root = JSON.parse(cached);
+  } catch(e) {
+    return null;
+  }
+  return root.files.every(f => mtime(f) >= 0 && mtime(f) <= stamp) ? root.ast : null;
+}
+
 function runClangAstDump(opts, source) {
   const parts = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only'];
 
@@ -131,23 +356,45 @@ function runClangAstDump(opts, source) {
   parts.push(source);
 
   const cmd = parts.map(shquote).join(' ');
+  const cache = cachePath(opts, source, cmd);
+
+  if(opts.cache) {
+    const hit = readAstCache(cache);
+    if(hit) return hit;
+  }
+
+  // Handed to JsonParser as one string: fed from a pull function it calls
+  // back once per byte, ~10x slower (see BUGS: jsonparser-pull-reads-one-byte).
   const f = std.popen(cmd + ' 2>/dev/null', 'r');
   const text = f.readAsString();
+  let ast = null, error = null;
+
   f.close();
 
-  if(!text.trim()) {
+  try {
+    ast = new AstCondenser(new JsonParser(text, source)).root();
+  } catch(e) {
+    error = e;
+  }
+
+  if(!ast || !ast.inner) {
     // Re-run to surface clang's diagnostics for the error message.
     const ef = std.popen(cmd + ' 2>&1 1>/dev/null', 'r');
     const errText = ef.readAsString();
     ef.close();
-    throw new Error('clang produced no output; stderr was:\n' + errText);
+    throw new Error((error ? 'failed to parse clang AST JSON output: ' + error.message + '; ' : 'clang produced no output; ') + 'stderr was:\n' + errText);
   }
 
-  try {
-    return JSON.parse(text);
-  } catch(e) {
-    throw new Error('failed to parse clang AST JSON output: ' + e.message);
+  if(opts.cache) {
+    mkdirs(opts.cacheDir);
+    const out = std.open(cache, 'w');
+    if(out) {
+      out.puts(JSON.stringify({ files: astFiles(ast), ast }));
+      out.close();
+    }
   }
+
+  return ast;
 }
 
 /* --- AST traversal ------------------------------------------------------ */
@@ -377,47 +624,107 @@ function collectEnumIndex(root) {
  * #include get their own file, then it switches back once real nodes from
  * a file accepted by `isSourceFile` start).
  */
-function collectFunctions(root, isSourceFile) {
-  const functions = [];
-  const skipped = [];
+function collectIR(root, isSourceFile, idPrefix) {
+  const ir = newIR();
   const seen = new Set();
   const typedefs = collectTypedefs(root);
   const enumIndex = collectEnumIndex(root);
-  const usedEnumIds = [];
-  const seenEnumIds = new Set();
+  const recordTypedefs = collectRecordTypedefs(root);
+  const enumIds = new Set();
   let currentFile = null;
 
-  function useEnum(enumId) {
-    if(enumId !== undefined && !seenEnumIds.has(enumId)) {
-      seenEnumIds.add(enumId);
-      usedEnumIds.push(enumId);
-    }
+  function addEnum(id) {
+    const e = id !== undefined && enumIndex.enumsById[id];
+    if(!e || enumIds.has(id)) return;
+    enumIds.add(id);
+    ir.enums.push({ id: idPrefix + id, name: e.name, kind: 'enum', fields: e.constants.map(c => ({ name: c.name, type: 'number', value: c.value })) });
+  }
+
+  function typeName(m, qualType) {
+    return m.supported ? m.cf : normalizeType(qualType);
   }
 
   for(const node of root.inner || []) {
     if(node.loc && node.loc.file !== undefined) currentFile = node.loc.file;
 
-    if(node.kind !== 'FunctionDecl') continue;
     if(!isSourceFile(currentFile)) continue;
-    if(node.storageClass === 'static') continue;
     if(node.isImplicit) continue;
-    if(seen.has(node.name)) continue;
+
+    if(node.kind === 'EnumDecl' && node.inner) addEnum(node.id);
+    else if(node.kind === 'RecordDecl') collectStruct(node);
+    else if(node.kind === 'VarDecl') collectVariable(node);
+    else if(node.kind === 'FunctionDecl') collectFunction(node);
+  }
+
+  function collectStruct(node) {
+    if(!node.completeDefinition) return;
+
+    const aliases = recordTypedefs[node.id] || [];
+    const name = node.name || aliases[0];
+    if(!name || seen.has('struct ' + name)) return;
+    seen.add('struct ' + name);
+
+    const fields = [];
+    let packed = false;
+
+    for(const child of node.inner || []) {
+      if(child.kind === 'PackedAttr') packed = true;
+      if(child.kind !== 'FieldDecl') continue;
+
+      const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || '';
+      const m = mapCType(qualType, typedefs, enumIndex);
+      const field = { name: child.name || '', type: typeName(m, child.type.qualType), cType: child.type.qualType };
+
+      if(child.isBitfield) field.bits = Number(((child.inner || []).find(x => 'value' in x) || {}).value);
+      fields.push(field);
+      addEnum(m.enumId);
+    }
+
+    const s = { name, kind: node.tagUsed || 'struct', fields };
+    if(node.name && aliases.length) s.typedefs = aliases;
+    if(packed) s.packed = true;
+    ir.structs.push(s);
+  }
+
+  function collectVariable(node) {
+    if(seen.has('var ' + node.name)) return;
+
+    const qualType = (node.type && (node.type.desugaredQualType || node.type.qualType)) || '';
+    const isConst = isConstType(qualType);
+    const value = node.inner && node.inner.length ? constValue(node.inner[0]) : undefined;
+
+    // A static variable is only worth exporting as a compile-time constant.
+    if(node.storageClass === 'static' && (!isConst || value === undefined)) return;
+
+    seen.add('var ' + node.name);
+    const m = mapCType(qualType, typedefs, enumIndex);
+    const field = { name: node.name, type: typeName(m, node.type.qualType), cType: node.type.qualType };
+
+    if(isConst) field.const = true;
+    if(value !== undefined) field.value = value;
+    ir.fields.push(field);
+    addEnum(m.enumId);
+  }
+
+  function collectFunction(node) {
+    if(node.storageClass === 'static') return;
+    if(seen.has(node.name)) return;
 
     if(node.variadic) {
-      skipped.push({ name: node.name, reason: 'variadic functions are not supported' });
-      continue;
+      ir.skipped.push({ name: node.name, reason: 'variadic functions are not supported' });
+      return;
     }
 
     const split = splitFunctionType(node.type.qualType);
     if(!split) {
-      skipped.push({ name: node.name, reason: 'could not parse function type "' + node.type.qualType + '"' });
-      continue;
+      ir.skipped.push({ name: node.name, reason: 'could not parse function type "' + node.type.qualType + '"' });
+      return;
     }
 
     const retMap = mapCType(split.returnType, typedefs, enumIndex);
     if(!retMap.supported) {
-      skipped.push({ name: node.name, reason: 'return type: ' + retMap.reason });
-      continue;
+      ir.skipped.push({ name: node.name, reason: 'return type: ' + retMap.reason });
+      return;
     }
 
     const params = [];
@@ -438,19 +745,117 @@ function collectFunctions(root, isSourceFile) {
     }
 
     if(badParam) {
-      skipped.push({ name: node.name, reason: badParam });
-      continue;
+      ir.skipped.push({ name: node.name, reason: badParam });
+      return;
     }
 
     seen.add(node.name);
-    functions.push({ name: node.name, returnType: retMap, params });
-    useEnum(retMap.enumId);
-    for(const p of params) useEnum(p.type.enumId);
+
+    const used = [retMap, ...params.map(p => p.type)].map(m => m.enumId).filter(id => id !== undefined);
+    for(const id of used) addEnum(id);
+
+    ir.methods.push({
+      name: node.name,
+      kind: 'function',
+      arity: params.length,
+      params: params.map(p => p.name + ': ' + p.type.cf),
+      returnType: retMap.cf,
+      defTypes: { returnType: retMap.def, params: params.map(p => p.type.def) },
+      enums: [...new Set(used)].map(id => idPrefix + id),
+    });
   }
 
-  const enums = usedEnumIds.map(id => enumIndex.enumsById[id]).filter(Boolean);
+  return ir;
+}
 
-  return { functions, skipped, enums };
+/* --- intermediate format (IR) --------------------------------------------- */
+
+/* Shaped like describeObject() output (qjs-modules lib/describe-object.js):
+ *   methods   kind:"function" entries: `arity`, `params` ("name: type" in
+ *             TypeScript style, type being an FFIType name), `returnType`;
+ *             plus `defTypes` (legacy define() type names) and `enums` (ids
+ *             of the enums the signature uses)
+ *   fields    exported variables/constants: { name, type, value?, const? }
+ *   enums     { id, name, kind:"enum", fields:[{ name, type:"number", value }] }
+ *   structs   describeClass-like: { name, kind:"struct"|"union", fields:[{
+ *             name, type, cType, bits? }], packed?, typedefs? }
+ *   skipped   { name, reason } for declarations that could not be bound
+ * `source` records how the IR was produced, for the generated file's header.
+ * Reserved for later: `classes` (C++, see TODO.md).
+ */
+function newIR() {
+  return { name: 'bindings', type: 'object', version: 1, methods: [], fields: [], getters: [], setters: [], enums: [], structs: [], skipped: [], prototypeChain: [] };
+}
+
+/* Merges `from` into `into`, keeping the first declaration of a name (a
+ * variable declared without a value is upgraded by a later one with it). */
+function mergeIR(into, from) {
+  const byName = (list, key) => new Set(list.map(x => x[key]));
+  const add = (list, items, key) => {
+    const have = byName(list, key);
+    for(const item of items) if(!have.has(item[key])) (have.add(item[key]), list.push(item));
+  };
+
+  for(const f of from.fields) {
+    const have = into.fields.find(x => x.name === f.name);
+    if(have && have.value === undefined && f.value !== undefined) have.value = f.value;
+  }
+
+  add(into.methods, from.methods, 'name');
+  add(into.fields, from.fields, 'name');
+  add(into.enums, from.enums, 'id');
+  add(into.structs, from.structs, 'name');
+  add(into.skipped, from.skipped, 'name');
+  return into;
+}
+
+function isConstType(qualType) {
+  const t = qualType.trim();
+  return /(^|[\s*])const$/.test(t) || (!t.includes('*') && /^const\b/.test(t));
+}
+
+/* Evaluates the literal initializer of a constant variable, or undefined if
+ * it is anything but a (possibly negated) number/character/string literal. */
+function constValue(node) {
+  switch (node.kind) {
+    case 'IntegerLiteral':
+    case 'FloatingLiteral':
+    case 'CharacterLiteral':
+    case 'ConstantExpr': {
+      const n = Number(node.value);
+      return node.value !== undefined && Number.isFinite(n) ? n : node.inner ? constValue(node.inner[0]) : undefined;
+    }
+    case 'StringLiteral':
+      try {
+        return JSON.parse(node.value);
+      } catch(e) {
+        return undefined;
+      }
+    case 'ImplicitCastExpr':
+    case 'ParenExpr':
+      return node.inner ? constValue(node.inner[0]) : undefined;
+    case 'UnaryOperator': {
+      const v = node.inner ? constValue(node.inner[0]) : undefined;
+      return typeof v !== 'number' ? undefined : node.opcode === '-' ? -v : node.opcode === '+' ? v : undefined;
+    }
+  }
+  return undefined;
+}
+
+/* record node id -> every typedef name wrapping it (`typedef struct {..} T;`) */
+function collectRecordTypedefs(root) {
+  const names = {};
+
+  for(const node of root.inner || []) {
+    if(node.kind !== 'TypedefDecl') continue;
+
+    const elaborated = (node.inner || []).find(c => c.kind === 'ElaboratedType');
+    const owned = elaborated && elaborated.ownedTagDecl;
+
+    if(owned && owned.kind === 'RecordDecl') (names[owned.id] = names[owned.id] || []).push(node.name);
+  }
+
+  return names;
 }
 
 /* --- code generation ----------------------------------------------------- */
@@ -500,8 +905,31 @@ function skippedComment(skipped) {
   return '\n// Skipped (unsupported):\n' + skipped.map(s => '//   - ' + s.name + ': ' + s.reason).join('\n') + '\n';
 }
 
+/* The functions to bind, and the enums reachable from their signatures in
+ * order of first use (an enum only declared, never used, is not emitted). */
+function bindable(ir, opts) {
+  const functions = ir.methods.filter(m => m.kind === 'function' && !opts.excludes.includes(m.name));
+  const enumsById = new Map(ir.enums.map(e => [e.id, e]));
+  const enums = [...new Set(functions.flatMap(fn => fn.enums))].map(id => enumsById.get(id)).filter(Boolean);
+
+  return { functions, enums };
+}
+
+/* Emits `export const NAME = value;` for every constant variable whose value
+ * is known at generation time (an `extern` one has none, only a symbol). */
+function constantsCode(fields) {
+  const known = fields.filter(f => f.const && f.value !== undefined);
+  if(!known.length) return '';
+
+  return '\n// constants\n' + known.map(f => 'export const ' + safeIdent(f.name) + ' = ' + JSON.stringify(f.value) + ';\n').join('');
+}
+
+function paramTypes(fn) {
+  return fn.params.map(p => p.slice(p.indexOf(': ') + 2));
+}
+
 /* Emits `export const NAME = value;` for every enum reachable from a
- * bindable function's signature (see collectEnumIndex()), one group per
+ * bindable function's signature (see bindable()), one group per
  * enum with a header comment naming its tag (or "(anonymous)"). A constant
  * already emitted by an earlier group is skipped rather than re-declared --
  * C forbids two enums from sharing a constant name at file scope, so this
@@ -514,7 +942,7 @@ function enumConstantsCode(enums) {
   let out = '';
 
   for(const e of enums) {
-    const fresh = e.constants.filter(c => !emitted.has(c.name));
+    const fresh = e.fields.filter(c => !emitted.has(c.name));
     if(!fresh.length) continue;
 
     out += '\n// enum ' + (e.name || '(anonymous)') + '\n';
@@ -535,7 +963,8 @@ function cfType(name, opts) {
   return opts.ffiType && FFI_TYPE_NAMES.has(name) ? 'FFIType.' + name : JSON.stringify(name);
 }
 
-function generateCFunction(functions, skipped, enums, opts) {
+function generateCFunction(ir, opts) {
+  const { functions, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
   const imports = ['CFunction', opts.ffiType ? 'FFIType' : null, 'dlsym', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
 
@@ -546,20 +975,22 @@ function generateCFunction(functions, skipped, enums, opts) {
 
   out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
   out += enumConstantsCode(enums);
+  out += constantsCode(ir.fields);
   out += '\n';
 
   for(const fn of functions) {
-    const args = fn.params.map(p => cfType(p.type.cf, opts));
+    const args = paramTypes(fn).map(t => cfType(t, opts));
     const ident = safeIdent(fn.name);
-    out += 'export const ' + ident + ' = CFunction({ ptr: __sym(' + JSON.stringify(fn.name) + '), args: [' + args.join(', ') + '], returns: ' + cfType(fn.returnType.cf, opts) + ' });\n';
+    out += 'export const ' + ident + ' = CFunction({ ptr: __sym(' + JSON.stringify(fn.name) + '), args: [' + args.join(', ') + '], returns: ' + cfType(fn.returnType, opts) + ' });\n';
     if(ident !== fn.name) out += '// note: "' + fn.name + '" is a reserved word, exported above as "' + ident + '"\n';
   }
 
-  out += skippedComment(skipped);
+  out += skippedComment(ir.skipped);
   return out;
 }
 
-function generateDefine(functions, skipped, enums, opts) {
+function generateDefine(ir, opts) {
+  const { functions, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
   const imports = ['dlsym', 'define', 'call', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
 
@@ -579,16 +1010,17 @@ function generateDefine(functions, skipped, enums, opts) {
     '  return (...args) => call(name, ...args);\n' +
     '}\n';
   out += enumConstantsCode(enums);
+  out += constantsCode(ir.fields);
   out += '\n';
 
   for(const fn of functions) {
-    const args = fn.params.map(p => JSON.stringify(p.type.def));
+    const args = fn.defTypes.params.map(t => JSON.stringify(t));
     const ident = safeIdent(fn.name);
-    out += 'export const ' + ident + ' = __bind(' + JSON.stringify(fn.name) + ', ' + JSON.stringify(fn.returnType.def) + (args.length ? ', ' + args.join(', ') : '') + ');\n';
+    out += 'export const ' + ident + ' = __bind(' + JSON.stringify(fn.name) + ', ' + JSON.stringify(fn.defTypes.returnType) + (args.length ? ', ' + args.join(', ') : '') + ');\n';
     if(ident !== fn.name) out += '// note: "' + fn.name + '" is a reserved word, exported above as "' + ident + '"\n';
   }
 
-  out += skippedComment(skipped);
+  out += skippedComment(ir.skipped);
   return out;
 }
 
@@ -604,43 +1036,51 @@ function main() {
     std.exit(1);
   }
 
-  const functions = [];
-  const skipped = [];
-  const enums = [];
-  const seenFunctions = new Set();
-  const seenSkipped = new Set();
+  let ir;
 
-  for(const source of opts.sources) {
-    let root;
-    try {
-      root = runClangAstDump(opts, source);
-    } catch(e) {
-      std.err.puts('gen-bindings.js: ' + e.message + '\n');
+  if(opts.fromIr) {
+    const text = std.loadFile(opts.fromIr);
+    if(text === null) {
+      std.err.puts('gen-bindings.js: cannot read ' + opts.fromIr + '\n');
       std.exit(1);
     }
+    ir = JSON.parse(text);
+    Object.assign(opts, ir.source);
+    opts.sources = ir.source.files;
+  } else {
+    ir = newIR();
+    ir.source = { files: opts.sources, includes: opts.includes, defines: opts.defines, followIncludes: opts.followIncludes };
 
-    const dir = source.replace(/[^/]*$/, '');
-    const isSourceFile = f => f === source || (opts.followIncludes && dir !== '' && f !== null && f.startsWith(dir));
-    const found = collectFunctions(root, isSourceFile);
+    opts.sources.forEach((source, i) => {
+      let root;
+      try {
+        root = runClangAstDump(opts, source);
+      } catch(e) {
+        std.err.puts('gen-bindings.js: ' + e.message + '\n');
+        std.exit(1);
+      }
 
-    if(!found.functions.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
+      const dir = source.replace(/[^/]*$/, '');
+      const isSourceFile = f => f === source || (opts.followIncludes && dir !== '' && f !== null && f.startsWith(dir));
+      const found = collectIR(root, isSourceFile, i + ':');
 
-    for(const fn of found.functions) if(!seenFunctions.has(fn.name) && !opts.excludes.includes(fn.name)) (seenFunctions.add(fn.name), functions.push(fn));
-    for(const s of found.skipped) if(!seenSkipped.has(s.name)) (seenSkipped.add(s.name), skipped.push(s));
-    enums.push(...found.enums);
+      if(!found.methods.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
+      mergeIR(ir, found);
+    });
   }
 
-  const out = opts.api === 'cfunction' ? generateCFunction(functions, skipped, enums, opts) : generateDefine(functions, skipped, enums, opts);
+  const out = opts.emitIr ? JSON.stringify(ir, null, 2) + '\n' : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
+  const dest = opts.emitIr || opts.output;
 
-  if(opts.output) {
-    const f = std.open(opts.output, 'w');
+  if(dest) {
+    const f = std.open(dest, 'w');
     f.puts(out);
     f.close();
   } else {
     std.out.puts(out);
   }
 
-  if(skipped.length) std.err.puts('gen-bindings.js: skipped ' + skipped.length + ' unsupported function(s), see comment at end of output\n');
+  if(ir.skipped.length) std.err.puts('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : ', see comment at end of output') + '\n');
 }
 
 main();

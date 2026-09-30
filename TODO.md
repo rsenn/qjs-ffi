@@ -140,3 +140,68 @@ Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
 1. Update `README.md` to document the new API as primary, old API as
    "legacy" (Phase 6 is postponed, so the old API stays).
 2. Update `test-ffi.js`/`test.js`/`test2.js`/`examples/` to the new API.
+
+---
+
+## 4. `tools/gen-bindings.js`: intermediate JSON (IR) and C++ support
+
+### Done
+
+- clang's JSON AST is condensed while parsing (`AstCondenser`, `json.JsonParser`)
+  and cached in `.tmp/gen-bindings/` (`--cache-dir`, `--no-cache`); a cached AST
+  is reused until one of the files it was built from is newer.
+- Phase 1 (clang -> IR, `--emit-ir=<file>`) and phase 2 (IR -> JS,
+  `--from-ir=<file>`) are separate runs. The IR follows `describeObject()`:
+  `methods` (kind `function`, `arity`, `params` as `"name: type"`, `returnType`),
+  `fields` (extern/const variables), plus `enums`, `structs`, `skipped`.
+
+### Next: `ffi.c` loader
+
+A loader in the `ffi` module that builds `CFunction`s (and constants) straight
+from the IR JSON, so no generated `.js` is needed. Needs: the IR `source`/
+library name, `dlopen` handling, and a decision on how `structs` map to
+libffi struct types (struct-by-value is unsupported today).
+
+### Next: emit structs and extern variables in the generated JS
+
+Currently only functions, enum constants and constants with a known value are
+emitted. Extern variables need `dlsym` + a typed read/write through `ptr`;
+structs need a layout (sizes/offsets are not in clang's JSON, so ask for them
+with `-fdump-record-layouts` or `-Xclang -fdump-record-layouts-complete`, or
+compute them from the field types).
+
+### Next: C++ classes and methods
+
+The IR gets a `classes` list shaped like `describeClass()` output
+(`constructorParams`, `prototypeChain`, `staticChain`, with `methods`/`fields`
+entries as for functions). Work items:
+
+1. Run `clang++` (`-x c++`, `-std=` option) and keep `CXXRecordDecl`,
+   `CXXMethodDecl`, `CXXConstructorDecl`, `CXXDestructorDecl`, `NamespaceDecl`,
+   `FieldDecl` in `nodePolicy()` (drop template bodies, `CXXMethodDecl` bodies,
+   `AccessSpecDecl` except to track `public:`; only public members are bound).
+2. Symbol names: read `mangledName` from the JSON (clang emits it for
+   functions/methods/ctors/dtors/vars in C++ mode; an `extern "C"` function
+   has `mangledName == name`). `dlsym` takes the mangled name. Constructors
+   and destructors have two ABI variants (`C1`/`C2`, `D0`/`D1`/`D2`): use the
+   complete-object ones (`C1`, `D1`); the deleting destructor (`D0`) frees.
+3. `this` pointer: an instance method is a `CFunction` whose first arg is
+   `pointer`; IR marks it `static: false` and `params` does not list `this`,
+   the generator prepends it. Static methods and namespace functions stay plain
+   functions. `const` methods only differ in the mangled name.
+4. Object lifetime: allocate `sizeof(T)` (needs the record layout, see above)
+   and call the complete constructor on it; free after the destructor. Classes
+   with virtual methods need the vtable pointer set by the constructor, so
+   never construct by memcpy.
+5. Overloads: the IR keeps every overload as its own entry (distinguished by
+   `mangledName`); the generated JS dispatches by `arguments.length` first,
+   type only when arity is ambiguous. References (`T&`) map to `pointer`;
+   by-value class parameters stay unsupported (like struct-by-value).
+6. Inheritance: `bases` on each class, used to flatten inherited methods
+   (the `this` adjustment for multiple inheritance needs the base offset, so
+   only single non-virtual inheritance in the first version).
+7. Out of scope: templates (only explicit instantiations), exceptions across
+   the FFI boundary, virtual inheritance.
+
+Verify with a small C++ header + `.so` under `tests/`, checking mangled names
+against `nm -D`.

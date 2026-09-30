@@ -240,6 +240,12 @@ Useful options are `--follow-includes` to also bind the headers included by
 the source, `--exclude=<name>` to skip a function, `-I` and `-D` for clang, and
 `--api=define` to target the legacy API. Ready made bindings are in lib/.
 
+The generator runs in two phases joined by a JSON description of the C API
+(functions, enums, structs, constants). `--emit-ir=api.json` stops after the
+first phase and `--from-ir=api.json` generates the JavaScript without running
+clang. The condensed clang AST is cached in `.tmp/gen-bindings/`, so a repeat
+run takes a fraction of a second; `--no-cache` disables that.
+
 ```
 	import * as cairo from "./lib/cairo.js";
 

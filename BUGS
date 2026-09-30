@@ -27,3 +27,21 @@
 
     import { z_stream, deflateInit } from './lib/zlib-extras.js'; deflateInit(new z_stream());
 
+
+- jsonparser-pull-reads-one-byte (../qjs-modules/quickjs-json.c:2024): a
+  JsonParser fed by a pull function or {read} object calls it with len 1 for
+  every byte, so parsing costs one JS call per byte: 3.7MB took 4.8s vs 0.5s
+  for the same document passed as a string (and 0.09s for JSON.parse).
+
+    import * as std from 'std'; import { JsonParser } from 'json';
+    const f = std.open('big.json', 'r'); let lens = new Set();
+    const p = new JsonParser({ read(buf, len) { lens.add(len); return f.read(buf, 0, len); } });
+    while(p.parse() !== 'NEED_DATA'); console.log([...lens]);  // [1]
+
+- jsonparser-fd-input-yields-no-tokens (../qjs-modules/quickjs-json.c:2024):
+  json.md says JsonParser accepts an fd number via reader_from_fd, but
+  new JsonParser(f.fileno()) on an open std file (or a popen'd one) returns
+  NEED_DATA on the first parse() without reading anything.
+
+    import * as std from 'std'; import { JsonParser } from 'json';
+    const f = std.open('x.json', 'r'); console.log(new JsonParser(f.fileno()).parse());  // NEED_DATA
