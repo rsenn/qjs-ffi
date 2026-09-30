@@ -162,13 +162,19 @@ from the IR JSON, so no generated `.js` is needed. Needs: the IR `source`/
 library name, `dlopen` handling, and a decision on how `structs` map to
 libffi struct types (struct-by-value is unsupported today).
 
-### Next: emit structs and extern variables in the generated JS
+- Struct/union layouts (size, align, field byte offsets, bitfield bit offsets)
+  come from clang's `-fdump-record-layouts-simple`, forced by a probe
+  translation unit (`runLayoutDump()`), and are stored in the IR and the AST
+  cache. `--structs` emits them as `struct_<name>` / `union_<name>` with
+  `view()`/`alloc()` accessors, plus `{ ptr, value }` accessors for extern
+  variables (resolved on first use). Off by default so existing generated
+  output does not change.
 
-Currently only functions, enum constants and constants with a known value are
-emitted. Extern variables need `dlsym` + a typed read/write through `ptr`;
-structs need a layout (sizes/offsets are not in clang's JSON, so ask for them
-with `-fdump-record-layouts` or `-Xclang -fdump-record-layouts-complete`, or
-compute them from the field types).
+### Next: struct accessors beyond scalars
+
+Bitfield, array and nested-struct members only have a layout entry. Add
+accessors for them, and then struct-by-value arguments/returns (needs libffi
+struct types built from the layout).
 
 ### Next: C++ classes and methods
 

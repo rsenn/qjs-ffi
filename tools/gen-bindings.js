@@ -39,6 +39,11 @@
  *                            includes, e.g. SDL.h -> SDL_video.h, SDL_render.h
  *   --ffitype                write types as FFIType.i32 instead of "i32" (cfunction
  *                            API only); imports FFIType from 'ffi'
+ *   --structs                also emit, for every struct/union of the sources, a
+ *                            layout { size, align, fields } with view()/alloc()
+ *                            accessors (struct_<name>, union_<name>, plus its
+ *                            typedef names), and for every extern variable an
+ *                            accessor { ptr, value }, resolved on first use
  *   --exclude=<name>         do not bind this function (repeatable), e.g. one
  *                            the shared library does not actually export
  *   -I<dir>                  extra clang include dir (repeatable)
@@ -78,6 +83,7 @@ function usage() {
       '  --api=cfunction|define   which qjs-ffi API to target (default: cfunction)\n' +
       '  --follow-includes        also bind headers included from under each source\'s directory\n' +
       '  --ffitype                write types as FFIType.i32 instead of "i32" (cfunction API only)\n' +
+      '  --structs                also emit struct/union layouts and extern variable accessors\n' +
       '  --exclude=<name>         do not bind this function (repeatable)\n' +
       '  -I<dir>                  extra clang include dir (repeatable)\n' +
       '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
@@ -93,7 +99,7 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [], ffiType: false, emitIr: null, fromIr: null, cacheDir: '.tmp/gen-bindings', cache: true };
+  const opts = { api: 'cfunction', includes: [], defines: [], library: null, clang: 'clang', output: null, sources: [], followIncludes: false, excludes: [], ffiType: false, structs: false, emitIr: null, fromIr: null, cacheDir: '.tmp/gen-bindings', cache: true };
 
   for(let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -107,6 +113,8 @@ function parseArgs(argv) {
       opts.excludes.push(a.slice('--exclude='.length));
     } else if(a === '--ffitype') {
       opts.ffiType = true;
+    } else if(a === '--structs') {
+      opts.structs = true;
     } else if(a === '--follow-includes') {
       opts.followIncludes = true;
     } else if(a.startsWith('-I')) {
@@ -318,7 +326,7 @@ function mtime(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 1;
+const AST_CACHE_VERSION = 2;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source) + '.ast.json';
@@ -348,6 +356,53 @@ function readAstCache(file) {
   return root.files.every(f => mtime(f) >= 0 && mtime(f) <= stamp) ? root.ast : null;
 }
 
+/* Sizes and field offsets, which clang's JSON AST does not carry. clang only
+ * dumps a record's layout once something needs it, so a probe translation
+ * unit forces one per complete record with sizeof(). Returns
+ * { "struct point": { size, align, offsets: [bit offset per FieldDecl] } }
+ * (size/align in bytes), keyed by the spelling clang prints for the type:
+ * the tag for a named record, else its first typedef name.
+ */
+function runLayoutDump(opts, source, ast) {
+  const aliases = collectRecordTypedefs(ast);
+  const types = [];
+
+  for(const node of ast.inner || []) {
+    if(node.kind !== 'RecordDecl' || !node.completeDefinition) continue;
+
+    const t = node.name ? (node.tagUsed || 'struct') + ' ' + node.name : (aliases[node.id] || [])[0];
+    if(t) types.push(t);
+  }
+
+  const layouts = {};
+  const [real, err] = os.realpath(source);
+  if(!types.length || err) return layouts;
+
+  mkdirs(opts.cacheDir);
+  const probe = opts.cacheDir.replace(/\/*$/, '/') + 'probe-' + fnv1a(real + Date.now()) + '.c';
+  const f = std.open(probe, 'w');
+  f.puts('#include "' + real + '"\n' + types.map((t, i) => 'enum { __probe' + i + ' = sizeof(' + t + ') };\n').join(''));
+  f.close();
+
+  const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', '-fsyntax-only', ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
+  const p = std.popen(parts.map(shquote).join(' ') + ' 2>/dev/null', 'r');
+  const out = p.readAsString();
+
+  p.close();
+  os.remove(probe);
+
+  for(const block of out.split('*** Dumping AST Record Layout').slice(1)) {
+    const type = /^Type: (.*)$/m.exec(block);
+    const size = /^\s*Size:(\d+)/m.exec(block);
+    const align = /^\s*Alignment:(\d+)/m.exec(block);
+    const offsets = /FieldOffsets: \[([^\]]*)\]/.exec(block);
+
+    if(type && size && align) layouts[type[1]] = { size: size[1] / 8, align: align[1] / 8, offsets: offsets && offsets[1].trim() ? offsets[1].split(',').map(Number) : [] };
+  }
+
+  return layouts;
+}
+
 function runClangAstDump(opts, source) {
   const parts = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only'];
 
@@ -363,19 +418,16 @@ function runClangAstDump(opts, source) {
     if(hit) return hit;
   }
 
-  // Handed to JsonParser as one string: fed from a pull function it calls
-  // back once per byte, ~10x slower (see BUGS: jsonparser-pull-reads-one-byte).
   const f = std.popen(cmd + ' 2>/dev/null', 'r');
-  const text = f.readAsString();
   let ast = null, error = null;
 
-  f.close();
-
   try {
-    ast = new AstCondenser(new JsonParser(text, source)).root();
+    ast = new AstCondenser(new JsonParser({ read: (buf, len) => f.read(buf, 0, len) }, source)).root();
   } catch(e) {
     error = e;
   }
+
+  f.close();
 
   if(!ast || !ast.inner) {
     // Re-run to surface clang's diagnostics for the error message.
@@ -384,6 +436,8 @@ function runClangAstDump(opts, source) {
     ef.close();
     throw new Error((error ? 'failed to parse clang AST JSON output: ' + error.message + '; ' : 'clang produced no output; ') + 'stderr was:\n' + errText);
   }
+
+  ast.layouts = runLayoutDump(opts, source, ast);
 
   if(opts.cache) {
     mkdirs(opts.cacheDir);
@@ -665,6 +719,7 @@ function collectIR(root, isSourceFile, idPrefix) {
     seen.add('struct ' + name);
 
     const fields = [];
+    const layout = (root.layouts || {})[node.name ? (node.tagUsed || 'struct') + ' ' + node.name : aliases[0]];
     let packed = false;
 
     for(const child of node.inner || []) {
@@ -674,14 +729,20 @@ function collectIR(root, isSourceFile, idPrefix) {
       const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || '';
       const m = mapCType(qualType, typedefs, enumIndex);
       const field = { name: child.name || '', type: typeName(m, child.type.qualType), cType: child.type.qualType };
+      const bitOffset = layout && layout.offsets[fields.length];
 
       if(child.isBitfield) field.bits = Number(((child.inner || []).find(x => 'value' in x) || {}).value);
+      if(bitOffset !== undefined) {
+        if(child.isBitfield) field.bitOffset = bitOffset;
+        else field.offset = bitOffset / 8;
+      }
       fields.push(field);
       addEnum(m.enumId);
     }
 
     const s = { name, kind: node.tagUsed || 'struct', fields };
-    if(node.name && aliases.length) s.typedefs = aliases;
+    if(layout) (s.size = layout.size), (s.align = layout.align);
+    if(aliases.length) s.typedefs = aliases;
     if(packed) s.packed = true;
     ir.structs.push(s);
   }
@@ -777,8 +838,10 @@ function collectIR(root, isSourceFile, idPrefix) {
  *             of the enums the signature uses)
  *   fields    exported variables/constants: { name, type, value?, const? }
  *   enums     { id, name, kind:"enum", fields:[{ name, type:"number", value }] }
- *   structs   describeClass-like: { name, kind:"struct"|"union", fields:[{
- *             name, type, cType, bits? }], packed?, typedefs? }
+ *   structs   describeClass-like: { name, kind:"struct"|"union", size, align
+ *             (bytes), fields:[{ name, type, cType, offset (bytes) | bits +
+ *             bitOffset (bitfields) }], packed?, typedefs? }; size/offsets
+ *             come from clang's record layouts (see runLayoutDump())
  *   skipped   { name, reason } for declarations that could not be bound
  * `source` records how the IR was produced, for the generated file's header.
  * Reserved for later: `classes` (C++, see TODO.md).
@@ -886,6 +949,7 @@ function header(opts) {
     opts.api +
     (opts.library ? ' --library=' + opts.library : '') +
     (opts.ffiType ? ' --ffitype' : '') +
+    (opts.structs ? ' --structs' : '') +
     (opts.followIncludes ? ' --follow-includes' : '') +
     opts.excludes.map(n => ' --exclude=' + n).join('') +
     ' ' +
@@ -963,10 +1027,126 @@ function cfType(name, opts) {
   return opts.ffiType && FFI_TYPE_NAMES.has(name) ? 'FFIType.' + name : JSON.stringify(name);
 }
 
+/* --structs support code, emitted verbatim into the generated module. Field
+ * access is little-endian, like the rest of this project (64-bit Linux). */
+const VIEW_HELPERS = `
+const __sizes = { bool: 1, i8: 1, u8: 1, i16: 2, u16: 2, i32: 4, u32: 4, i64: 8, u64: 8, i64_fast: 8, u64_fast: 8, f32: 4, f64: 8, pointer: 8, ptr: 8, function: 8, cstring: 8 };
+
+function __ptrOut(v) {
+  return v === 0n ? null : v <= 0xffffffffn ? Number(v) : v;
+}
+
+function __read(dv, type, off) {
+  switch(type) {
+    case "bool": return dv.getUint8(off) !== 0;
+    case "i8": return dv.getInt8(off);
+    case "u8": return dv.getUint8(off);
+    case "i16": return dv.getInt16(off, true);
+    case "u16": return dv.getUint16(off, true);
+    case "i32": return dv.getInt32(off, true);
+    case "u32": return dv.getUint32(off, true);
+    case "i64": return dv.getBigInt64(off, true);
+    case "u64": return dv.getBigUint64(off, true);
+    case "i64_fast": return Number(dv.getBigInt64(off, true));
+    case "u64_fast": return Number(dv.getBigUint64(off, true));
+    case "f32": return dv.getFloat32(off, true);
+    case "f64": return dv.getFloat64(off, true);
+    case "pointer": case "ptr": case "function": return __ptrOut(dv.getBigUint64(off, true));
+    case "cstring": { const p = __ptrOut(dv.getBigUint64(off, true)); return p === null ? null : __cstr(p); }
+  }
+}
+
+function __write(dv, type, off, v) {
+  switch(type) {
+    case "bool": return dv.setUint8(off, v ? 1 : 0);
+    case "i8": return dv.setInt8(off, v);
+    case "u8": return dv.setUint8(off, v);
+    case "i16": return dv.setInt16(off, v, true);
+    case "u16": return dv.setUint16(off, v, true);
+    case "i32": return dv.setInt32(off, v, true);
+    case "u32": return dv.setUint32(off, v, true);
+    case "i64": case "i64_fast": return dv.setBigInt64(off, BigInt(v), true);
+    case "u64": case "u64_fast": case "pointer": case "ptr": case "function": return dv.setBigUint64(off, v === null ? 0n : BigInt(v), true);
+    case "f32": return dv.setFloat32(off, v, true);
+    case "f64": return dv.setFloat64(off, v, true);
+  }
+  throw new TypeError("cannot write a " + type + " field");
+}
+
+function __struct(size, align, fields) {
+  const s = {
+    size, align, fields,
+    view(p) {
+      const dv = p instanceof ArrayBuffer ? new DataView(p, 0, size) : ArrayBuffer.isView(p) ? new DataView(p.buffer, p.byteOffset, size) : new DataView(toBuffer(p, size, false));
+      const o = {};
+      Object.defineProperty(o, "buffer", { value: dv.buffer });
+      Object.defineProperty(o, "ptr", { get: () => __ptr(dv.buffer, dv.byteOffset) });
+      for(const name in fields) {
+        const f = fields[name];
+        if(f.bits !== undefined || !(f.type in __sizes)) continue;
+        Object.defineProperty(o, name, { enumerable: true, get: () => __read(dv, f.type, f.offset), set: v => __write(dv, f.type, f.offset, v) });
+      }
+      return o;
+    },
+    alloc() { return s.view(new ArrayBuffer(size)); },
+  };
+  return s;
+}
+
+function __variable(name, type) {
+  const v = { get ptr() { return __sym(name); } };
+  if(type in __sizes) {
+    const dv = () => new DataView(toBuffer(__sym(name), __sizes[type], false));
+    Object.defineProperty(v, "value", { enumerable: true, get: () => __read(dv(), type, 0), set: x => __write(dv(), type, 0, x) });
+  }
+  return v;
+}
+`;
+
+const DEFINE_SYM = 'function __sym(name) {\n  const p = dlsym(__LIB__, name);\n  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n  return p;\n}\n';
+
+/* With --structs: the layouts of the structs/unions (size, alignment, every
+ * field's type and byte offset) and an accessor for every extern variable
+ * that is not already a known constant (see constantsCode()). */
+function structsCode(ir, opts) {
+  if(!opts.structs) return '';
+
+  let out = '';
+  const structs = ir.structs.filter(s => s.size !== undefined);
+  const variables = ir.fields.filter(f => !(f.const && f.value !== undefined));
+
+  if(!structs.length && !variables.length) return '';
+
+  out += VIEW_HELPERS;
+  if(opts.api === 'define') out += DEFINE_SYM.replace('__LIB__', opts.library ? '__lib' : 'RTLD_DEFAULT');
+
+  if(structs.length) out += '\n// structs\n';
+  for(const s of structs) {
+    const fields = {};
+
+    s.fields.forEach((f, i) => {
+      const e = { type: f.type };
+      if(f.offset !== undefined) e.offset = f.offset;
+      if(f.bits !== undefined) (e.bits = f.bits), (e.bitOffset = f.bitOffset);
+      if(!FFI_TYPE_NAMES.has(f.type)) e.cType = f.cType;
+      fields[f.name || '__anon' + i] = e;
+    });
+
+    const ident = safeIdent(s.kind + '_' + s.name);
+    out += 'export const ' + ident + ' = __struct(' + s.size + ', ' + s.align + ', ' + JSON.stringify(fields) + ');\n';
+    for(const alias of s.typedefs || []) out += 'export const ' + safeIdent(alias) + ' = ' + ident + ';\n';
+  }
+
+  if(variables.length) out += '\n// extern variables\n';
+  for(const v of variables) out += 'export const ' + safeIdent(v.name) + ' = __variable(' + JSON.stringify(v.name) + ', ' + JSON.stringify(v.type) + ');\n';
+
+  return out;
+}
+
 function generateCFunction(ir, opts) {
   const { functions, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
-  const imports = ['CFunction', opts.ffiType ? 'FFIType' : null, 'dlsym', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
+  const imports = ['CFunction', opts.ffiType ? 'FFIType' : null, opts.structs ? 'toBuffer' : null, opts.structs ? 'ptr as __ptr' : null, opts.structs ? 'toString as __cstr' : null, 'dlsym', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
 
   let out = header(opts);
   out += "import { " + imports.join(', ') + " } from 'ffi';\n\n";
@@ -976,6 +1156,7 @@ function generateCFunction(ir, opts) {
   out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if (p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
+  out += structsCode(ir, opts);
   out += '\n';
 
   for(const fn of functions) {
@@ -992,7 +1173,7 @@ function generateCFunction(ir, opts) {
 function generateDefine(ir, opts) {
   const { functions, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
-  const imports = ['dlsym', 'define', 'call', opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
+  const imports = ['dlsym', 'define', 'call', opts.structs ? 'toBuffer' : null, opts.structs ? 'ptr as __ptr' : null, opts.structs ? 'toString as __cstr' : null, opts.library ? 'dlopen' : null, opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT'].filter(Boolean);
 
   let out = header(opts);
   out += "import { " + imports.join(', ') + " } from 'ffi';\n\n";
@@ -1011,6 +1192,7 @@ function generateDefine(ir, opts) {
     '}\n';
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
+  out += structsCode(ir, opts);
   out += '\n';
 
   for(const fn of functions) {

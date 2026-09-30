@@ -240,6 +240,24 @@ Useful options are `--follow-includes` to also bind the headers included by
 the source, `--exclude=<name>` to skip a function, `-I` and `-D` for clang, and
 `--api=define` to target the legacy API. Ready made bindings are in lib/.
 
+With `--structs` the module also exports a layout for every struct and union
+(`struct_<name>`, `union_<name>`, and each typedef name) and an accessor for
+every extern variable. Structs are handled through their address, since
+passing one by value is not supported:
+
+```
+	const m = cairo.cairo_matrix_t.alloc();        // zero-filled, JS-owned memory
+	cairo.cairo_matrix_init(m.ptr, 1, 0, 0, 1, 10, 20);
+	console.log(m.x0, m.y0);                       // 10 20
+	cairo.cairo_matrix_t.view(pointer)             // the same fields over native memory
+	cairo.some_variable.value                      // extern variable (.ptr is its address)
+```
+
+`size`, `align` and `fields` (type and byte offset of each) describe the layout.
+Bitfields and array or nested-struct members have no accessor, only an entry in
+`fields`. Constants with a known value are plain exports, whether or not
+`--structs` is given.
+
 The generator runs in two phases joined by a JSON description of the C API
 (functions, enums, structs, constants). `--emit-ir=api.json` stops after the
 first phase and `--from-ir=api.json` generates the JavaScript without running
