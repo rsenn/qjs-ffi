@@ -1,4 +1,4 @@
-import { safeIdent, paramTypes, paramNames } from './common.js';
+import { safeIdent, flattenName, paramTypes, paramNames, isByValue } from './common.js';
 
 /* --jsdoc: the JS type a value of ffi type `t` has as an argument or as a
  * return value. `known` holds the names of the bound classes, whose
@@ -12,13 +12,14 @@ function jsDocType(t, known, isReturn) {
     case 'cstring': return isReturn ? 'string' : 'string|null';
   }
 
+  if(isByValue(t)) return isReturn ? 'ArrayBuffer' : 'ArrayBuffer|ArrayBufferView';
   if(!t.endsWith('*') && !['pointer', 'ptr', 'function'].includes(t)) return 'number';
   if(isReturn) return 'number|bigint|null';
 
   const name = t.endsWith(' *') ? t.slice(0, -2) : '';
   const cls = known.has(name) ? name : [...known].filter(k => k.endsWith('::' + name)).length === 1 ? [...known].find(k => k.endsWith('::' + name)) : null;
 
-  return (cls ? safeIdent(cls.replace(/::/g, '_')) + '|' : '') + 'object|number|bigint|null';
+  return (cls ? safeIdent(flattenName(cls)) + '|' : '') + 'object|number|bigint|null';
 }
 
 /* --jsdoc: one `/** ... *\/` block. `head` is free text lines and tags;

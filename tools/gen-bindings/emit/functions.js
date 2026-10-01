@@ -1,4 +1,5 @@
-import { safeIdent, header, skippedComment, bindable, paramTypes, jsLiteral, cfType } from './common.js';
+import { safeIdent, header, skippedComment, bindable, paramTypes, jsLiteral, cfType, structTypesCode, usedStructs, wrapReturn } from './common.js';
+import { prepareByValue } from '../by-value.js';
 import { describedFunction, DESCRIBE_HELPERS } from './describe.js';
 import { jsDoc } from './jsdoc.js';
 import { runtimeCode, variablesCode, needsRuntime } from './structs.js';
@@ -42,6 +43,8 @@ function enumConstantsCode(enums) {
 
 export function generateCFunction(ir, opts) {
   const { functions, cxxFunctions, classes, enums } = bindable(ir, opts);
+
+  prepareByValue(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
   const views = opts.structs || classes.length > 0 || cxxFunctions.length > 0;
   const imports = [
@@ -66,12 +69,13 @@ export function generateCFunction(ir, opts) {
   out += constantsCode(ir.fields);
   if(needsRuntime(ir, opts, classes)) out += runtimeCode(opts);
   out += variablesCode(ir, opts) + classesCode(ir, classes, opts, cxxFunctions);
+  out += structTypesCode(ir, usedStructs([...functions, ...cxxFunctions, ...classes.flatMap(c => [...c.methods, ...c.constructors])]), opts);
   out += '\n';
 
   for(const fn of functions) {
     const args = paramTypes(fn).map(t => cfType(t, opts));
     const ident = safeIdent(fn.name);
-    const impl = 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(fn.returnType, opts) + '})';
+    const impl = wrapReturn(fn.returnType, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(fn.returnType, opts) + '})', opts);
 
     const doc = opts.jsdoc ? jsDoc([fn.name], [fn], new Set(classes.map(c => c.name)), '') : '';
 

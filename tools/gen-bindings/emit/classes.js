@@ -1,4 +1,4 @@
-import { safeIdent, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType } from './common.js';
+import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn } from './common.js';
 import { sigCode } from './describe.js';
 import { jsDoc } from './jsdoc.js';
 import { classesCode as structClasses, mergeIRs } from '../structs.js';
@@ -19,6 +19,7 @@ function __lazy(f) {
 
 function __accepts(t, v) {
   if(t.endsWith("*")) t = "pointer";
+  else if(t.startsWith("struct ")) return v instanceof ArrayBuffer || ArrayBuffer.isView(v);
   switch(t) {
     case "bool": return typeof v === "boolean" || typeof v === "number";
     case "i8": case "u8": case "i16": case "u16": case "i32": case "u32": case "i64": case "u64": case "i64_fast": case "u64_fast":
@@ -80,7 +81,7 @@ function classFn(symbol, entry, thisType, opts) {
 
   if(opts.api === 'define') return '__bind(' + sym + ',' + jsLiteral(entry.defTypes.returnType || 'void') + def.map(t => ',' + jsLiteral(t)).join('') + ')';
 
-  return 'CFunction({ptr:__sym(' + sym + '),args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returnType || 'void', opts) + '})';
+  return wrapReturn(entry.returnType, 'CFunction({ptr:__sym(' + sym + '),args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returnType || 'void', opts) + '})', opts);
 }
 
 /* `const NAME = [ { n, t, f }, ... ];`, one element per overload. */
@@ -143,7 +144,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
   return out + cxxFunctionsCode(cxxFunctions, opts, known);
 
   function classPieces(c) {
-    const id = safeIdent(c.name.replace(/::/g, '_'));
+    const id = safeIdent(flattenName(c.name));
     const prefix = '__' + id + '_';
     const base = baseOf(c);
     const thisType = c.name + ' *';
@@ -179,7 +180,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
       }
     }
 
-    const doc = opts.jsdoc ? jsDoc(['C++ class ' + c.name + (c.abstract ? ' (abstract)' : ''), ...(base ? ['@extends {' + safeIdent(base.name.replace(/::/g, '_')) + '}'] : [])], c.constructors, known, '', false) : '';
+    const doc = opts.jsdoc ? jsDoc(['C++ class ' + c.name + (c.abstract ? ' (abstract)' : ''), ...(base ? ['@extends {' + safeIdent(flattenName(base.name)) + '}'] : [])], c.constructors, known, '', false) : '';
     const pre = out;
 
     out = '';
@@ -217,7 +218,7 @@ function cxxFunctionsCode(functions, opts, known) {
   let out = '\n// C++ functions\n';
 
   for(const [name, list] of groups) {
-    const id = safeIdent(name.replace(/::/g, '_'));
+    const id = safeIdent(flattenName(name));
 
     out += overloadList('__fn_' + id, list, null, opts);
 

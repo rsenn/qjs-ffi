@@ -382,7 +382,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
       return null;
     }
 
-    const retMap = mapCType(split.returnType, typedefs, enumIndex);
+    const retMap = mapCType(split.returnType, typedefs, enumIndex, 0, true);
     if(!retMap.supported) {
       ir.skipped.push({ name: label, reason: 'return type: ' + retMap.reason });
       return null;
@@ -394,7 +394,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
       if(child.kind !== 'ParmVarDecl') continue;
 
       const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || '';
-      const pm = mapCType(qualType, typedefs, enumIndex);
+      const pm = mapCType(qualType, typedefs, enumIndex, 0, true);
 
       if(!pm.supported) {
         ir.skipped.push({ name: label, reason: 'parameter ' + (child.name || '#' + params.length) + ' (' + qualType + '): ' + pm.reason });
@@ -407,6 +407,10 @@ export function collectIR(root, isSourceFile, idPrefix) {
     const used = [retMap, ...params.map(p => p.type)].map(m => m.enumId).filter(id => id !== undefined);
     for(const id of used) addEnum(id);
 
+    /* Where a struct is passed or returned by value (at -1: the return
+     * value), to be settled by resolveByValue(). */
+    const byValue = [retMap, ...params.map(p => p.type)].map((m, i) => m.byValue && { ...m.byValue, at: i - 1 }).filter(Boolean);
+
     return {
       isConst: split.isConst,
       arity: params.length,
@@ -414,6 +418,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
       returnType: retMap.cf,
       defTypes: { returnType: retMap.def, params: params.map(p => p.type.def) },
       enums: [...new Set(used)].map(id => idPrefix + id),
+      ...(byValue.length ? { byValue } : {}),
     };
   }
 

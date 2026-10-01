@@ -149,7 +149,11 @@ function pointerName(t) {
  * letting collectFunctions() know which enums are actually reachable from a
  * bindable function's signature.
  */
-export function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
+/* `byValue`, for the parameters and return type of a function, makes a struct
+ * (or a name this cannot place) a provisional `struct NAME` type with
+ * `byValue: { name, reason }`: by-value.js decides later, once every record is
+ * known, whether it is a plain C struct, and otherwise restores `reason`. */
+export function mapCType(qualTypeRaw, typedefs, enumIndex, depth, byValue) {
   const t = normalizeType(qualTypeRaw);
 
   if(/\(\s*\*\s*\)\s*\(/.test(t)) return { cf: 'function', def: 'callback', supported: true };
@@ -172,7 +176,8 @@ export function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
   const enumMatch = t.match(/^enum\s+(\S+)$/);
   if(enumMatch) return { cf: 'i32', def: 'sint32', supported: true, enumId: enumIndex && enumIndex.tagToId[enumMatch[1]] };
   if(/^enum\b/.test(t)) return { cf: 'i32', def: 'sint32', supported: true };
-  if(/^(struct|union)\b/.test(t)) return { supported: false, reason: 'struct/union passed by value is not supported' };
+  if(/^union\b/.test(t)) return { supported: false, reason: 'union passed by value is not supported' };
+  if(/^struct\b/.test(t)) return byValue ? provisionalStruct(t.replace(/^struct\s+/, ''), 'struct passed by value is not supported') : { supported: false, reason: 'struct/union passed by value is not supported' };
 
   const known = BASE_TYPES[t];
   if(known) return { cf: known.cf, def: known.def, supported: true };
@@ -186,7 +191,13 @@ export function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
   // with clang's `typedef enum { ... } Name;` idiom, where the anonymous
   // enum's synthesized tag is also spelled `Name`) -- falls through to the
   // "unrecognized" error below rather than looping.
-  if(typedefs && Object.prototype.hasOwnProperty.call(typedefs, t) && (depth || 0) < 8) return mapCType(typedefs[t], typedefs, enumIndex, (depth || 0) + 1);
+  if(typedefs && Object.prototype.hasOwnProperty.call(typedefs, t) && (depth || 0) < 8) return mapCType(typedefs[t], typedefs, enumIndex, (depth || 0) + 1, byValue);
 
-  return { supported: false, reason: 'unrecognized C type "' + qualTypeRaw + '"' };
+  const reason = 'unrecognized C type "' + qualTypeRaw + '"';
+
+  return byValue ? provisionalStruct(t, reason) : { supported: false, reason };
+}
+
+function provisionalStruct(name, reason) {
+  return { cf: 'struct ' + name, def: 'struct', supported: true, byValue: { name, reason } };
 }

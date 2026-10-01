@@ -2,7 +2,8 @@ import * as std from 'std';
 import { usage, parseArgs } from './args.js';
 import { sourceFilter, runClangAstDump } from './clang.js';
 import { collectIR, newIR, linkPrototypeChains, mergeIR } from './ir.js';
-import { bindable } from './emit/common.js';
+import { resolveByValue } from './by-value.js';
+import { bindable, setNamespace } from './emit/common.js';
 import { generateCFunction, generateDefine } from './emit/functions.js';
 
 export function main() {
@@ -47,7 +48,10 @@ export function main() {
     });
 
     linkPrototypeChains(ir);
+    resolveByValue(ir, opts);
   }
+
+  setNamespace(opts.namespace);
 
   const out = opts.emitIr ? JSON.stringify(ir, null, 2) + '\n' : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
   const dest = opts.emitIr || opts.output;

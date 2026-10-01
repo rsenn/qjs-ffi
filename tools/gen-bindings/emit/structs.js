@@ -67,8 +67,15 @@ function __variable(name, type) {
  * variable accessors, and for --api=define the __sym() the cfunction API has
  * from the start. */
 export function runtimeCode(opts) {
-  return PRELUDE + VARIABLE_HELPERS + (opts.api === 'define' ? DEFINE_SYM.replace('__LIB__', opts.library ? '__lib' : 'RTLD_DEFAULT') : '');
+  return PRELUDE + VARIABLE_HELPERS + RET_HELPER + (opts.api === 'define' ? DEFINE_SYM.replace('__LIB__', opts.library ? '__lib' : 'RTLD_DEFAULT') : '');
 }
+
+/* CFunction returns a struct as a bare ArrayBuffer; this makes it the class. */
+const RET_HELPER = `
+function __ret(cls, f) {
+  return (...args) => Object.setPrototypeOf(f(...args), cls.prototype);
+}
+`;
 
 /* The extern variables that are not already a known constant (see
  * constantsCode()). */

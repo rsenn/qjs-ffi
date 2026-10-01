@@ -26,6 +26,7 @@ export function usage() {
       '  --exclude=<name>         do not bind this function(repeatable)\n' +
       '  --c++                    parse every source as C++ (implied by .cc/.cpp/.cxx/.hh/.hpp/.hxx)\n' +
       '  --std=<std>              C++ standard for clang, e.g. c++17 (C++ sources only)\n' +
+      '  --namespace=<name>       drop the C++ namespace prefix from class/function names (stk::Foo -> Foo, not stk_Foo)\n' +
       '  -I<dir>                 extra clang include dir (repeatable)\n' +
       '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
       '  --library=<path>         dlopen() this shared library instead of RTLD_DEFAULT\n' +
@@ -56,6 +57,7 @@ export function parseArgs(argv) {
     jsdoc: false,
     cxx: false,
     std: null,
+    namespace: null,
     emitIr: null,
     fromIr: null,
     cacheDir: '.tmp/gen-bindings',
@@ -84,6 +86,8 @@ export function parseArgs(argv) {
       opts.cxx = true;
     } else if(a.startsWith('--std=')) {
       opts.std = a.slice('--std='.length);
+    } else if(a.startsWith('--namespace=')) {
+      opts.namespace = a.slice('--namespace='.length);
     } else if(a === '--follow-includes') {
       opts.followIncludes = true;
     } else if(a.startsWith('-I')) {

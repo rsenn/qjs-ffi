@@ -1,4 +1,4 @@
-import { jsLiteral } from './emit/common.js';
+import { jsLiteral, flattenName } from './emit/common.js';
 import { DESCRIBE_HELPERS } from './emit/describe.js';
 import * as std from 'std';
 
@@ -37,7 +37,7 @@ export function mergeIRs(irs) {
 /* --- member types ---------------------------------------------------------- */
 
 /* Byte size of each ffi type name. */
-const SIZES = { bool: 1, i8: 1, u8: 1, i16: 2, u16: 2, i32: 4, u32: 4, i64: 8, u64: 8, f32: 4, f64: 8, pointer: 8 };
+export const SIZES = { bool: 1, i8: 1, u8: 1, i16: 2, u16: 2, i32: 4, u32: 4, i64: 8, u64: 8, f32: 4, f64: 8, pointer: 8 };
 
 /* C type spellings -> ffi type name, for an IR whose members have no `ffi`. */
 const C_TYPES = {
@@ -81,7 +81,7 @@ const normalize = t =>
 /* The ffi type name of a scalar, or null. `ffi` is what gen-bindings.js
  * resolved (typedefs included); without it the C spelling is looked up, then
  * the typedefs of the IR. */
-function scalarOf(ffi, type, typedefs, depth = 0) {
+export function scalarOf(ffi, type, typedefs, depth = 0) {
   if(ffi in SIZES) return ffi;
   if(ffi === 'cstring' || ffi === 'function' || ffi === 'ptr') return 'pointer';
 
@@ -107,7 +107,7 @@ const DV = { bool: 'Uint8', i8: 'Int8', u8: 'Uint8', i16: 'Int16', u16: 'Uint16'
 const RESERVED = new Set(['constructor', 'ptr', 'byteLength', 'maxByteLength', 'resizable', 'resize', 'slice', 'transfer', 'transferToFixedLength', 'detached', 'toString', 'valueOf', '__proto__']);
 
 /* `T[3]`, `T[2][4]` -> { elem: "T", count: 12 } */
-function arrayOf(type) {
+export function arrayOf(type) {
   const m = /^(.*?)\s*((?:\[\d+\])+)$/.exec(type);
 
   return m && { elem: m[1], count: [...m[2].matchAll(/\[(\d+)\]/g)].reduce((n, d) => n * Number(d[1]), 1) };
@@ -115,7 +115,7 @@ function arrayOf(type) {
 
 /* The record `type` names (a struct/union/class keyword is optional, a
  * typedef of the record is followed), or undefined. */
-function recordOf(type, ir) {
+export function recordOf(type, ir) {
   const t = normalize(type).replace(/^(struct|union|class)\s+/, '');
 
   if(ir.structs.has(t)) return t;
@@ -323,9 +323,9 @@ function bitfield(f, scalar, at) {
 
 const RESERVED_WORDS = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'export', 'extends', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'return', 'super', 'switch', 'this', 'throw', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'enum', 'await', 'implements', 'package', 'protected', 'interface', 'private', 'public', 'null', 'true', 'false', 'ArrayBuffer', 'DataView']);
 
-/* The class name of a struct: "ns::Name" -> "ns_Name". */
-function identOf(name) {
-  const id = name.replace(/::/g, '_').replace(/[^A-Za-z0-9_$]/g, '_');
+/* The class name of a struct: "ns::Name" -> "ns_Name" (see --namespace). */
+export function identOf(name) {
+  const id = flattenName(name).replace(/[^A-Za-z0-9_$]/g, '_');
 
   return RESERVED_WORDS.has(id) || /^[0-9]/.test(id) ? '_' + id : id;
 }

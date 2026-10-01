@@ -51,6 +51,17 @@ const RESERVED = new Set([
   'false',
 ]);
 
+let stripNamespace = '';
+
+export function setNamespace(ns) {
+  stripNamespace = ns ? ns + '::' : '';
+}
+
+/* "ns::Name" -> "ns_Name", or "Name" when ns is the --namespace being stripped. */
+export function flattenName(name) {
+  return (stripNamespace && name.startsWith(stripNamespace) ? name.slice(stripNamespace.length) : name).replace(/::/g, '_');
+}
+
 export function safeIdent(name) {
   return RESERVED.has(name) || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? '_' + name : name;
 }
@@ -154,8 +165,49 @@ export function isFfiType(name) {
   return FFI_TYPE_NAMES.has(name) || name.endsWith('*');
 }
 
+/* Whether the type string is `struct NAME`, a struct passed or returned by
+ * value, as opposed to a typed pointer such as `struct NAME *`. */
+export function isByValue(t) {
+  return !!t && t.startsWith('struct ') && !t.endsWith('*');
+}
+
+/* The name of the const holding the element list of `struct NAME`, which
+ * CFunction takes as the type of a struct passed or returned by value. */
+function structTypeName(name) {
+  return '__s_' + safeIdent(name.slice('struct '.length).replace(/::/g, '_'));
+}
+
 export function cfType(name, opts) {
+  if(isByValue(name)) return structTypeName(name);
+
   return opts.ffiType && FFI_TYPE_NAMES.has(name) ? 'FFIType.' + name : jsLiteral(name);
+}
+
+/* `const __s_NAME = [...];` for each struct in `used` (names), the member
+ * types in memory order from ir.byValue (see by-value.js). */
+export function structTypesCode(ir, used, opts) {
+  const code = el => (Array.isArray(el) ? '[' + el.map(code).join(',') + ']' : cfType(el, opts));
+
+  return [...used].map(name => 'const ' + structTypeName('struct ' + name) + ' = ' + code(ir.byValue[name]) + ';\n').join('');
+}
+
+/* The names of the structs the given function entries pass or return by
+ * value. */
+export function usedStructs(entries) {
+  const used = new Set();
+
+  for(const e of entries) for(const t of [e.returnType, ...paramTypes(e)]) if(isByValue(t)) used.add(t.slice('struct '.length));
+
+  return used;
+}
+
+/* Wraps the call `expr` of a function returning `returnType` so that a struct
+ * comes back as its class (opts.structClasses, see prepareByValue()), not as
+ * the bare ArrayBuffer CFunction makes. */
+export function wrapReturn(returnType, expr, opts) {
+  const ident = isByValue(returnType) && opts.structClasses && opts.structClasses.get(returnType.slice('struct '.length));
+
+  return ident ? '__ret(' + ident + ',' + expr + ')' : expr;
 }
 
 export const DEFINE_SYM = 'function __sym(name) {\n  const p = dlsym(__LIB__, name);\n  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n  return p;\n}\n';
