@@ -20,8 +20,9 @@
 - Return values are always coerced into a single `double` (`call_function`,
   `ffi.c:456-484`) — real 64-bit ints/pointers above 2^53 are not
   representable.
-- No struct-by-value, no varargs, no arrays. Documented as YAGNI in the
-  existing README `TODO`/`Limitations` sections.
+- No varargs, no arrays. Documented as YAGNI in the existing README
+  `TODO`/`Limitations` sections. (Struct-by-value has since been added, see
+  "Done: struct by value".)
 - Assumes little-endian.
 - `dlopen`/`dlsym`/`dlclose`/`dlerror`/`errno` are thin 1:1 libdl/libc wrappers
   — these map cleanly onto bun:ffi's internal use of dlopen and don't need to
@@ -160,7 +161,8 @@ Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
 A loader in the `ffi` module that builds `CFunction`s (and constants) straight
 from the IR JSON, so no generated `.js` is needed. Needs: the IR `source`/
 library name, `dlopen` handling, and a decision on how `structs` map to
-libffi struct types (struct-by-value is unsupported today).
+libffi struct types (CFunction takes them as arrays now, see "Done: struct by
+value").
 
 - Struct/union layouts (size, align, field byte offsets, bitfield bit offsets)
   come from clang's `-fdump-record-layouts-simple`, forced by a probe
@@ -173,8 +175,8 @@ libffi struct types (struct-by-value is unsupported today).
 ### Next: struct accessors beyond scalars
 
 Bitfield, array and nested-struct members only have a layout entry. Add
-accessors for them, and then struct-by-value arguments/returns (needs libffi
-struct types built from the layout).
+accessors for them (done since, and struct-by-value too, see "Done: struct by
+value").
 
 ### Done: C++ classes and methods
 
@@ -262,6 +264,26 @@ Installed, the tools live in `share/qjs-ffi/tools` (qjsm resolves a script's
 imports against the path it is run as, not a symlink's target), with
 `qjs-ffi-genbindings`/`qjs-ffi-genstructs` as wrappers in `bin/`. `lib/` still
 holds output of the previous generator; `regen.sh` brings it up to date.
+
+### Done: struct by value
+
+`CFunction` takes an array as a type: the struct's members in memory order
+(`['f32','f32','f32']`, nested arrays for nested structs), which `ffi-type.c`
+turns into a libffi struct type owned by the signature. An argument is an
+ArrayBuffer (or view) of at least the struct's size, the result a new
+ArrayBuffer; `JSCallback` rejects struct types. libffi derives the layout and
+registers from the list alone, so a wrong list is silently wrong:
+`tools/gen-bindings/by-value.js` lays it out the way libffi does and binds a
+function only if every member lands on the IR's offset and the size matches
+(packed structs fail this). A bitfield is covered by integer pieces. An
+anonymous struct or union member, which the IR does not describe, is filled
+with integers, which is sound only for structs over 16 bytes (passed in memory
+on x86-64 SysV, aarch64 and win64 whatever they hold), so smaller ones stay
+skipped. Left out: unions and C++ classes by value (a class with a non-trivial
+copy constructor is passed by hidden reference, which libffi does not know),
+`--api=define`, structs in `JSCallback`, 32-bit targets (the layout check
+assumes 8-byte alignment of 64-bit members). Needs the new `ffi` module
+installed (`tests/test-struct-by-value.js`).
 
 ### Next: C++ gaps
 

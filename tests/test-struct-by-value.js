@@ -2,7 +2,6 @@ import * as std from 'std';
 import { realpath } from 'os';
 import { CFunction, JSCallback, dlopen, dlsym, RTLD_DEFAULT, RTLD_NOW } from 'ffi';
 import { tests, eq, assert } from './tinytest.js';
-const __ce = console.error; console.error = (...a) => __ce.apply(console, a.map(x => (x && x.message !== undefined ? 'ERR ' + x.message : String(x)))); // TEMP-DEBUG
 
 const root = scriptArgs[0].replace(/[^/]*$/, '') + '../';
 const tmp = root + '.tmp/';

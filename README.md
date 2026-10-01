@@ -210,8 +210,9 @@ available on the platform, fall back to "default".
 *   "win64"
 
 ## TYPES ##
-Types define parameter and return types. NOTE: structure passing by value is not
-yet supported. "void" is only useful as a return type.
+Types define parameter and return types. A struct passed or returned by value is
+given as an array of its member types (see doc/c-function.md). "void" is only
+useful as a return type.
 
 *   "void"
 *   "bool"
@@ -245,8 +246,7 @@ the source, `--exclude=<name>` to skip a function, `-I` and `-D` for clang, and
 With `--structs` the module also exports a class for every struct and union
 (and each typedef name) and an accessor for every extern variable. The classes
 extend `ArrayBuffer`, so an instance can be passed to a pointer parameter as it
-is. Structs are handled through their address, since passing one by value is
-not supported:
+is. Structs are mostly handled through their address:
 
 ```
 	const m = new cairo.cairo_matrix_t();          // zero-filled, JS-owned memory
@@ -255,6 +255,13 @@ not supported:
 	cairo.cairo_matrix_t.at(pointer)               // the same fields over native memory
 	cairo.some_variable.value                      // extern variable (.ptr is its address)
 ```
+
+A struct passed or returned by value (`vec3 f(vec3 a)`) is bound too: the struct
+class is accepted as the argument, and a call returns an instance of it. This
+needs `--api=cfunction` and an `ffi` module with struct support (see
+doc/c-function.md). A function stays skipped, with the reason in the output, when
+the struct is a union, a C++ class, or its layout cannot be reproduced for libffi
+(a packed struct, say).
 
 The members are accessors going through a `DataView`; see the header of
 tools/gen-structs.js for how each kind of member is read and written.
@@ -340,7 +347,8 @@ Legacy types are the libffi names ("sint8", "uint32", "double", "pointer",
 
 ## Limitations ##
 
-* No structure pass by value
+* Structure pass by value needs the member types spelled out (no unions, no
+  C++ classes, not in a JSCallback)
 * No varargs
 * No C structure access, use toBuffer() and a typed array or DataView
 * Only little-endian
