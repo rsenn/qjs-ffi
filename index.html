@@ -33,7 +33,17 @@
       <a class="btn" href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
     </div>
   </div>
-  <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+  <div class="hero-example">
+    <p class="example-switch">Example:
+      <button class="tab-btn active" type="button" data-tab="dlopen">dlopen</button>
+      <button class="tab-btn" type="button" data-tab="cfunction">CFunction</button>
+      <button class="tab-btn" type="button" data-tab="link">linkSymbols</button>
+      <button class="tab-btn" type="button" data-tab="callback">JSCallback</button>
+      <button class="tab-btn" type="button" data-tab="memory">memory</button>
+    </p>
+
+    <div class="tab-pane active" data-tab="dlopen">
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, {
   <span class="t-id">strlen</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'cstring'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'u64_fast'</span> },
@@ -42,7 +52,75 @@
 
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">strlen</span>(<span class="t-str">'hello, world'</span>)); <span class="t-cm">// 12</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">getenv</span>(<span class="t-str">'HOME'</span>));</code></pre></div>
+    </div>
+
+    <div class="tab-pane" data-tab="cfunction">
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">CFunction</span>, <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">strdup</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'strdup'</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'cstring'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'cstring'</span>,
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">'hello'</span>)); <span class="t-cm">// hello</span></code></pre></div>
+    </div>
+
+    <div class="tab-pane" data-tab="link">
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">linkSymbols</span>, <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">linkSymbols</span>({
+  <span class="t-id">abs</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'i32'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> }, <span class="t-cm">// found with dlsym(RTLD_DEFAULT, 'abs')</span>
+  <span class="t-id">labs</span><span class="t-op">:</span> { <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'labs'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'i64'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i64'</span> },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">abs</span>(<span class="t-op">-</span><span class="t-num">5</span>)); <span class="t-cm">// 5</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">labs</span>(<span class="t-op">-</span><span class="t-num">9007199254740993n</span>)); <span class="t-cm">// 9007199254740993n</span></code></pre></div>
+    </div>
+
+    <div class="tab-pane" data-tab="callback">
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSCallback</span>, <span class="t-type">CFunction</span>, <span class="t-id">dlsym</span>, <span class="t-id">read</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">compare</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>((<span class="t-id">a</span>, <span class="t-id">b</span>) <span class="t-op">=&gt;</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">a</span>) <span class="t-op">-</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">b</span>), {
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'pointer'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span>,
+});
+<span class="t-kw">const</span> <span class="t-id">qsort</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'qsort'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'void'</span> });
+
+<span class="t-kw">const</span> <span class="t-id">numbers</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Int32Array</span>([<span class="t-num">5</span>, <span class="t-num">3</span>, <span class="t-num">9</span>, <span class="t-num">1</span>]);
+<span class="t-fn">qsort</span>(<span class="t-id">numbers</span>, <span class="t-id">numbers</span>.<span class="t-prop">length</span>, <span class="t-num">4n</span>, <span class="t-id">compare</span>.<span class="t-prop">ptr</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">numbers</span>); <span class="t-cm">// 1, 3, 5, 9</span></code></pre></div>
+    </div>
+
+    <div class="tab-pane" data-tab="memory">
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">ptr</span>, <span class="t-id">read</span>, <span class="t-id">toArrayBuffer</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">bytes</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>([<span class="t-num">1</span>, <span class="t-num">2</span>, <span class="t-num">3</span>, <span class="t-num">4</span>, <span class="t-num">5</span>, <span class="t-num">6</span>, <span class="t-num">7</span>, <span class="t-num">8</span>]);
+<span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">bytes</span>);
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">read</span>.<span class="t-fn">u8</span>(<span class="t-id">p</span>, <span class="t-num">2</span>)); <span class="t-cm">// 3</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">read</span>.<span class="t-fn">u32</span>(<span class="t-id">p</span>, <span class="t-num">4</span>)); <span class="t-cm">// 134678021 (0x08070605)</span>
+
+<span class="t-kw">const</span> <span class="t-id">view</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-fn">toArrayBuffer</span>(<span class="t-id">p</span>, <span class="t-num">2</span>, <span class="t-num">3</span>)); <span class="t-cm">// the same memory</span>
+<span class="t-id">bytes</span>[<span class="t-num">3</span>] <span class="t-op">=</span> <span class="t-num">99</span>;
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">view</span>); <span class="t-cm">// 3, 99, 5</span></code></pre></div>
+    </div>
+  </div>
 </section>
+
+<script>
+document.querySelectorAll('.hero-example').forEach(function (box) {
+  var btns = box.querySelectorAll('.tab-btn');
+  var panes = box.querySelectorAll('.tab-pane');
+  btns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.dataset.tab;
+      btns.forEach(function (b) { b.classList.toggle('active', b === btn); });
+      panes.forEach(function (p) { p.classList.toggle('active', p.dataset.tab === tab); });
+    });
+  });
+});
+</script>
 
 <main>
   <ul class="badges">
@@ -61,22 +139,6 @@
       <article class="card"><span class="ico">03</span><h3>C on the fly</h3><p><code>cc()</code> compiles C source in memory with TinyCC and hands back its functions with the same typed signatures, like bun's <code>cc()</code>. Optional: build with <code>-DENABLE_TCC=ON</code>; without it the module stays at 81 KB.</p></article>
       <article class="card"><span class="ico">04</span><h3>Bindings included</h3><p><code>lib/</code> ships generated bindings for cairo, SDL2, freetype, libcurl, libusb, libarchive and zlib. <code>tools/gen-bindings.js</code> makes one for any other header, using clang's AST, including structs and C++ classes with virtual methods.</p></article>
     </div>
-  </section>
-
-  <section class="section">
-    <h2>Callbacks: sorting with libc</h2>
-    <p class="sub">Hand a JavaScript comparison function to <code>qsort()</code>. The two arguments are real pointers into the array; <code>read.i32</code> dereferences them.</p>
-    <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSCallback</span>, <span class="t-type">CFunction</span>, <span class="t-id">dlsym</span>, <span class="t-id">read</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
-
-<span class="t-kw">const</span> <span class="t-id">compare</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>((<span class="t-id">a</span>, <span class="t-id">b</span>) <span class="t-op">=&gt;</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">a</span>) <span class="t-op">-</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">b</span>), {
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'pointer'</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span>,
-});
-<span class="t-kw">const</span> <span class="t-id">qsort</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'qsort'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'void'</span> });
-
-<span class="t-kw">const</span> <span class="t-id">numbers</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Int32Array</span>([<span class="t-num">5</span>, <span class="t-num">3</span>, <span class="t-num">9</span>, <span class="t-num">1</span>]);
-<span class="t-fn">qsort</span>(<span class="t-id">numbers</span>, <span class="t-id">numbers</span>.<span class="t-prop">length</span>, <span class="t-num">4n</span>, <span class="t-id">compare</span>.<span class="t-prop">ptr</span>);
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">numbers</span>); <span class="t-cm">// 1, 3, 5, 9</span></code></pre></div>
   </section>
 
   <section class="section">

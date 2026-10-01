@@ -26,61 +26,630 @@
 <aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html" class="here">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="generating-bindings"><a class="anchor" href="#generating-bindings" aria-hidden="true">#</a>Generating bindings</h1>
-<p><code>tools/gen-bindings.js</code> reads C headers with clang and writes a JavaScript module
-with one CFunction per function, plus an export for every enum used:</p>
-<div class="codeblock"><pre><code>$ qjsm tools/gen-bindings.js --library=libcairo.so.2 /usr/include/cairo/cairo.h -o lib/cairo.js</code></pre></div>
-<p>Useful options are <code>--follow-includes</code> to also bind the headers included by
-the source, <code>--exclude=&lt;name&gt;</code> to skip a function, <code>-I</code> and <code>-D</code> for clang, and
-<code>--api=define</code> to target the legacy API. Ready made bindings are in lib/.</p>
-<p>With <code>--structs</code> the module also exports a class for every struct and union
-(and each typedef name) and an accessor for every extern variable. The classes
-extend <code>ArrayBuffer</code>, so an instance can be passed to a pointer parameter as it
-is. Structs are mostly handled through their address:</p>
-<div class="codeblock"><pre><code>    const m = new cairo.cairo_matrix_t();          // zero-filled, JS-owned memory
-    cairo.cairo_matrix_init(m, 1, 0, 0, 1, 10, 20);
-    console.log(m.x0, m.y0);                       // 10 20
-    cairo.cairo_matrix_t.at(pointer)               // the same fields over native memory
-    cairo.some_variable.value                      // extern variable (.ptr is its address)</code></pre></div>
-<p>A struct passed or returned by value (<code>vec3 f(vec3 a)</code>) is bound too: the struct
-class is accepted as the argument, and a call returns an instance of it. This
-needs <code>--api=cfunction</code> and an <code>ffi</code> module with struct support (see
-<a href="types.html#structs-by-value">Types and ABI</a>). A function stays skipped, with the reason in the output, when
-the struct is a union, a C++ class, or its layout cannot be reproduced for libffi
-(a packed struct, say).</p>
-<p>The members are accessors that read with <a href="pointers.html#read"><code>read</code></a> and write
-through a <code>DataView</code>; see the header of tools/gen-structs.js for how each kind
-of member is read and written. A generated module needs an <code>ffi</code> that has <code>read</code>.
-<code>Name.size</code>, <code>Name.align</code> and <code>Name.fields</code> (type and byte offset of each)
-describe the layout. <code>tools/gen-structs.js</code> produces the same classes from an
-IR (<code>--emit-ir</code>) on its own, and a C header with the layout checked by
-<code>_Static_assert</code>s.</p>
-<p>C++ classes are the same kind of class, extending a common <code>ArrayBuffer</code>
-subclass: <code>new Shape(3, 2.0)</code> allocates the object and runs its constructor,
-<code>s.delete()</code> runs the destructor (with <code>--finalize</code>, collecting an object that
-was not deleted runs it too, on a later turn of the event loop), <code>Shape.at(ptr)</code> wraps an existing object, and
-<code>s.ptr</code> is its address. Constants with a known value are plain exports,
-whether or not <code>--structs</code> is given.</p>
-<p><code>tools/describe-module.sh &lt;module.js&gt; [export...]</code> lists what a generated module
-or one from lib/ exports, with the C types when it was generated with
-<code>--describe</code>; <code>--json</code> prints the raw results. It uses describeClass() and
-describeObject(), kept in tools/describe/ as copies of qjs-modules' lib/.</p>
-<p>The tools are in tools/ (gen-bindings.js, gen-structs.js, and the modules of
-the former in tools/gen-bindings/). Installed, <code>qjs-ffi-genbindings</code> and
-<code>qjs-ffi-genstructs</code> in bin/ start them from <code>share/qjs-ffi/tools</code>.</p>
-<p>The generator runs in two phases joined by a JSON description of the C API
-(functions, enums, structs, constants). <code>--emit-ir=api.json</code> stops after the
-first phase and <code>--from-ir=api.json</code> generates the JavaScript without running
-clang. The condensed clang AST is cached in <code>.tmp/gen-bindings/</code>, so a repeat
-run takes a fraction of a second; <code>--no-cache</code> disables that.</p>
-<div class="codeblock"><pre><code>    import * as cairo from "./lib/cairo.js";
+<p><code>tools/gen-bindings.js</code> reads a C or C++ header with clang and writes a
+JavaScript module that binds it: one <a href="c-function.html"><code>CFunction</code></a> per function,
+a constant per enum value, and, on request, a class per struct, union and C++
+class. The module is plain JavaScript that imports <code>ffi</code>; the generator is only
+needed to make it.</p>
+<p>This page follows a run of the generator from the command line to the output,
+one section per processing step, with a small C and a small C++ library as the
+running examples. The listings come from real runs of the tool (paths
+shortened, long bodies elided with <code>...</code>), and the usage examples ran against
+the built libraries.</p>
+<ul>
+<li><a href="#synopsis">Synopsis</a></li>
+<li><a href="#the-examples">The examples</a></li>
+<li><a href="#pipeline">Pipeline</a>
+<ol>
+<li><a href="#1-command-line">Command line</a></li>
+<li><a href="#2-running-clang">Running clang</a></li>
+<li><a href="#3-layout-probes">Layout probes</a></li>
+<li><a href="#4-collecting-the-ir">Collecting the IR</a></li>
+<li><a href="#5-merging-sources">Merging sources</a></li>
+<li><a href="#6-structs-by-value">Structs by value</a></li>
+<li><a href="#7-names">Names</a></li>
+<li><a href="#8-emitting-javascript">Emitting JavaScript</a></li>
+</ol></li>
+<li><a href="#structs-and-variables---structs">Structs and variables (<code>--structs</code>)</a></li>
+<li><a href="#c-classes">C++ classes</a></li>
+<li><a href="#output-options">Output options</a></li>
+<li><a href="#the-ir-on-its-own">The IR on its own</a></li>
+<li><a href="#using-the-result">Using the result</a></li>
+<li><a href="#limitations">Limitations</a></li>
+</ul>
+<h2 id="synopsis"><a class="anchor" href="#synopsis" aria-hidden="true">#</a>Synopsis</h2>
+<div class="codeblock"><pre><code>qjs-ffi-genbindings [options] &lt;source&gt;...
+qjs-ffi-genbindings [options] --from-ir=&lt;ir.json&gt;</code></pre></div>
+<p><code>qjs-ffi-genbindings</code> is the installed name of <code>qjsm tools/gen-bindings.js</code>;
+both take the same options. Run from a checkout:</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjsm</span> <span class="t-id">tools</span>/<span class="t-id">gen-bindings.js</span> <span class="t-op">--library</span>=<span class="t-id">libcairo.so.2</span> /<span class="t-id">usr</span>/<span class="t-id">include</span>/<span class="t-id">cairo</span>/<span class="t-id">cairo.h</span> <span class="t-op">-o</span> <span class="t-id">lib</span>/<span class="t-id">cairo.js</span></code></pre></div>
+<p>The generator needs <code>clang</code> and <code>qjsm</code> with the <code>json</code> module of qjs-modules.
+The generated module needs only <code>ffi</code>, and one with <code>read</code> (see
+<a href="pointers.html#read">Pointers and memory</a>).</p>
+<div class="tablewrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>&lt;source&gt;...</code></td><td>headers or sources to bind. Several are merged into one module.</td></tr><tr><td><code>--library=&lt;path&gt;</code></td><td><code>dlopen()</code> this shared library; without it the symbols are looked up in the running process (<code>RTLD_DEFAULT</code>).</td></tr><tr><td><code>-o</code>, <code>--output=&lt;path&gt;</code></td><td>write the module here instead of to standard output.</td></tr><tr><td><code>-I&lt;dir&gt;</code>, <code>-D&lt;name[=value]&gt;</code></td><td>passed on to clang; repeatable. <code>--include=</code> and <code>--define=</code> are the long forms.</td></tr><tr><td><code>--follow-includes</code></td><td>also bind headers that a source includes from under its own directory (<code>SDL.h</code> brings in <code>SDL_video.h</code>).</td></tr><tr><td><code>--exclude=&lt;name&gt;</code></td><td>do not bind this function or class; repeatable.</td></tr><tr><td><code>--c++</code></td><td>parse the sources as C++. Implied by <code>.cc</code>, <code>.cpp</code>, <code>.cxx</code>, <code>.hh</code>, <code>.hpp</code>, <code>.hxx</code>; a <code>.h</code> needs it.</td></tr><tr><td><code>--std=&lt;std&gt;</code></td><td>the C++ standard for clang, e.g. <code>c++17</code>.</td></tr><tr><td><code>--namespace=&lt;name&gt;</code></td><td>drop the C++ namespace prefix <code>name::</code> from the names; repeatable.</td></tr><tr><td><code>--structs</code></td><td>also wrap every struct and union as an <code>ArrayBuffer</code> class, and every extern variable.</td></tr><tr><td><code>--finalize</code></td><td>destroy a C++ object made with <code>new</code> when it is garbage collected, too.</td></tr><tr><td><code>--api=cfunction|define</code></td><td>which API to target: <code>CFunction</code> (default) or the <a href="legacy.html">legacy</a> <code>define()</code>/<code>call()</code>.</td></tr><tr><td><code>--ffitype</code></td><td>write types as <code>FFIType.i32</code> instead of <code>'i32'</code>.</td></tr><tr><td><code>--describe</code></td><td>give each function its parameter names, and describe its C types for <code>describeObject()</code>.</td></tr><tr><td><code>--jsdoc</code></td><td>a JSDoc comment on each function, method and class.</td></tr><tr><td><code>--emit-ir=&lt;file&gt;</code></td><td>write the intermediate JSON and stop.</td></tr><tr><td><code>--from-ir=&lt;file&gt;</code></td><td>generate from an IR instead of running clang.</td></tr><tr><td><code>--clang=&lt;path&gt;</code></td><td>the clang binary (default <code>clang</code>).</td></tr><tr><td><code>--cache-dir=&lt;dir&gt;</code></td><td>where the condensed AST is cached (default <code>.tmp/gen-bindings</code>).</td></tr><tr><td><code>--no-cache</code></td><td>do not read or write that cache.</td></tr><tr><td><code>-h</code>, <code>--help</code></td><td>the usage text.</td></tr></tbody></table></div>
+<p>Companions in <code>tools/</code>: <code>gen-structs.js</code> (<code>qjs-ffi-genstructs</code>) makes the struct
+classes, or a C header, from an IR on its own, and <code>describe-module.sh</code> lists
+what a generated module exports. Both are covered
+<a href="#the-ir-on-its-own">below</a>.</p>
+<h2 id="the-examples"><a class="anchor" href="#the-examples" aria-hidden="true">#</a>The examples</h2>
+<p>A small C library, <code>geom.h</code>:</p>
+<div class="codeblock" data-lang="c"><pre><code class="language-c"><span class="t-pre">#define</span> <span class="t-id">GEOM_VERSION</span> <span class="t-num">3</span>
 
-    const surface = cairo.cairo_image_surface_create(cairo.CAIRO_FORMAT_ARGB32, 320, 240);</code></pre></div>
-<p>See examples/cairo.js and tests/test-cairo.js, which draws to PNG and SVG. The
-plan for C++ virtual methods is in
-<a href="internals/cxx-virtual-dispatch.html">virtual dispatch</a>.</p></article>
+<span class="t-kw">typedef</span> <span class="t-kw">enum</span> { <span class="t-id">GEOM_OK</span> <span class="t-op">=</span> <span class="t-num">0</span>, <span class="t-id">GEOM_BAD_ARG</span> <span class="t-op">=</span> <span class="t-op">-</span><span class="t-num">1</span>, <span class="t-id">GEOM_OVERFLOW</span> <span class="t-op">=</span> <span class="t-num">2</span> } <span class="t-id">geom_status</span>;
+
+<span class="t-kw">typedef</span> <span class="t-kw">struct</span> <span class="t-id">vec2</span> {
+  <span class="t-type">float</span> <span class="t-id">x</span>, <span class="t-id">y</span>;
+} <span class="t-id">vec2</span>;
+
+<span class="t-kw">typedef</span> <span class="t-kw">struct</span> <span class="t-id">shape</span> {
+  <span class="t-type">int</span> <span class="t-id">id</span>;
+  <span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-id">name</span>;
+  <span class="t-id">vec2</span> <span class="t-id">origin</span>;
+  <span class="t-type">unsigned</span> <span class="t-id">visible</span> <span class="t-op">:</span> <span class="t-num">1</span>;
+} <span class="t-id">shape</span>;
+
+<span class="t-kw">typedef</span> <span class="t-type">int</span> (<span class="t-op">*</span><span class="t-id">geom_visit_fn</span>)(<span class="t-kw">const</span> <span class="t-id">shape</span> <span class="t-op">*</span><span class="t-id">s</span>, <span class="t-type">void</span> <span class="t-op">*</span><span class="t-id">user</span>);
+
+<span class="t-kw">extern</span> <span class="t-type">int</span> <span class="t-id">geom_count</span>;
+
+<span class="t-type">int</span> <span class="t-fn">geom_abs</span>(<span class="t-type">int</span> <span class="t-id">v</span>);
+<span class="t-type">double</span> <span class="t-fn">geom_length</span>(<span class="t-id">vec2</span> <span class="t-id">v</span>);
+<span class="t-id">vec2</span> <span class="t-fn">geom_add</span>(<span class="t-id">vec2</span> <span class="t-id">a</span>, <span class="t-id">vec2</span> <span class="t-id">b</span>);
+<span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-fn">geom_version</span>(<span class="t-type">void</span>);
+<span class="t-id">geom_status</span> <span class="t-fn">geom_move</span>(<span class="t-id">shape</span> <span class="t-op">*</span><span class="t-id">s</span>, <span class="t-type">double</span> <span class="t-id">dx</span>, <span class="t-type">double</span> <span class="t-id">dy</span>);
+<span class="t-id">shape</span> <span class="t-op">*</span><span class="t-fn">geom_find</span>(<span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-id">name</span>);
+<span class="t-type">void</span> <span class="t-fn">geom_each</span>(<span class="t-id">geom_visit_fn</span> <span class="t-id">fn</span>, <span class="t-type">void</span> <span class="t-op">*</span><span class="t-id">user</span>);
+<span class="t-type">int</span> <span class="t-fn">geom_log</span>(<span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-id">fmt</span>, ...);</code></pre></div>
+<p>and a C++ one, <code>shapes.hpp</code>:</p>
+<div class="codeblock" data-lang="cpp"><pre><code class="language-cpp"><span class="t-id">namespace</span> <span class="t-id">geo</span> {
+
+<span class="t-id">class</span> <span class="t-id">Shape</span> {
+<span class="t-id">public</span><span class="t-op">:</span>
+  <span class="t-fn">Shape</span>(<span class="t-type">double</span> <span class="t-id">scale</span> <span class="t-op">=</span> <span class="t-num">1.0</span>);
+  <span class="t-id">virtual</span> <span class="t-op">~</span><span class="t-fn">Shape</span>();
+  <span class="t-id">virtual</span> <span class="t-type">double</span> <span class="t-fn">area</span>() <span class="t-kw">const</span> <span class="t-op">=</span> <span class="t-num">0</span>;
+  <span class="t-type">double</span> <span class="t-fn">scale</span>() <span class="t-kw">const</span>;
+  <span class="t-type">void</span> <span class="t-fn">setScale</span>(<span class="t-type">double</span> <span class="t-id">s</span>);
+  <span class="t-kw">static</span> <span class="t-type">int</span> <span class="t-fn">count</span>();
+  <span class="t-type">int</span> <span class="t-id">id</span>;
+<span class="t-id">private</span><span class="t-op">:</span>
+  <span class="t-type">double</span> <span class="t-id">s_</span>;
+};
+
+<span class="t-id">class</span> <span class="t-id">Circle</span> <span class="t-op">:</span> <span class="t-id">public</span> <span class="t-id">Shape</span> {
+<span class="t-id">public</span><span class="t-op">:</span>
+  <span class="t-fn">Circle</span>(<span class="t-type">double</span> <span class="t-id">radius</span>);
+  <span class="t-type">double</span> <span class="t-fn">area</span>() <span class="t-kw">const</span> <span class="t-id">override</span>;
+  <span class="t-type">double</span> <span class="t-id">radius</span>;
+};
+
+<span class="t-type">double</span> <span class="t-fn">lerp</span>(<span class="t-type">double</span> <span class="t-id">a</span>, <span class="t-type">double</span> <span class="t-id">b</span>, <span class="t-type">double</span> <span class="t-id">t</span>);
+
+}</code></pre></div>
+<p>Both are built into shared libraries (<code>libgeom.so</code>, <code>libshapes.so</code>) and bound
+with</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs-ffi-genbindings</span> <span class="t-op">--library</span>=./<span class="t-id">libgeom.so</span> <span class="t-op">--structs</span> <span class="t-op">-o</span> <span class="t-id">geom.js</span> <span class="t-id">geom.h</span>
+<span class="t-id">qjs-ffi-genbindings</span> <span class="t-op">--c</span>++ <span class="t-op">--std</span>=<span class="t-id">c</span>++<span class="t-num">17</span> <span class="t-op">--namespace</span>=<span class="t-id">geo</span> <span class="t-op">--library</span>=./<span class="t-id">libshapes.so</span> <span class="t-op">-o</span> <span class="t-id">shapes.js</span> <span class="t-id">shapes.hpp</span></code></pre></div>
+<h2 id="pipeline"><a class="anchor" href="#pipeline" aria-hidden="true">#</a>Pipeline</h2>
+<div class="codeblock"><pre><code> source ──► 1 command line ──► 2 clang AST ──► 3 layout probes
+                                                    │
+ JavaScript ◄── 8 emit ◄── 7 names ◄── 6 by value ◄─┤
+                                         ▲          ▼
+                                         └──── 4 collect ──► 5 merge ──► IR (JSON)</code></pre></div>
+<p>Steps 2 to 6 turn the sources into the <em>IR</em>, a JSON description of the C API;
+steps 7 and 8 turn the IR into JavaScript without looking at clang or the
+sources again. <code>--emit-ir</code> stops after step 6 and <code>--from-ir</code> starts at step 7,
+see <a href="#the-ir-on-its-own">The IR on its own</a>.</p>
+<h3 id="1-command-line"><a class="anchor" href="#1-command-line" aria-hidden="true">#</a>1. Command line</h3>
+<p><code>args.js</code> reads the options. It refuses an unknown option, <code>--api</code> other than
+<code>cfunction</code> or <code>define</code>, <code>--ffitype</code> with <code>--api=define</code>, <code>--from-ir</code> together
+with sources or with <code>--emit-ir</code>, and no source at all. <code>main.js</code> also refuses
+<code>--finalize</code> with <code>--api=define</code>. A problem prints the message and the usage
+text and exits with status 1. The generated file's header records the options
+it was made with, so that it can say how to regenerate it:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-cm">/* Auto-generated by qjs-ffi-genbindings from geom.h -- do not edit by hand.
+ * Regenerate with:
+ *   qjs-ffi-genbindings --api=cfunction --library=./libgeom.so --structs  geom.h
+ * (clang invocation used to build the AST, once per source: clang -Xclang -ast-dump=json -fsyntax-only &lt;source&gt;)
+ */</span></code></pre></div>
+<h3 id="2-running-clang"><a class="anchor" href="#2-running-clang" aria-hidden="true">#</a>2. Running clang</h3>
+<p>For each source, <code>clang.js</code> runs</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">clang</span> <span class="t-op">-Xclang</span> <span class="t-op">-ast-dump</span>=<span class="t-id">json</span> <span class="t-op">-fsyntax-only</span> [<span class="t-op">-x</span> <span class="t-id">c</span>++ <span class="t-op">-std</span>=&lt;<span class="t-id">std</span>&gt;] <span class="t-op">-I</span>&lt;<span class="t-id">dir</span>&gt;... <span class="t-op">-D</span>&lt;<span class="t-id">def</span>&gt;... &lt;<span class="t-kw">source</span>&gt;</code></pre></div>
+<p>and reads clang's JSON AST from the pipe. That AST is huge (megabytes for
+<code>cairo.h</code>), almost all of it source ranges, function bodies and attributes the
+generator never uses. So it is not parsed as one value: <code>json.JsonParser</code>
+yields tokens and <code>condense.js</code> keeps only what is needed, deciding from a
+node's <code>kind</code>, as soon as it arrives, which children survive:</p>
+<ul>
+<li>at the top level: functions, variables, enums, records, typedefs, C++
+classes and namespaces (<code>std</code> and <code>__*</code> namespaces are dropped);</li>
+<li>below a function: its parameters, nothing else;</li>
+<li>below an enum: its constants; below a record: its fields, nested records and
+enums, alignment and packing attributes; below a class also its methods,
+constructors, destructor and access specifiers;</li>
+<li>constant expressions are kept as <code>kind</code>/<code>value</code>/<code>opcode</code>/<code>inner</code> only.</li>
+</ul>
+<p>The condensed AST is cached in <code>.tmp/gen-bindings/&lt;name&gt;.&lt;hash&gt;.ast.json</code>
+(<code>--cache-dir</code>), the hash covering the clang command line, the source path and
+the cache format. A later run reuses it as long as no file it was built from is
+newer, which makes a repeat run take a fraction of a second. <code>--no-cache</code> turns
+the cache off.</p>
+<p>An unreadable source, or a parse that fails, ends the run with clang's own
+diagnostics:</p>
+<div class="codeblock"><pre><code>gen-bindings.js: failed to parse clang AST JSON output: unexpected end of clang AST JSON; stderr was:
+clang: error: no such file or directory: 'nothere.h'</code></pre></div>
+<h3 id="3-layout-probes"><a class="anchor" href="#3-layout-probes" aria-hidden="true">#</a>3. Layout probes</h3>
+<p>clang's AST has no sizes and no field offsets, and a binding needs both: to
+read a struct member, to pass a struct by value, to find a virtual method in a
+vtable. They only come from a record layout dump, and clang prints one only for
+a record that code needs. So <code>runLayoutDump()</code> writes a <em>probe</em>, a translation
+unit that includes the source and asks for the numbers, and compiles it with
+<code>-Xclang -fdump-record-layouts-simple</code>:</p>
+<div class="codeblock" data-lang="c"><pre><code class="language-c"><span class="t-pre">#include</span> <span class="t-str">"/path/to/geom.h"</span>
+<span class="t-kw">enum</span> { <span class="t-id">__probe0</span> <span class="t-op">=</span> <span class="t-kw">sizeof</span>(<span class="t-kw">struct</span> <span class="t-id">vec2</span>) };
+<span class="t-kw">enum</span> { <span class="t-id">__probe1</span> <span class="t-op">=</span> <span class="t-kw">sizeof</span>(<span class="t-kw">struct</span> <span class="t-id">shape</span>) };
+<span class="t-kw">struct</span> <span class="t-id">__gb_f0</span> { <span class="t-type">char</span> <span class="t-id">b</span>[<span class="t-kw">sizeof</span>(((<span class="t-kw">struct</span> <span class="t-id">vec2</span> <span class="t-op">*</span>)<span class="t-num">0</span>)<span class="t-op">-&gt;</span><span class="t-id">x</span>)]; };
+<span class="t-kw">enum</span> { <span class="t-id">__gb_fu0</span> <span class="t-op">=</span> <span class="t-kw">sizeof</span>(<span class="t-kw">struct</span> <span class="t-id">__gb_f0</span>) };
+...</code></pre></div>
+<p>The dump gives each record's size, alignment and the bit offset of each field.
+A field's own size is read from the dump of a tiny struct holding
+<code>char[sizeof(field)]</code>, and a typedef's from the same trick. For a polymorphic
+C++ class the probe also calls the destructor and takes the address of a
+virtual method, and the compile is then run with `-fdump-vtable-layouts -S
+-emit-llvm`, which prints</p>
+<div class="codeblock"><pre><code>VTable indices for 'geo::Shape' (3 entries).
+   0 | geo::Shape::~Shape() [complete]
+   1 | geo::Shape::~Shape() [deleting]
+   2 | double geo::Shape::area() const</code></pre></div>
+<p><code>vtable.js</code> parses these lines into slot numbers. They are stored with the
+condensed AST, so the cache covers the probes too. A field with no size (a
+bitfield, a flexible array, an incomplete type) simply has none.</p>
+<h3 id="4-collecting-the-ir"><a class="anchor" href="#4-collecting-the-ir" aria-hidden="true">#</a>4. Collecting the IR</h3>
+<p><code>collectIR()</code> walks the declarations in the files it is to bind (the source, or
+with <code>--follow-includes</code> anything under its directory), keeping track of
+clang's "current file", and fills the IR. <code>static</code> functions are left out, and
+<code>static</code> variables unless they are constants with a known value. <code>--emit-ir</code>
+shows it:</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs-ffi-genbindings</span> <span class="t-op">--emit-ir</span>=<span class="t-id">geom.ir.json</span> <span class="t-id">geom.h</span></code></pre></div>
+<p>A function becomes an entry of <code>methods</code>, its C types mapped to <code>ffi</code> type
+names:</p>
+<div class="codeblock" data-lang="json"><pre><code class="language-json">{ "name": "geom_abs", "kind": "function", "arity": 1,
+  "params": ["v: i32"], "returnType": "i32",
+  "defTypes": { "returnType": "sint32", "params": ["sint32"] }, "enums": [] }
+{ "name": "geom_move", "kind": "function", "arity": 3,
+  "params": ["s: shape *", "dx: f64", "dy: f64"], "returnType": "i32", "enums": ["0:0x5e1031dee5d0"], ... }
+{ "name": "geom_find", "kind": "function", "arity": 1,
+  "params": ["name: cstring"], "returnType": "shape *", ... }</code></pre></div>
+<p><code>types.js</code> does the mapping, one C type at a time (<code>typedef</code>s are resolved
+first, <code>const</code> and <code>volatile</code> dropped):</p>
+<div class="tablewrap"><table><thead><tr><th>C type</th><th><code>ffi</code> type</th></tr></thead><tbody><tr><td><code>int</code>, <code>unsigned</code>, <code>long</code>, <code>size_t</code>, <code>float</code>, <code>double</code>, <code>_Bool</code>, ...</td><td><code>i32</code>, <code>u32</code>, <code>i64</code>, <code>u64</code>, <code>f32</code>, <code>f64</code>, <code>bool</code></td></tr><tr><td><code>char *</code></td><td><code>cstring</code></td></tr><tr><td><code>T *</code>, <code>T **</code>, <code>void *</code></td><td><code>"T *"</code>, <code>"T **"</code>, <code>"void *"</code>: a pointer, the text before <code>*</code> is documentation</td></tr><tr><td><code>T &amp;</code>, <code>T &amp;&amp;</code> (C++)</td><td><code>"T *"</code></td></tr><tr><td>function pointer</td><td><code>function</code></td></tr><tr><td><code>enum E</code>, a typedef of an enum</td><td><code>i32</code>, remembering which enum, see below</td></tr><tr><td><code>struct S</code> by value</td><td><code>struct S</code>, settled in <a href="#6-structs-by-value">step 6</a></td></tr><tr><td>array parameter <code>int a[4]</code></td><td><code>"int *"</code></td></tr><tr><td><code>union</code> by value, an unknown name</td><td>skipped</td></tr></tbody></table></div>
+<p>Everything else the IR holds:</p>
+<ul>
+<li><p><strong><code>enums</code></strong>: every enum with its constants and their values. Only an enum
+that a bound function's signature uses is emitted later, in order of first
+use.</p></li>
+<li><p><strong><code>fields</code></strong>: variables, and constants with a known value:
+<code>{ "name": "geom_count", "type": "i32", "cType": "int" }</code>. A <code>const</code> variable
+with a literal initializer carries its <code>value</code> and becomes an <code>export const</code>.
+Preprocessor macros such as <code>GEOM_VERSION</code> are not in the AST and are not
+bound.</p></li>
+<li><p><strong><code>structs</code></strong> and <strong><code>classes</code></strong>: each struct, union and class with its size,
+alignment, and its fields, and each field with its type, byte <code>offset</code>, byte
+<code>size</code> and <code>ffi</code> type. A bitfield also has <code>bits</code> and <code>bitOffset</code> and the
+offset and size of its storage unit. The numbers come from the
+<a href="#3-layout-probes">probes</a>, or else from the type alone.</p>
+<div class="codeblock" data-lang="json"><pre><code class="language-json">{ "name": "shape", "type": "struct", "size": 32, "align": 8, "line": 12,
+  "fields": [
+    { "name": "id", "type": "int", "offset": 0, "size": 4, "ffi": "i32" },
+    { "name": "name", "type": "const char *", "offset": 8, "size": 8, "ffi": "cstring" },
+    { "name": "origin", "type": "vec2", "offset": 16, "size": 8, "ffi": "vec2" },
+    { "name": "visible", "type": "unsigned int", "offset": 24, "size": 4, "bits": 1, "bitOffset": 0, "ffi": "u32" } ],
+  "typedefs": ["shape"] }</code></pre></div></li>
+<li><p><strong><code>typedefs</code></strong>: every <code>typedef</code> and <code>using</code> alias, with the type it stands
+for and the record it names.</p></li>
+<li><p><strong><code>skipped</code></strong>: what could not be bound and why. Variadic functions and
+operators are skipped here, an unknown type or a union by value by the
+mapping:</p>
+<div class="codeblock" data-lang="json"><pre><code class="language-json">[{ "name": "geom_log", "reason": "variadic functions are not supported" }]</code></pre></div></li>
+</ul>
+<p>A C++ class is the same, plus its bases, its public constructors, methods and
+destructor with their <code>mangledName</code> (what to <code>dlsym()</code>), and for each virtual
+method and the destructor its <code>vtableSlot</code>:</p>
+<div class="codeblock" data-lang="json"><pre><code class="language-json">{ "name": "geo::Shape", "type": "class", "size": 24, "align": 8, "abstract": true, "polymorphic": true,
+  "bases": [], "constructors": [],
+  "fields": [{ "name": "id", "type": "int", "offset": 8, "size": 4, "ffi": "i32" }],
+  "methods": [
+    { "name": "area", "mangledName": "_ZNK3geo5Shape4areaEv", "virtual": true, "pure": true, "const": true,
+      "arity": 0, "params": [], "returnType": "f64", "vtableSlot": 2 },
+    { "name": "setScale", "mangledName": "_ZN3geo5Shape8setScaleEd", "arity": 1, "params": ["s: f64"], "returnType": "void" },
+    { "name": "count", "mangledName": "_ZN3geo5Shape5countEv", "static": true, "arity": 0, "returnType": "i32", ... } ],
+  "destructor": { "mangledName": "_ZN3geo5ShapeD1Ev", "virtual": true, "vtableSlot": 0 } }</code></pre></div>
+<p>Overloads are separate entries. A constructor carries the mangled name of the
+complete-object constructor (<code>C1</code>); an abstract class has none, because the
+compiler emits only the base-object one. Only public members are collected, and
+a struct with no methods and no bases stays a plain <code>structs</code> entry even in C++.</p>
+<h3 id="5-merging-sources"><a class="anchor" href="#5-merging-sources" aria-hidden="true">#</a>5. Merging sources</h3>
+<p>With several sources, each one's IR is merged into one. The first declaration
+of a name wins, so a function or enum in two headers is bound once, and a
+variable declared without a value is upgraded by a later declaration with one.
+Then <code>linkPrototypeChains()</code> fills each class's <code>prototypeChain</code>, one entry per
+ancestor following the first base, as <code>describeObject()</code> does for a JavaScript
+object.</p>
+<p>A source with nothing to bind prints `warning: no bindable functions found in
+&lt;source&gt;` and the run continues.</p>
+<h3 id="6-structs-by-value"><a class="anchor" href="#6-structs-by-value" aria-hidden="true">#</a>6. Structs by value</h3>
+<p>A function that takes or returns a struct by value (<code>vec2 geom_add(vec2, vec2)</code>)
+is bound through a struct type that <code>CFunction</code> takes as an array of member
+types (<a href="types.html#structs-by-value">Types and ABI</a>). libffi works out the size,
+the alignment and the registers from that list alone, so a list that does not
+reproduce the compiler's layout is silently wrong. <code>by-value.js</code> therefore lays
+the list out the way libffi does and compares it with the IR: every member must
+land on the offset the IR has, and the size must match. If it does, the list
+goes into <code>ir.byValue</code>:</p>
+<div class="codeblock" data-lang="json"><pre><code class="language-json">"byValue": { "vec2": ["f32", "f32"] }</code></pre></div>
+<p>and the function's types become <code>struct vec2</code>. If not, the function is skipped
+with the reason it would have had without by-value support:</p>
+<div class="codeblock" data-lang="c"><pre><code class="language-c"><span class="t-kw">struct</span> <span class="t-fn">__attribute__</span>((<span class="t-id">packed</span>)) <span class="t-id">pk</span> { <span class="t-type">char</span> <span class="t-id">c</span>; <span class="t-type">int</span> <span class="t-id">i</span>; };
+<span class="t-kw">union</span> <span class="t-id">u</span> { <span class="t-type">int</span> <span class="t-id">a</span>; <span class="t-type">float</span> <span class="t-id">b</span>; };
+<span class="t-type">int</span> <span class="t-fn">takes_packed</span>(<span class="t-kw">struct</span> <span class="t-id">pk</span> <span class="t-id">p</span>);
+<span class="t-type">int</span> <span class="t-fn">takes_union</span>(<span class="t-kw">union</span> <span class="t-id">u</span> <span class="t-id">v</span>);
+<span class="t-type">int</span> <span class="t-fn">takes_array</span>(<span class="t-type">int</span> <span class="t-id">a</span>[<span class="t-num">4</span>]);</code></pre></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">takes_array</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'takes_array'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'int *'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>});
+
+<span class="t-cm">// Skipped (unsupported):</span>
+<span class="t-cm">//   - takes_union: parameter v (union u): union passed by value is not supported</span>
+<span class="t-cm">//   - takes_packed: parameter p: struct pk passed by value: libffi would put i at 4, not 1</span></code></pre></div>
+<p>Members the IR cannot describe (an anonymous struct or union) are covered by
+integers of the right size. That is sound only for a struct of more than 16
+bytes, which is passed in memory whatever it holds; a smaller one, whose members
+decide which registers it travels in, is skipped. Unions and C++ classes by
+value are never bound, and with <code>--api=define</code> every struct by value is
+skipped.</p>
+<h3 id="7-names"><a class="anchor" href="#7-names" aria-hidden="true">#</a>7. Names</h3>
+<p>C++ names are qualified (<code>geo::Shape</code>) and become identifiers by replacing <code>::</code>
+with <code>_</code> (<code>geo_Shape</code>). <code>--namespace=geo</code> drops that prefix instead
+(<code>Shape</code>); with several <code>--namespace</code> options all are dropped, so with <code>a</code> and
+<code>b</code>, <code>a::b::Foo</code> is <code>Foo</code>. Dropping what told two names apart can make them
+collide, so <code>names.js</code> checks every name the module would export, and refuses to
+write anything if two things would share one:</p>
+<div class="codeblock"><pre><code>$ qjs-ffi-genbindings --c++ --namespace=a --namespace=b ns.hpp
+gen-bindings.js: after dropping a::, b::, "size" would be exported by: function a::size; function b::size
+gen-bindings.js: name collision, nothing written; drop fewer --namespace values</code></pre></div>
+<p>Only a clash that the stripping caused is reported. A function whose name is a JavaScript
+reserved word is exported with an underscore in front (<code>delete</code> as <code>_delete</code>),
+with a comment beside the export.</p>
+<h3 id="8-emitting-javascript"><a class="anchor" href="#8-emitting-javascript" aria-hidden="true">#</a>8. Emitting JavaScript</h3>
+<p><code>emit/functions.js</code> writes the module, in this order: the header comment, the
+<code>import</code> of what the module needs from <code>ffi</code>, the library, <code>__sym()</code>, the
+enums, the support code (only if there are structs, classes or variables), the
+struct types for by-value functions, the functions, and the list of skipped
+declarations.</p>
+<p>The <code>import</code> adds names as they are needed: <code>CFunction</code>, <code>dlsym</code>, <code>FFIType</code> with
+<code>--ffitype</code>, <code>read as __rd</code>, <code>ptr as __ptr</code> and the others for struct and class
+wrappers. With <code>--library</code> the module opens that library and resolves symbols in
+it, without it in the process:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">CFunction</span>, <span class="t-id">dlsym</span>, <span class="t-id">dlopen</span>, <span class="t-type">RTLD_NOW</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">__lib</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libgeom.so"</span>, <span class="t-type">RTLD_NOW</span>);
+<span class="t-kw">if</span> (<span class="t-id">__lib</span> <span class="t-op">==</span> <span class="t-atom">null</span>) <span class="t-kw">throw</span> <span class="t-kw">new</span> <span class="t-fn">Error</span>(<span class="t-str">"gen-bindings: dlopen(libgeom.so) failed"</span>);
+
+<span class="t-kw">function</span> <span class="t-fn">__sym</span>(<span class="t-id">name</span>) {
+  <span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-id">__lib</span>, <span class="t-id">name</span>);
+  <span class="t-kw">if</span>(<span class="t-id">p</span> <span class="t-op">==</span> <span class="t-atom">null</span>) <span class="t-kw">throw</span> <span class="t-kw">new</span> <span class="t-fn">Error</span>(<span class="t-str">"gen-bindings: symbol not found: "</span> <span class="t-op">+</span> <span class="t-id">name</span>);
+  <span class="t-kw">return</span> <span class="t-id">p</span>;
+}</code></pre></div>
+<p>An enum constant used by a function signature is exported, with the
+enum's name (or <code>(anonymous)</code>) as a comment:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-cm">// enum (anonymous)</span>
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-type">GEOM_OK</span> <span class="t-op">=</span> <span class="t-num">0</span>;
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-type">GEOM_BAD_ARG</span> <span class="t-op">=</span> <span class="t-op">-</span><span class="t-num">1</span>;
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-type">GEOM_OVERFLOW</span> <span class="t-op">=</span> <span class="t-num">2</span>;</code></pre></div>
+<p>A function is a <code>CFunction</code>. The result for <code>geom.h</code> (without <code>--structs</code>):</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">__s_vec2</span> <span class="t-op">=</span> [<span class="t-str">'f32'</span>,<span class="t-str">'f32'</span>];
+
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_abs</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_abs'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'i32'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>});
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_length</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_length'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-id">__s_vec2</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'f64'</span>});
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_add</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_add'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-id">__s_vec2</span>,<span class="t-id">__s_vec2</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-id">__s_vec2</span>});
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_version</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_version'</span>),<span class="t-id">args</span><span class="t-op">:</span>[],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'cstring'</span>});
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_move</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_move'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'shape *'</span>,<span class="t-str">'f64'</span>,<span class="t-str">'f64'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>});
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_find</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_find'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'cstring'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'shape *'</span>});
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_each</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_each'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'function'</span>,<span class="t-str">'void *'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'void'</span>});
+
+<span class="t-cm">// Skipped (unsupported):</span>
+<span class="t-cm">//   - geom_log: variadic functions are not supported</span></code></pre></div>
+<div class="tablewrap"><table><thead><tr><th>C</th><th>JavaScript</th></tr></thead><tbody><tr><td><code>int geom_abs(int)</code></td><td><code>geom_abs(-5)</code> is <code>5</code></td></tr><tr><td><code>const char *geom_version()</code></td><td>a string: <code>'geom 3'</code></td></tr><tr><td><code>shape *geom_find(const char *)</code></td><td>a pointer: <code>null</code>, a <code>number</code> or a <code>bigint</code></td></tr><tr><td><code>geom_status geom_move(shape *, double, double)</code></td><td>pass a pointer, or a struct class; returns the status as a number</td></tr><tr><td><code>void geom_each(geom_visit_fn, void *)</code></td><td>pass a <a href="js-callback.html"><code>JSCallback</code></a>'s <code>.ptr</code></td></tr><tr><td><code>double geom_length(vec2)</code></td><td>pass an <code>ArrayBuffer</code> of at least 8 bytes, or a <code>vec2</code> instance</td></tr><tr><td><code>vec2 geom_add(vec2, vec2)</code></td><td>returns an <code>ArrayBuffer</code> of 8 bytes (a <code>vec2</code> with <code>--structs</code>)</td></tr></tbody></table></div>
+<p>The wrappers are used like any <code>CFunction</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> <span class="t-op">*</span> <span class="t-id">as</span> <span class="t-id">geom</span> <span class="t-kw">from</span> <span class="t-str">'./geom.js'</span>;
+<span class="t-kw">import</span> { <span class="t-type">JSCallback</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-fn">geom_abs</span>(<span class="t-op">-</span><span class="t-num">5</span>)); <span class="t-cm">// 5</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-fn">geom_version</span>()); <span class="t-cm">// geom 3</span>
+
+<span class="t-kw">const</span> <span class="t-id">seen</span> <span class="t-op">=</span> [];
+<span class="t-kw">const</span> <span class="t-id">cb</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>((<span class="t-id">p</span>, <span class="t-id">user</span>) <span class="t-op">=&gt;</span> { <span class="t-id">seen</span>.<span class="t-fn">push</span>(<span class="t-id">geom</span>.<span class="t-prop">shape</span>.<span class="t-fn">at</span>(<span class="t-id">p</span>).<span class="t-prop">id</span>); <span class="t-kw">return</span> <span class="t-num">0</span>; }, { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> });
+<span class="t-id">geom</span>.<span class="t-fn">geom_each</span>(<span class="t-id">cb</span>.<span class="t-prop">ptr</span>, <span class="t-atom">null</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">seen</span>.<span class="t-fn">join</span>()); <span class="t-cm">// 1,2</span>
+<span class="t-id">cb</span>.<span class="t-fn">close</span>();</code></pre></div>
+<h2 id="structs-and-variables---structs"><a class="anchor" href="#structs-and-variables---structs" aria-hidden="true">#</a>Structs and variables (<code>--structs</code>)</h2>
+<p>With <code>--structs</code> every struct and union of the sources gets a class, each
+typedef name of it an alias, and every extern variable an accessor. The classes
+extend <code>ArrayBuffer</code>, so an instance can be passed to a <code>pointer</code> parameter as it
+is. For <code>vec2</code> and <code>shape</code> the generator writes</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-cm">/* struct vec2, 8 bytes (line 8) */</span>
+<span class="t-kw">export</span> <span class="t-kw">class</span> <span class="t-id">vec2</span> <span class="t-kw">extends</span> <span class="t-type">ArrayBuffer</span> {
+  <span class="t-fn">constructor</span>(<span class="t-id">init</span> <span class="t-op">=</span> <span class="t-num">8</span>) { <span class="t-kw">super</span>(<span class="t-kw">typeof</span> <span class="t-id">init</span> <span class="t-op">===</span> <span class="t-str">'number'</span> <span class="t-op">?</span> <span class="t-id">init</span> <span class="t-op">:</span> <span class="t-id">init</span>.<span class="t-prop">byteLength</span>); <span class="t-kw">if</span>(<span class="t-kw">typeof</span> <span class="t-id">init</span> <span class="t-op">!==</span> <span class="t-str">'number'</span>) <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-kw">this</span>).<span class="t-kw">set</span>(<span class="t-fn">__bytes</span>(<span class="t-id">init</span>)); }
+  <span class="t-kw">static</span> <span class="t-fn">at</span>(<span class="t-id">p</span>, <span class="t-id">owner</span>, <span class="t-id">size</span> <span class="t-op">=</span> <span class="t-num">8</span>) { <span class="t-kw">return</span> <span class="t-fn">__view</span>(<span class="t-id">vec2</span>, <span class="t-id">p</span>, <span class="t-id">size</span>, <span class="t-id">owner</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">ptr</span>() { <span class="t-kw">return</span> <span class="t-fn">__ptr</span>(<span class="t-kw">this</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">x</span>() { <span class="t-kw">return</span> <span class="t-id">__rd</span>.<span class="t-fn">f32</span>(<span class="t-kw">this</span>, <span class="t-num">0</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">x</span>(<span class="t-id">v</span>) { <span class="t-fn">__dv</span>(<span class="t-kw">this</span>).<span class="t-fn">setFloat32</span>(<span class="t-num">0</span>, <span class="t-id">v</span>, <span class="t-atom">true</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">y</span>() { <span class="t-kw">return</span> <span class="t-id">__rd</span>.<span class="t-fn">f32</span>(<span class="t-kw">this</span>, <span class="t-num">4</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">y</span>(<span class="t-id">v</span>) { <span class="t-fn">__dv</span>(<span class="t-kw">this</span>).<span class="t-fn">setFloat32</span>(<span class="t-num">4</span>, <span class="t-id">v</span>, <span class="t-atom">true</span>); }
+}
+<span class="t-id">vec2</span>.<span class="t-prop">size</span> <span class="t-op">=</span> <span class="t-num">8</span>;
+<span class="t-id">vec2</span>.<span class="t-prop">align</span> <span class="t-op">=</span> <span class="t-num">4</span>;
+<span class="t-id">vec2</span>.<span class="t-prop">fields</span> <span class="t-op">=</span> {<span class="t-id">x</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'f32'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">0</span>},<span class="t-id">y</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'f32'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">4</span>}};
+
+<span class="t-cm">/* struct shape, 32 bytes (line 12) */</span>
+<span class="t-kw">export</span> <span class="t-kw">class</span> <span class="t-id">shape</span> <span class="t-kw">extends</span> <span class="t-type">ArrayBuffer</span> {
+  <span class="t-fn">constructor</span>(<span class="t-id">init</span> <span class="t-op">=</span> <span class="t-num">32</span>) { ... }
+  <span class="t-kw">static</span> <span class="t-fn">at</span>(<span class="t-id">p</span>, <span class="t-id">owner</span>, <span class="t-id">size</span> <span class="t-op">=</span> <span class="t-num">32</span>) { <span class="t-kw">return</span> <span class="t-fn">__view</span>(<span class="t-id">shape</span>, <span class="t-id">p</span>, <span class="t-id">size</span>, <span class="t-id">owner</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">ptr</span>() { <span class="t-kw">return</span> <span class="t-fn">__ptr</span>(<span class="t-kw">this</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">id</span>() { <span class="t-kw">return</span> <span class="t-id">__rd</span>.<span class="t-fn">i32</span>(<span class="t-kw">this</span>, <span class="t-num">0</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">id</span>(<span class="t-id">v</span>) { <span class="t-fn">__dv</span>(<span class="t-kw">this</span>).<span class="t-fn">setInt32</span>(<span class="t-num">0</span>, <span class="t-id">v</span>, <span class="t-atom">true</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">name</span>() { <span class="t-kw">return</span> <span class="t-fn">__ptrOut</span>(<span class="t-id">__rd</span>.<span class="t-fn">u64</span>(<span class="t-kw">this</span>, <span class="t-num">8</span>)); }
+  <span class="t-kw">set</span> <span class="t-fn">name</span>(<span class="t-id">v</span>) { <span class="t-fn">__dv</span>(<span class="t-kw">this</span>).<span class="t-fn">setBigUint64</span>(<span class="t-num">8</span>, <span class="t-fn">__ptrIn</span>(<span class="t-id">v</span>), <span class="t-atom">true</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">origin</span>() { <span class="t-kw">return</span> <span class="t-id">vec2</span>.<span class="t-fn">at</span>(<span class="t-fn">__ptr</span>(<span class="t-kw">this</span>, <span class="t-num">16</span>), <span class="t-kw">this</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">origin</span>(<span class="t-id">v</span>) { <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-kw">this</span>, <span class="t-num">16</span>, <span class="t-num">8</span>).<span class="t-kw">set</span>(<span class="t-fn">__bytes</span>(<span class="t-id">v</span>)); }
+  <span class="t-kw">get</span> <span class="t-fn">visible</span>() { <span class="t-kw">return</span> (<span class="t-id">__rd</span>.<span class="t-fn">u32</span>(<span class="t-kw">this</span>, <span class="t-num">24</span>) <span class="t-op">&gt;&gt;&gt;</span> <span class="t-num">0</span>) <span class="t-op">&amp;</span> <span class="t-num">0x1</span>; }
+  <span class="t-kw">set</span> <span class="t-fn">visible</span>(<span class="t-id">v</span>) { <span class="t-fn">__dv</span>(<span class="t-kw">this</span>).<span class="t-fn">setUint32</span>(<span class="t-num">24</span>, ((<span class="t-id">__rd</span>.<span class="t-fn">u32</span>(<span class="t-kw">this</span>, <span class="t-num">24</span>) <span class="t-op">&amp;</span> <span class="t-op">~</span><span class="t-num">0x1</span>) <span class="t-op">|</span> ((<span class="t-id">v</span> <span class="t-op">&lt;&lt;</span> <span class="t-num">0</span>) <span class="t-op">&amp;</span> <span class="t-num">0x1</span>)) <span class="t-op">&gt;&gt;&gt;</span> <span class="t-num">0</span>, <span class="t-atom">true</span>); }
+}
+<span class="t-id">shape</span>.<span class="t-prop">size</span> <span class="t-op">=</span> <span class="t-num">32</span>;
+<span class="t-id">shape</span>.<span class="t-prop">align</span> <span class="t-op">=</span> <span class="t-num">8</span>;
+<span class="t-id">shape</span>.<span class="t-prop">fields</span> <span class="t-op">=</span> {<span class="t-id">id</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'i32'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">0</span>},<span class="t-id">name</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'cstring'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">8</span>},<span class="t-id">origin</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'vec2'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">16</span>},<span class="t-id">visible</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'u32'</span>,<span class="t-id">bits</span><span class="t-op">:</span><span class="t-num">1</span>,<span class="t-id">bitOffset</span><span class="t-op">:</span><span class="t-num">192</span>}};</code></pre></div>
+<ul>
+<li>A member is an accessor at the byte offset of the IR: it reads with
+<a href="pointers.html#read"><code>read</code></a> and writes through a <code>DataView</code>. 64-bit integers
+are <code>bigint</code>.</li>
+<li><code>new shape()</code> allocates zeroed memory of the struct's size; `new
+shape(bytes)<code>copies an</code>ArrayBuffer<code>or view.</code>shape.at(ptr)` makes a view
+of native memory (not copied, not owned), and <code>s.ptr</code> is the address.</li>
+<li>A pointer member gives <code>null</code>, a <code>number</code> or a <code>bigint</code> and takes those, a
+class instance or a buffer. A pointer to a struct of a known class gives a
+live instance of that class (<code>null</code> for NULL). <code>const char *</code> is a plain
+pointer here: decode it with <code>new CString(s.name)</code>.</li>
+<li>A bitfield is read and written through its storage unit, <code>bitOffset</code> bits up.</li>
+<li>A nested struct is a view of the same memory (<code>s.origin</code> above), an array
+member a typed-array view, an array of pointers a <code>Proxy</code> over a
+<code>BigUint64Array</code>, and anything else a <code>Uint8Array</code> over its bytes.</li>
+<li><code>Name.size</code>, <code>Name.align</code> and <code>Name.fields</code> describe the layout.</li>
+<li>A member with an unknown offset is left out. Members that would hide
+something an <code>ArrayBuffer</code> has (<code>byteLength</code>, <code>slice</code>, ...) get an
+underscore.</li>
+</ul>
+<p>A function that returns a struct by value then returns an instance of its class
+(<code>__ret(vec2, CFunction(...))</code>), and a class can be passed for such an
+argument. An extern variable is wrapped in an accessor with the address and,
+for a scalar or pointer, the value:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_count</span> <span class="t-op">=</span> <span class="t-fn">__variable</span>(<span class="t-str">'geom_count'</span>,<span class="t-str">'i32'</span>);</code></pre></div>
+<p>Used on top of the library of the example:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">a</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-id">geom</span>.<span class="t-fn">vec2</span>();
+<span class="t-id">a</span>.<span class="t-prop">x</span> <span class="t-op">=</span> <span class="t-num">3</span>; <span class="t-id">a</span>.<span class="t-prop">y</span> <span class="t-op">=</span> <span class="t-num">4</span>;
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-fn">geom_length</span>(<span class="t-id">a</span>)); <span class="t-cm">// 5</span>
+<span class="t-kw">const</span> <span class="t-id">sum</span> <span class="t-op">=</span> <span class="t-id">geom</span>.<span class="t-fn">geom_add</span>(<span class="t-id">a</span>, <span class="t-id">a</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">sum</span> <span class="t-kw">instanceof</span> <span class="t-id">geom</span>.<span class="t-prop">vec2</span>, <span class="t-id">sum</span>.<span class="t-prop">x</span>, <span class="t-id">sum</span>.<span class="t-prop">y</span>); <span class="t-cm">// true 6 8</span>
+
+<span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-id">geom</span>.<span class="t-prop">shape</span>.<span class="t-fn">at</span>(<span class="t-id">geom</span>.<span class="t-fn">geom_find</span>(<span class="t-str">'circle'</span>));
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">s</span>.<span class="t-prop">id</span>, <span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-id">s</span>.<span class="t-prop">name</span>).<span class="t-fn">toString</span>(), <span class="t-id">s</span>.<span class="t-prop">origin</span>.<span class="t-prop">x</span>, <span class="t-id">s</span>.<span class="t-prop">visible</span>); <span class="t-cm">// 1 circle 0 1</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-fn">geom_move</span>(<span class="t-id">s</span>, <span class="t-num">2</span>, <span class="t-num">3</span>), <span class="t-id">s</span>.<span class="t-prop">origin</span>.<span class="t-prop">x</span>, <span class="t-id">s</span>.<span class="t-prop">origin</span>.<span class="t-prop">y</span>); <span class="t-cm">// 0 2 3</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-prop">geom_count</span>.<span class="t-prop">value</span>); <span class="t-cm">// 2  (geom_count.ptr is its address)</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-type">GEOM_BAD_ARG</span>, <span class="t-id">geom</span>.<span class="t-prop">shape</span>.<span class="t-prop">size</span>); <span class="t-cm">// -1 32</span></code></pre></div>
+<h2 id="c-classes"><a class="anchor" href="#c-classes" aria-hidden="true">#</a>C++ classes</h2>
+<p>A C++ source (<code>--c++</code>, or a <code>.cpp</code>/<code>.hpp</code> name) also gets classes, with or
+without <code>--structs</code>. For <code>shapes.hpp</code> the generator writes, after the shared
+support code, a lazily bound overload list per method and the class:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">__Shape_m_area</span> <span class="t-op">=</span> [
+  {<span class="t-id">n</span><span class="t-op">:</span><span class="t-num">0</span>,<span class="t-id">t</span><span class="t-op">:</span>[],<span class="t-id">f</span><span class="t-op">:</span><span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">__virtual</span>(<span class="t-num">2</span>,{<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'geo::Shape *'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'f64'</span>}))},
+];
+<span class="t-kw">const</span> <span class="t-id">__Shape_m_scale</span> <span class="t-op">=</span> [
+  {<span class="t-id">n</span><span class="t-op">:</span><span class="t-num">0</span>,<span class="t-id">t</span><span class="t-op">:</span>[],<span class="t-id">f</span><span class="t-op">:</span><span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'_ZNK3geo5Shape5scaleEv'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'geo::Shape *'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'f64'</span>}))},
+];
+<span class="t-kw">const</span> <span class="t-id">__Shape_m_setScale</span> <span class="t-op">=</span> [
+  {<span class="t-id">n</span><span class="t-op">:</span><span class="t-num">1</span>,<span class="t-id">t</span><span class="t-op">:</span>[<span class="t-str">'f64'</span>],<span class="t-id">f</span><span class="t-op">:</span><span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'_ZN3geo5Shape8setScaleEd'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'geo::Shape *'</span>,<span class="t-str">'f64'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'void'</span>}))},
+];
+<span class="t-kw">const</span> <span class="t-id">__Shape_s_count</span> <span class="t-op">=</span> [
+  {<span class="t-id">n</span><span class="t-op">:</span><span class="t-num">0</span>,<span class="t-id">t</span><span class="t-op">:</span>[],<span class="t-id">f</span><span class="t-op">:</span><span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'_ZN3geo5Shape5countEv'</span>),<span class="t-id">args</span><span class="t-op">:</span>[],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>}))},
+];
+
+<span class="t-cm">/* class geo::Shape, 24 bytes (line 5) */</span>
+<span class="t-kw">export</span> <span class="t-kw">class</span> <span class="t-type">Shape</span> <span class="t-kw">extends</span> <span class="t-id">__CxxObject</span> {
+  <span class="t-kw">get</span> <span class="t-fn">id</span>() { <span class="t-kw">return</span> <span class="t-id">__rd</span>.<span class="t-fn">i32</span>(<span class="t-kw">this</span>, <span class="t-num">8</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">id</span>(<span class="t-id">v</span>) { <span class="t-fn">__dv</span>(<span class="t-kw">this</span>).<span class="t-fn">setInt32</span>(<span class="t-num">8</span>, <span class="t-id">v</span>, <span class="t-atom">true</span>); }
+  <span class="t-fn">area</span>(...<span class="t-prop">args</span>) { <span class="t-kw">return</span> <span class="t-fn">__invoke</span>(<span class="t-id">__Shape_m_area</span>, <span class="t-kw">this</span>, <span class="t-id">args</span>); }
+  <span class="t-fn">scale</span>(...<span class="t-prop">args</span>) { <span class="t-kw">return</span> <span class="t-fn">__invoke</span>(<span class="t-id">__Shape_m_scale</span>, <span class="t-kw">this</span>, <span class="t-id">args</span>); }
+  <span class="t-fn">setScale</span>(...<span class="t-prop">args</span>) { <span class="t-kw">return</span> <span class="t-fn">__invoke</span>(<span class="t-id">__Shape_m_setScale</span>, <span class="t-kw">this</span>, <span class="t-id">args</span>); }
+  <span class="t-kw">static</span> <span class="t-fn">count</span>(...<span class="t-prop">args</span>) { <span class="t-kw">return</span> <span class="t-fn">__invoke</span>(<span class="t-id">__Shape_s_count</span>, <span class="t-atom">undefined</span>, <span class="t-id">args</span>); }
+}
+<span class="t-type">Shape</span>.<span class="t-prop">__info</span> <span class="t-op">=</span> { <span class="t-id">size</span><span class="t-op">:</span> <span class="t-num">24</span>, <span class="t-id">ctors</span><span class="t-op">:</span> <span class="t-atom">null</span>, <span class="t-id">dtor</span><span class="t-op">:</span> <span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">__virtual</span>(<span class="t-num">0</span>,{<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'geo::Shape *'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'void'</span>})) };
+
+<span class="t-kw">const</span> <span class="t-id">__Circle_ctor</span> <span class="t-op">=</span> [
+  {<span class="t-id">n</span><span class="t-op">:</span><span class="t-num">1</span>,<span class="t-id">t</span><span class="t-op">:</span>[<span class="t-str">'f64'</span>],<span class="t-id">f</span><span class="t-op">:</span><span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'_ZN3geo6CircleC1Ed'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'geo::Circle *'</span>,<span class="t-str">'f64'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'void'</span>}))},
+];
+<span class="t-kw">const</span> <span class="t-id">__Circle_m_area</span> <span class="t-op">=</span> [
+  {<span class="t-id">n</span><span class="t-op">:</span><span class="t-num">0</span>,<span class="t-id">t</span><span class="t-op">:</span>[],<span class="t-id">f</span><span class="t-op">:</span><span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">__virtual</span>(<span class="t-num">2</span>,{<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'geo::Circle *'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'f64'</span>}))},
+];
+
+<span class="t-cm">/* class geo::Circle, 32 bytes (line 18) */</span>
+<span class="t-kw">export</span> <span class="t-kw">class</span> <span class="t-type">Circle</span> <span class="t-kw">extends</span> <span class="t-type">Shape</span> {
+  <span class="t-kw">get</span> <span class="t-fn">radius</span>() { <span class="t-kw">return</span> <span class="t-id">__rd</span>.<span class="t-fn">f64</span>(<span class="t-kw">this</span>, <span class="t-num">24</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">radius</span>(<span class="t-id">v</span>) { <span class="t-fn">__dv</span>(<span class="t-kw">this</span>).<span class="t-fn">setFloat64</span>(<span class="t-num">24</span>, <span class="t-id">v</span>, <span class="t-atom">true</span>); }
+  <span class="t-fn">area</span>(...<span class="t-prop">args</span>) { <span class="t-kw">return</span> <span class="t-fn">__invoke</span>(<span class="t-id">__Circle_m_area</span>, <span class="t-kw">this</span>, <span class="t-id">args</span>); }
+}
+<span class="t-type">Circle</span>.<span class="t-prop">__info</span> <span class="t-op">=</span> { <span class="t-id">size</span><span class="t-op">:</span> <span class="t-num">32</span>, <span class="t-id">ctors</span><span class="t-op">:</span> <span class="t-id">__Circle_ctor</span>, <span class="t-id">dtor</span><span class="t-op">:</span> <span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">__virtual</span>(<span class="t-num">0</span>,{<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'geo::Circle *'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'void'</span>})) };
+
+<span class="t-cm">// C++ functions</span>
+<span class="t-kw">const</span> <span class="t-id">__fn_lerp</span> <span class="t-op">=</span> [
+  {<span class="t-id">n</span><span class="t-op">:</span><span class="t-num">3</span>,<span class="t-id">t</span><span class="t-op">:</span>[<span class="t-str">'f64'</span>,<span class="t-str">'f64'</span>,<span class="t-str">'f64'</span>],<span class="t-id">f</span><span class="t-op">:</span><span class="t-fn">__lazy</span>(()<span class="t-op">=&gt;</span><span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'_ZN3geo4lerpEddd'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'f64'</span>,<span class="t-str">'f64'</span>,<span class="t-str">'f64'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'f64'</span>}))},
+];
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">lerp</span> <span class="t-op">=</span> (...<span class="t-prop">args</span>) <span class="t-op">=&gt;</span> <span class="t-fn">__invoke</span>(<span class="t-id">__fn_lerp</span>, <span class="t-atom">undefined</span>, <span class="t-id">args</span>);</code></pre></div>
+<ul>
+<li><strong>Objects</strong>: a class extends its first base class when that is bound, public,
+non-virtual and sits at offset 0 (a polymorphic class has its vptr there, a
+non-polymorphic base does not), else the common root <code>__CxxObject</code>, itself an
+<code>ArrayBuffer</code>. `new
+Circle(2)<code>allocates</code>size<code> bytes and runs the complete constructor (</code>C1`);
+<code>c.delete()</code> runs the destructor, after which any call on the object throws.
+<code>Shape.at(ptr)</code> (also <code>Shape.from(ptr)</code>) wraps an existing object without
+owning it, and <code>c.ptr</code> is its address. A class that is abstract or has no
+constructor symbol cannot be constructed: `TypeError: Shape cannot be
+constructed`.</li>
+<li><strong>Calls</strong>: a method takes the object as its first argument (<code>this</code>), a
+static method and a free function none. Everything is bound on first call,
+since an inline member often has no exported symbol. Overloads are told
+apart by the number of arguments and then by their types.</li>
+<li><strong>Names</strong>: the symbol is the mangled name the IR carries. A class keeps its
+qualified name (<code>geo_Shape</code>), or <code>Shape</code> with <code>--namespace=geo</code>.</li>
+<li><strong>Virtual methods</strong> are not called through their symbol but through the
+object's vtable, <code>__virtual(slot, spec)</code>: the slot is the number from the
+<a href="#3-layout-probes">layout probe</a>, read from the vtable that the object's
+first word points to. So an object wrapped as the base class runs the
+override of its real class, a pure virtual method is callable, and
+<code>delete()</code> through a base runs the derived destructor.</li>
+<li><strong>Fields</strong> are accessors, like those of a struct; static fields are class
+properties.</li>
+</ul>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">Circle</span>, <span class="t-type">Shape</span>, <span class="t-id">lerp</span> } <span class="t-kw">from</span> <span class="t-str">'./shapes.js'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">c</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Circle</span>(<span class="t-num">2</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">c</span>.<span class="t-prop">radius</span>, <span class="t-id">c</span>.<span class="t-prop">id</span>, <span class="t-id">c</span>.<span class="t-fn">scale</span>()); <span class="t-cm">// 2 1 1</span>
+<span class="t-id">c</span>.<span class="t-fn">setScale</span>(<span class="t-num">1.5</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">c</span>.<span class="t-fn">area</span>()); <span class="t-cm">// 18   (Circle::area: 3 * 2 * 2 * 1.5)</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-type">Shape</span>.<span class="t-fn">count</span>(), <span class="t-fn">lerp</span>(<span class="t-num">0</span>, <span class="t-num">10</span>, <span class="t-num">0.25</span>)); <span class="t-cm">// 1 2.5</span>
+
+<span class="t-kw">const</span> <span class="t-id">base</span> <span class="t-op">=</span> <span class="t-type">Shape</span>.<span class="t-fn">at</span>(<span class="t-id">c</span>.<span class="t-prop">ptr</span>); <span class="t-cm">// the same object, wrapped as the base class</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">base</span>.<span class="t-fn">area</span>()); <span class="t-cm">// 18   still Circle::area, through the vtable</span>
+<span class="t-id">c</span>.<span class="t-prop">radius</span> <span class="t-op">=</span> <span class="t-num">3</span>;
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">base</span>.<span class="t-fn">area</span>()); <span class="t-cm">// 40.5</span>
+
+<span class="t-kw">try</span> { <span class="t-kw">new</span> <span class="t-fn">Shape</span>(); } <span class="t-kw">catch</span>(<span class="t-id">e</span>) { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">e</span>.<span class="t-prop">message</span>); } <span class="t-cm">// Shape cannot be constructed</span>
+<span class="t-id">c</span>.<span class="t-kw">delete</span>();
+<span class="t-kw">try</span> { <span class="t-id">c</span>.<span class="t-fn">area</span>(); } <span class="t-kw">catch</span>(<span class="t-id">e</span>) { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">e</span>.<span class="t-prop">message</span>); } <span class="t-cm">// object was deleted</span></code></pre></div>
+<p><code>--finalize</code> also destroys an object made with <code>new</code> when it is garbage
+collected. The object then lives in memory from <code>calloc</code>, which the wrapper
+only views, and a <code>FinalizationRegistry</code> runs the destructor (through the
+vtable for a virtual one) and <code>free</code>s it. <code>delete()</code> still destroys at once. The
+callback runs on a later turn of the event loop, not inside the collection, and
+an object still alive at exit is not destroyed.</p>
+<p>Not covered: multiple and virtual inheritance (the <code>this</code> adjustment needs base
+offsets), default arguments, templates other than explicit instantiations,
+exceptions across the boundary, operators, and by-value class parameters and
+returns. See <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md" target="_blank" rel="noopener">TODO.md</a> and the
+<a href="internals/cxx-virtual-dispatch.html">design note on virtual dispatch</a>.</p>
+<h2 id="output-options"><a class="anchor" href="#output-options" aria-hidden="true">#</a>Output options</h2>
+<p><code>--ffitype</code> writes the types as members of <code>FFIType</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_abs</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_abs'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-type">FFIType</span>.<span class="t-prop">i32</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-type">FFIType</span>.<span class="t-prop">i32</span>});</code></pre></div>
+<p><code>--describe</code> gives every function, method and constructor its parameter names
+in its signature and attaches its C types and overloads as
+<code>fn[Symbol.for('describe')]</code>, which <code>describeObject()</code> and <code>describeClass()</code>
+(qjs-modules) report. A plain function becomes a named wrapper:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">__f_geom_abs</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_abs'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'i32'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>});
+<span class="t-kw">export</span> <span class="t-kw">function</span> <span class="t-fn">geom_abs</span>(<span class="t-id">v</span>) { <span class="t-kw">return</span> <span class="t-fn">__f_geom_abs</span>(<span class="t-id">v</span>); }
+<span class="t-fn">__sig</span>(<span class="t-id">geom_abs</span>, [{<span class="t-id">params</span><span class="t-op">:</span>[<span class="t-str">'v: i32'</span>],<span class="t-id">returnType</span><span class="t-op">:</span><span class="t-str">'i32'</span>,<span class="t-id">arity</span><span class="t-op">:</span><span class="t-num">1</span>}]);</code></pre></div>
+<p><code>--jsdoc</code> puts a JSDoc block before every function, method and class: a
+<code>@param</code> per parameter with its JavaScript type and C type, a <code>@returns</code>, and an
+<code>@overload</code> group per overload. A pointer is <code>object|number|bigint|null</code>, plus
+the class when it points to a bound one.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-cm">/**
+ * geom_move
+ * @param {object|number|bigint|null} s - shape *
+ * @param {number} dx - f64
+ * @param {number} dy - f64
+ * @returns {number} - i32
+ */</span>
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_move</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_move'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'shape *'</span>,<span class="t-str">'f64'</span>,<span class="t-str">'f64'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>});</code></pre></div>
+<p><code>--api=define</code> targets the <a href="legacy.html">legacy API</a>: every function is a
+<code>define()</code> once and a closure around <code>call()</code>. It has no struct types, so a
+function with a struct by value is skipped:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_abs</span> <span class="t-op">=</span> <span class="t-fn">__bind</span>(<span class="t-str">'geom_abs'</span>,<span class="t-str">'sint32'</span>,<span class="t-str">'sint32'</span>);
+<span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_find</span> <span class="t-op">=</span> <span class="t-fn">__bind</span>(<span class="t-str">'geom_find'</span>,<span class="t-str">'shape *'</span>,<span class="t-str">'char *'</span>);
+
+<span class="t-cm">// Skipped (unsupported):</span>
+<span class="t-cm">//   - geom_log: variadic functions are not supported</span>
+<span class="t-cm">//   - geom_length: parameter v: struct passed by value needs --api=cfunction</span>
+<span class="t-cm">//   - geom_add: return type: struct passed by value needs --api=cfunction</span></code></pre></div>
+<h2 id="the-ir-on-its-own"><a class="anchor" href="#the-ir-on-its-own" aria-hidden="true">#</a>The IR on its own</h2>
+<p>The two halves of the generator are separate runs. The IR is JSON, shaped like
+the output of <code>describeObject()</code> (qjs-modules): <code>methods</code> and <code>fields</code> for the
+functions and variables, <code>enums</code>, <code>structs</code>, <code>classes</code>, <code>typedefs</code>, <code>skipped</code>,
+<code>byValue</code>, and <code>source</code>, which records how it was made (files, includes,
+defines, language) for the header of the output.</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs-ffi-genbindings</span> <span class="t-op">--emit-ir</span>=<span class="t-id">api.json</span> <span class="t-id">geom.h</span>          <span class="t-cm"># clang -&gt; IR</span>
+<span class="t-id">qjs-ffi-genbindings</span> <span class="t-op">--from-ir</span>=<span class="t-id">api.json</span> <span class="t-op">-o</span> <span class="t-id">geom.js</span>      <span class="t-cm"># IR -&gt; JavaScript, no clang</span></code></pre></div>
+<p><code>--from-ir</code> takes no sources and takes the options of the emitting phase
+(<code>--api</code>, <code>--structs</code>, <code>--describe</code>, <code>--namespace</code>, ...) as before. The IR can
+be edited or checked in between, and a binding can be regenerated on a machine
+without clang.</p>
+<p><code>gen-structs.js</code> makes just the struct, union and class wrappers from an IR:</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs-ffi-genstructs</span> [<span class="t-op">--struct</span>=&lt;<span class="t-id">name</span>&gt;]... [<span class="t-op">--describe</span>] [<span class="t-op">--jsdoc</span>] [<span class="t-op">--format</span>=<span class="t-id">js</span>|<span class="t-id">c</span>] [<span class="t-op">-o</span> <span class="t-id">out</span>] <span class="t-id">api.json</span>...</code></pre></div>
+<p><code>--format=js</code> is the same class code <code>--structs</code> emits. <code>--format=c</code> writes a C
+header that defines the structs (fields only) and checks the layout the IR
+claims with <code>_Static_assert</code>s, so that a layout that does not match the real
+compiler fails to compile:</p>
+<div class="codeblock" data-lang="c"><pre><code class="language-c"><span class="t-kw">struct</span> <span class="t-id">vec2</span> {
+  <span class="t-type">float</span> <span class="t-id">x</span>;
+  <span class="t-type">float</span> <span class="t-id">y</span>;
+};
+
+<span class="t-kw">struct</span> <span class="t-id">shape</span> {
+  <span class="t-type">int</span> <span class="t-id">id</span>;
+  <span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-id">name</span>;
+  <span class="t-id">vec2</span> <span class="t-id">origin</span>;
+  <span class="t-type">unsigned</span> <span class="t-type">int</span> <span class="t-id">visible</span> <span class="t-op">:</span> <span class="t-num">1</span>;
+};
+
+<span class="t-fn">_Static_assert</span>(<span class="t-kw">sizeof</span>(<span class="t-kw">struct</span> <span class="t-id">vec2</span>) <span class="t-op">==</span> <span class="t-num">8</span>, <span class="t-str">"vec2 size"</span>);
+<span class="t-fn">_Static_assert</span>(<span class="t-fn">offsetof</span>(<span class="t-kw">struct</span> <span class="t-id">vec2</span>, <span class="t-id">x</span>) <span class="t-op">==</span> <span class="t-num">0</span>, <span class="t-str">"vec2.x offset"</span>);
+<span class="t-fn">_Static_assert</span>(<span class="t-fn">offsetof</span>(<span class="t-kw">struct</span> <span class="t-id">vec2</span>, <span class="t-id">y</span>) <span class="t-op">==</span> <span class="t-num">4</span>, <span class="t-str">"vec2.y offset"</span>);
+<span class="t-fn">_Static_assert</span>(<span class="t-kw">sizeof</span>(<span class="t-kw">struct</span> <span class="t-id">shape</span>) <span class="t-op">==</span> <span class="t-num">32</span>, <span class="t-str">"shape size"</span>);
+<span class="t-fn">_Static_assert</span>(<span class="t-fn">offsetof</span>(<span class="t-kw">struct</span> <span class="t-id">shape</span>, <span class="t-id">id</span>) <span class="t-op">==</span> <span class="t-num">0</span>, <span class="t-str">"shape.id offset"</span>);
+...</code></pre></div>
+<p><code>describe-module.sh [--json] &lt;module.js&gt; [export...]</code> lists what a generated
+module or one from <code>lib/</code> exports, with the C types when it was generated with
+<code>--describe</code>. Importing the module loads its libraries, so
+<code>QUICKJS_MODULE_PATH</code> must find the <code>ffi</code> module.</p>
+<h2 id="using-the-result"><a class="anchor" href="#using-the-result" aria-hidden="true">#</a>Using the result</h2>
+<ul>
+<li>Run the module with <code>qjsm</code>, with <code>ffi</code> on <code>QUICKJS_MODULE_PATH</code>, and import
+it: <code>import * as cairo from './lib/cairo.js'</code>.</li>
+<li>Ready-made bindings are in <code>lib/</code> (cairo, SDL2, freetype, libcurl, libusb,
+libarchive, zlib); <code>examples/</code> and <code>tests/test-cairo.js</code> use them. They are
+output of an earlier version of the generator, so regenerate them with a
+current <code>ffi</code> module before depending on newer features.</li>
+<li>Installed, the tools live in <code>share/qjs-ffi/tools</code> and <code>bin/</code> has
+<code>qjs-ffi-genbindings</code> and <code>qjs-ffi-genstructs</code> wrappers: <code>qjsm</code> resolves a
+script's imports against the path it is run as, not a symlink's target.</li>
+<li>A generated module imports <code>read</code>, so it needs an <code>ffi</code> with
+<a href="pointers.html#read"><code>read</code></a> and the pointer form of
+<a href="pointers.html#toarraybuffer"><code>toArrayBuffer</code></a>.</li>
+</ul>
+<h2 id="limitations"><a class="anchor" href="#limitations" aria-hidden="true">#</a>Limitations</h2>
+<ul>
+<li>Variadic functions, operators and arrays by value are skipped, as are unions
+and (for C++) classes by value.</li>
+<li>A struct by value needs a layout libffi can reproduce: not a packed struct.</li>
+<li>Preprocessor macros are not bound (they are not in the AST), only enums and
+<code>const</code> variables with a literal value.</li>
+<li>Little-endian, 64-bit Linux layout rules only.</li>
+<li><code>--finalize</code> needs <code>--api=cfunction</code>. With <code>--api=define</code> a virtual method is
+called through its own symbol, not the vtable, and structs by value are
+skipped.</li>
+<li>The tests: <code>tests/test-gen-bindings-cxx.js</code> checks every IR <code>mangledName</code>
+against <code>nm -D</code> of a compiled fixture and runs the module,
+<code>test-gen-bindings-virtual.js</code> and <code>-finalize.js</code> the vtable and finalizer
+paths, <code>test-gen-structs.js</code> and <code>test-struct-by-value.js</code> the structs.</li>
+</ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/gen-bindings.md">Edit this page on GitHub →</a></p>
 </main>
-
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#synopsis">Synopsis</a></li><li class="lvl2"><a href="#the-examples">The examples</a></li><li class="lvl2"><a href="#pipeline">Pipeline</a></li><li class="lvl3"><a href="#1-command-line">1. Command line</a></li><li class="lvl3"><a href="#2-running-clang">2. Running clang</a></li><li class="lvl3"><a href="#3-layout-probes">3. Layout probes</a></li><li class="lvl3"><a href="#4-collecting-the-ir">4. Collecting the IR</a></li><li class="lvl3"><a href="#5-merging-sources">5. Merging sources</a></li><li class="lvl3"><a href="#6-structs-by-value">6. Structs by value</a></li><li class="lvl3"><a href="#7-names">7. Names</a></li><li class="lvl3"><a href="#8-emitting-javascript">8. Emitting JavaScript</a></li><li class="lvl2"><a href="#structs-and-variables---structs">Structs and variables (--structs)</a></li><li class="lvl2"><a href="#c-classes">C++ classes</a></li><li class="lvl2"><a href="#output-options">Output options</a></li><li class="lvl2"><a href="#the-ir-on-its-own">The IR on its own</a></li><li class="lvl2"><a href="#using-the-result">Using the result</a></li><li class="lvl2"><a href="#limitations">Limitations</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by
