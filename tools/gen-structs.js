@@ -40,6 +40,11 @@
  *
  * Options:
  *   --struct=<name>   only generate this struct and what it needs (repeatable)
+ *   --describe        also set Name.size/align/fields and
+ *                     Symbol.for('describe') signatures on the constructor
+ *                     and at() (for describeClass(), qjs-modules)
+ *   --jsdoc           a JSDoc block per class: @extends, the constructor
+ *                     @param and a @property per member (JS type, C type, offset)
  *   --format=js|c     JS module (default), or a C header: the structs, unions
  *                     and classes (fields only) as C definitions, followed by
  *                     _Static_asserts of their sizes and member offsets
@@ -54,6 +59,8 @@ function usage() {
     'Usage: qjsm gen-structs.js [options] <ir.json>...\n' +
       '  --struct=<name>       only this struct and the ones it nests (repeatable)\n' +
       '  --format=js|c         JS module (default) or C header with the same layout\n' +
+      '  --describe            layout and Symbol.for("describe") signatures on each class (JS only)\n' +
+      '  --jsdoc               JSDoc block with member types on each class (JS only)\n' +
       '  -o, --output=<path>   write the module here instead of stdout\n' +
       '  -h, --help            show this help\n',
   );
@@ -70,6 +77,10 @@ function parseArgs(argv) {
       std.exit(0);
     } else if(a.startsWith('--struct=')) {
       opts.structs.push(a.slice('--struct='.length));
+    } else if(a === '--describe') {
+      opts.describe = true;
+    } else if(a === '--jsdoc') {
+      opts.jsdoc = true;
     } else if(a.startsWith('--format=')) {
       opts.format = a.slice('--format='.length);
       if(opts.format !== 'js' && opts.format !== 'c') throw new Error('unknown format: ' + opts.format);

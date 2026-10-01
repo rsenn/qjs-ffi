@@ -464,6 +464,38 @@ await tests({
     });
   },
 
+  '--structs --describe: struct wrappers report constructor signatures, at() and the layout'() {
+    return withGenerated(['--std=c++17', '--structs', '--describe'], async m => {
+      const { describeClass } = await import('../../qjs-modules/lib/describe-class.js');
+      const d = describeClass(m.geo_Point);
+
+      same(['init'], d.constructorParams);
+      same([['init: number'], ['init: ArrayBuffer|ArrayBufferView']], d.constructorSignatures.map(s => s.params));
+      same(['p: pointer', 'owner: object', 'size: number'], m.geo_Point.at[Symbol.for('describe')][0].params);
+      eq('geo_Point', m.geo_Point.at[Symbol.for('describe')][0].returnType);
+      eq('i32', m.geo_Point.fields.y.type);
+      eq(4, m.geo_Point.fields.y.offset);
+    });
+  },
+
+  '--structs --jsdoc: every struct and class block lists its members with JS type, C type and offset'() {
+    const name = 'test-gen-bindings-cxx.structdoc.js';
+    const lib = realpath(tmp + 'libshapes.so')[0];
+    const out = sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--structs', '--jsdoc', '--library=' + lib, '-o', tmp + name, root + 'tests/cxx/shapes.hpp'].join(' '));
+    const text = std.loadFile(tmp + name);
+
+    assert(text !== null, 'no module written, output was:\n' + out);
+
+    const block = before => text.slice(text.lastIndexOf('/**', text.indexOf(before)), text.indexOf(before));
+    const point = block('export class geo_Point ');
+    const shape = block('export class geo_Shape ');
+
+    assert(point.includes('@extends {ArrayBuffer}') && point.includes('@param {number|ArrayBuffer|ArrayBufferView} [init=8]'), 'struct class header');
+    assert(point.includes('@property {number} x - int, offset 0') && point.includes('@property {number} y - int, offset 4'), 'struct members');
+    assert(shape.includes('@extends {geo_Base}') && shape.includes('@property {number} width - int, offset 20'), 'class members join the C++ class block');
+    assert(!sh('qjsm ' + root + 'tools/gen-bindings.js --no-cache --std=c++17 --structs --library=' + lib + ' ' + root + 'tests/cxx/shapes.hpp').includes('@property'), 'no --jsdoc, no member docs');
+  },
+
   '--jsdoc: classes, methods and functions get typed @param/@returns blocks, overloads under @overload'() {
     const name = 'test-gen-bindings-cxx.jsdoc.js';
     const lib = realpath(tmp + 'libshapes.so')[0];

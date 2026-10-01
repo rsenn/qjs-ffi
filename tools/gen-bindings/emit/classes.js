@@ -138,7 +138,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
   const byName = new Map(classes.map(c => [c.name, c]));
   const cxx = e => (byName.has(e.name) ? classPieces(byName.get(e.name)) : null);
 
-  out += structClasses(mergeIRs([{ structs: plain, classes, typedefs: ir.typedefs || [], enums: ir.enums || [] }]), { cxx, layout: true });
+  out += structClasses(mergeIRs([{ structs: plain, classes, typedefs: ir.typedefs || [], enums: ir.enums || [] }]), { cxx, layout: true, describe: opts.describe, jsdoc: opts.jsdoc });
 
   return out + cxxFunctionsCode(cxxFunctions, opts, known);
 

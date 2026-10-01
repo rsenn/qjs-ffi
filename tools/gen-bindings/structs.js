@@ -1,4 +1,5 @@
 import { jsLiteral } from './emit/common.js';
+import { DESCRIBE_HELPERS } from './emit/describe.js';
 import * as std from 'std';
 
 /* --- the IR ---------------------------------------------------------------- */
@@ -191,7 +192,25 @@ function __view(cls, p, size, owner) {
 }
 `;
 
-/* Getter and setter source of one member, or { skipped: reason }. */
+/* Statements of an accessor body on one line. */
+function oneLine(src) {
+  return src.replace(/\n\s*/g, ' ');
+}
+
+/* The JS type a member of scalar type `scalar` reads as (for --jsdoc). */
+function scalarType(scalar) {
+  switch(scalar) {
+    case 'bool': return 'boolean';
+    case 'i64':
+    case 'u64': return 'bigint';
+    case 'pointer': return 'number|bigint|null';
+  }
+
+  return 'number';
+}
+
+/* Getter and setter source of one member and the JS `type` it reads as, or
+ * { skipped: reason }. */
 function accessors(f, ir) {
   const hasType = f.size !== null && f.size !== undefined;
   const scalar = scalarOf(f.ffi, f.type, ir.typedefs);
@@ -203,7 +222,7 @@ function accessors(f, ir) {
   if(f.bits !== undefined) {
     if(!scalar || scalar === 'pointer' || scalar.startsWith('f') || !hasType || f.bitOffset === null) return { skipped: 'bitfield of unknown storage' };
 
-    return bitfield(f, scalar, at);
+    return { ...bitfield(f, scalar, at), type: scalar === 'bool' ? 'boolean' : f.size === 8 && f.bits > 32 ? 'bigint' : 'number' };
   }
 
   const pointee = scalar === 'pointer' && hasType && f.size === SIZES.pointer && f.bits === undefined && pointeeOf(f.type, ir);
@@ -212,10 +231,11 @@ function accessors(f, ir) {
     return {
       get: 'const p = __dv(this).getBigUint64(' + at + ', true);\n    return p === 0n ? null : ' + identOf(pointee) + '.at(p);',
       set: scalarAccessors('pointer', at).set,
+      type: identOf(pointee) + '|null',
     };
   }
 
-  if(scalar && hasType && f.size === SIZES[scalar]) return scalarAccessors(scalar, at);
+  if(scalar && hasType && f.size === SIZES[scalar]) return { ...scalarAccessors(scalar, at), type: scalarType(scalar) };
 
   if(arr && hasType) {
     const elem = scalarOf(null, arr.elem, ir.typedefs);
@@ -229,10 +249,11 @@ function accessors(f, ir) {
         return {
           get: 'return __ptrArray(' + view + ', ' + (target ? identOf(target) + '.at' : 'null') + ');',
           set: 'const a = ' + view + ';\n    for(let i = 0; i < a.length && i < v.length; i++) a[i] = __ptrIn(v[i]);',
+          type: 'Array<' + (target ? identOf(target) + '|' : '') + 'number|bigint|null>',
         };
       }
 
-      return { get: 'return ' + view + ';', set: view + '.set(v);' };
+      return { get: 'return ' + view + ';', set: view + '.set(v);', type: ARRAYS[elem] };
     }
   }
 
@@ -241,12 +262,12 @@ function accessors(f, ir) {
   if(rec && hasType) {
     const target = identOf(rec);
 
-    return { get: 'return ' + target + '.at(__ptr(this, ' + at + '), this);', set: 'new Uint8Array(this, ' + at + ', ' + f.size + ').set(__bytes(v));' };
+    return { get: 'return ' + target + '.at(__ptr(this, ' + at + '), this);', set: 'new Uint8Array(this, ' + at + ', ' + f.size + ').set(__bytes(v));', type: target };
   }
 
   if(!hasType) return { skipped: 'size unknown' };
 
-  return { get: 'return new Uint8Array(this, ' + at + ', ' + f.size + ');', set: 'new Uint8Array(this, ' + at + ', ' + f.size + ').set(__bytes(v));' };
+  return { get: 'return new Uint8Array(this, ' + at + ', ' + f.size + ');', set: 'new Uint8Array(this, ' + at + ', ' + f.size + ').set(__bytes(v));', type: 'Uint8Array' };
 }
 
 function scalarAccessors(scalar, at) {
@@ -315,25 +336,20 @@ function identOf(name) {
  * parameter constructor, first so describeClass() finds it) opens the class
  * body, `members` (method source) follows the field accessors, `doc` precedes
  * the declaration. */
-function classCode(e, ir, base, cxx) {
+function classCode(e, ir, base, cxx, opts = {}) {
   const id = identOf(e.name);
   const size = e.size === null || e.size === undefined ? null : e.size;
   const seen = new Set();
-  let out = '';
+  const props = [];
+  let body = '';
 
-  out += '\n/* ' + e.type + ' ' + e.name + (size === null ? ', size unknown' : ', ' + size + ' bytes') + (e.line ? ' (line ' + e.line + ')' : '') + ' */\n';
-  if(cxx) out += cxx.doc;
-  out += 'export class ' + id + ' extends ' + (base ? identOf(base.name) : cxx ? '__CxxObject' : 'ArrayBuffer') + ' {\n';
-
-  if(cxx) out += cxx.ctor;
+  if(cxx) body += cxx.ctor;
   else {
-    out += '  constructor(init' + (size === null ? '' : ' = ' + size) + ') {\n';
-    if(size === null) out += '    if(init === undefined) throw new TypeError("' + id + ': size unknown, pass a byte length");\n';
-    out += '    super(typeof init === "number" ? init : init.byteLength);\n';
-    out += '    if(typeof init !== "number") new Uint8Array(this).set(__bytes(init));\n';
-    out += '  }\n\n';
-    out += '  static at(p, owner, size' + (size === null ? '' : ' = ' + size) + ') {\n    return __view(' + id + ', p, size, owner);\n  }\n';
-    if(!base) out += '\n  get ptr() {\n    return __ptr(this);\n  }\n';
+    body += '  constructor(init' + (size === null ? '' : ' = ' + size) + ') { ';
+    if(size === null) body += "if(init === undefined) throw new TypeError('" + id + ": size unknown, pass a byte length'); ";
+    body += "super(typeof init === 'number' ? init : init.byteLength); if(typeof init !== 'number') new Uint8Array(this).set(__bytes(init)); }\n";
+    body += '  static at(p, owner, size' + (size === null ? '' : ' = ' + size) + ') { return __view(' + id + ', p, size, owner); }\n';
+    if(!base) body += '  get ptr() { return __ptr(this); }\n';
   }
 
   for(const f of e.fields) {
@@ -344,16 +360,25 @@ function classCode(e, ir, base, cxx) {
     const a = accessors(f, ir);
 
     if(a.skipped) {
-      out += '\n  // ' + f.name + ': ' + a.skipped + '\n';
+      body += '  // ' + f.name + ': ' + a.skipped + '\n';
       continue;
     }
 
-    out += '\n  get ' + name + '() {\n    ' + a.get + '\n  }\n';
-    out += '  set ' + name + '(v) {\n    ' + a.set + '\n  }\n';
+    props.push(' * @property {' + a.type + '} ' + name + ' - ' + f.type + (f.bits !== undefined ? ', ' + f.bits + ' bits' : '') + ', offset ' + f.offset + '\n');
+    body += '  get ' + name + '() { ' + oneLine(a.get) + ' }\n';
+    body += '  set ' + name + '(v) { ' + oneLine(a.set) + ' }\n';
   }
 
-  if(cxx) out += cxx.members;
-  out += '}\n';
+  if(cxx) body += cxx.members;
+
+  let out = '\n/* ' + e.type + ' ' + e.name + (size === null ? ', size unknown' : ', ' + size + ' bytes') + (e.line ? ' (line ' + e.line + ')' : '') + ' */\n';
+
+  if(cxx) out += opts.jsdoc ? cxx.doc.replace(/ \*\/\n$/, props.join('') + ' */\n') : cxx.doc;
+  else if(opts.jsdoc) out += '/**\n * ' + e.type + ' ' + e.name + (size === null ? '' : ', ' + size + ' bytes') + '\n * @extends {' + (base ? identOf(base.name) : 'ArrayBuffer') + '}\n * @param {number|ArrayBuffer|ArrayBufferView} ' + (size === null ? 'init' : '[init=' + size + ']') + ' - a byte length, or bytes to copy\n' + props.join('') + ' */\n';
+
+  out += 'export class ' + id + ' extends ' + (base ? identOf(base.name) : cxx ? '__CxxObject' : 'ArrayBuffer') + ' {\n' + body + '}\n';
+
+  if(opts.describe && !cxx) out += '__sig(' + id + ', ' + jsLiteral([{ params: ['init: number'], arity: 1 }, { params: ['init: ArrayBuffer|ArrayBufferView'], arity: 1 }]) + ');\n__sig(' + id + '.at, ' + jsLiteral([{ params: ['p: pointer', 'owner: object', 'size: number'], returnType: id, arity: 3 }]) + ');\n';
   return out;
 }
 
@@ -411,7 +436,7 @@ function plan(ir, wanted) {
 export function generate(ir, opts) {
   let out = '/* Auto-generated by qjsm gen-structs.js from ' + opts.files.join(', ') + ' -- do not edit by hand. */\n';
 
-  out += "import { ptr as __ptr, toArrayBuffer } from 'ffi';\n" + PRELUDE;
+  out += "import { ptr as __ptr, toArrayBuffer } from 'ffi';\n" + PRELUDE + (opts.describe ? DESCRIBE_HELPERS : '');
   return out + classesCode(ir, opts);
 }
 
@@ -419,7 +444,10 @@ export function generate(ir, opts) {
  * each after the one it extends, followed by the typedef names as aliases.
  * `opts.cxx(entry)` returns { pre, members, doc, post } for an entry that is a
  * C++ class bound with methods (see classCode()); `pre`/`post` surround its
- * declaration. `opts.layout` adds size/align/fields to the other classes. */
+ * declaration. `opts.layout` adds size/align/fields to the other classes.
+ * `opts.describe` also does, and sets Symbol.for("describe") signatures on
+ * their constructor and at() (needs __sig(), see emit/describe.js);
+ * `opts.jsdoc` documents every class and its members. */
 export function classesCode(ir, opts) {
   const { order, baseOf } = plan(ir, opts.structs || []);
   const names = new Set(order.map(e => identOf(e.name)));
@@ -428,7 +456,7 @@ export function classesCode(ir, opts) {
   for(const e of order) {
     const cxx = opts.cxx ? opts.cxx(e) : null;
 
-    out += (cxx ? cxx.pre : '') + classCode(e, ir, baseOf(e), cxx) + (cxx ? cxx.post : opts.layout && e.size != null ? layoutCode(e) : '');
+    out += (cxx ? cxx.pre : '') + classCode(e, ir, baseOf(e), cxx, opts) + (cxx ? cxx.post : (opts.layout || opts.describe) && e.size != null ? layoutCode(e) : '');
   }
 
   const aliases = new Set();

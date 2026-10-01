@@ -210,4 +210,21 @@ await tests({
     assert(text.includes('struct inner {'), 'inner missing');
     assert(!text.includes('struct sample {'), 'sample should be left out');
   },
+
+  '--describe and --jsdoc: layout and signatures on the class, member docs in its block'() {
+    const name = 'test-gen-structs.doc.js';
+
+    sh(['qjsm', root + 'tools/gen-structs.js', '--describe', '--jsdoc', '-o', tmp + name, ir].join(' '));
+
+    const text = std.loadFile(tmp + name);
+
+    assert(text !== null, 'no module written');
+    assert(text.includes('@property {number} i32 - int32_t, offset 8') && text.includes('@property {bigint} u64 - uint64_t, offset 24'), 'member docs');
+    assert(text.includes('@property {Int32Array} arr - int[4], offset 88'), 'array member doc');
+    assert(text.includes("__sig(sample, [{params:['init: number'],arity:1}"), 'constructor signature');
+    assert(text.includes('sample.size = 216;'), 'layout');
+
+    sh(['qjsm', root + 'tools/gen-structs.js', '-o', tmp + 'test-gen-structs.plain.js', ir].join(' '));
+    assert(!std.loadFile(tmp + 'test-gen-structs.plain.js').includes('@property'), 'plain output has no docs');
+  },
 });

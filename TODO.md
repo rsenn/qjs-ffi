@@ -230,7 +230,10 @@ so `describeObject()`/`describeClass()` (qjs-modules `lib/describe-*.js`, which
 merge it as `signatures` / `constructorSignatures`) report them. Overloads share
 the widest overload's names. Without the flag the output is unchanged. Plain C
 functions become a named wrapper around the `CFunction` (one extra call).
-Default arguments are not in the IR, so none are reported.
+Default arguments are not in the IR, so none are reported. The struct and union
+wrappers (`tools/gen-bindings/structs.js`, also `gen-structs.js --describe`) get
+`__sig` signatures on their constructor and `at()` and the `Name.size/align/fields`
+layout, where `fields` holds each member's ffi type and offset.
 
 ### Done: --jsdoc
 
@@ -239,7 +242,10 @@ Default arguments are not in the IR, so none are reported.
 `@overload` group per overload, `@extends` on a class and its constructors'
 `@param`s in the class block. JS types follow the ffi table (`number`,
 `bigint`, `boolean`, `string`); a pointer is `number|bigint|null|object`, plus
-the class when it points to a bound one. Independent of `--describe`.
+the class when it points to a bound one. Independent of `--describe`. Struct,
+union and C++ class blocks also list a `@property {type} name - C type, offset N`
+per member, typed by what its getter returns (`Int32Array` for an array,
+the wrapper class for a nested struct, `bigint` for 64-bit integers).
 
 ### Done: one generator, ArrayBuffer wrappers
 
