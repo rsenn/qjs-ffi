@@ -1,9 +1,9 @@
 import { read, signal, ttySetRaw, write } from 'os';
-import { FD_CLR, FD_ISSET, fd_set, FD_SET, FD_ZERO } from '../lib/fd_set.js';
-import { AF_INET, select, setsockopt, SO_OOBINLINE, SOCK_DGRAM, SOCK_STREAM, SockAddr, socket, Socket, SOL_SOCKET } from '../lib/socket.js';
-import socklen_t from '../lib/socklen_t.js';
-import { B115200, cfgetospeed, cfsetospeed, ECHOCTL, ECHOE, ECHOK, ECHOKE, ISIG, tcgetattr, TCSANOW, tcsetattr, termios, VINTR } from '../lib/term.js';
-import timeval from '../lib/timeval.js';
+import { FD_CLR, FD_ISSET, fd_set, FD_SET, FD_ZERO } from '../lib/posix/fd_set.js';
+import { AF_INET, select, setsockopt, SO_OOBINLINE, SOCK_DGRAM, SOCK_STREAM, SockAddr, socket, Socket, SOL_SOCKET } from '../lib/posix/socket.js';
+import socklen_t from '../lib/posix/socklen_t.js';
+import { B115200, cfgetospeed, cfsetospeed, ECHOCTL, ECHOE, ECHOK, ECHOKE, ISIG, tcgetattr, TCSANOW, tcsetattr, termios, VINTR } from '../lib/posix/term.js';
+import timeval from '../lib/posix/timeval.js';
 import { errno, pointerSize, toArrayBuffer, toPointer, toString } from 'ffi';
 import { err, exit, open, out, strerror } from 'std';
 

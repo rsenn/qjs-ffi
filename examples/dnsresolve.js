@@ -1,7 +1,7 @@
 import { read } from 'os';
-import { FD_CLR, FD_ISSET, fd_set, FD_SET, FD_ZERO } from '../lib/fd_set.js';
-import { AF_INET, IPPROTO_UDP, select, SOCK_DGRAM, SockAddr, Socket } from '../lib/socket.js';
-import socklen_t from '../lib/socklen_t.js';
+import { FD_CLR, FD_ISSET, fd_set, FD_SET, FD_ZERO } from '../lib/posix/fd_set.js';
+import { AF_INET, IPPROTO_UDP, select, SOCK_DGRAM, SockAddr, Socket } from '../lib/posix/socket.js';
+import socklen_t from '../lib/posix/socklen_t.js';
 import { errno, pointerSize, toArrayBuffer, toPointer, toString } from 'ffi';
 import { err, exit, loadFile, open, out, strerror } from 'std';
 
