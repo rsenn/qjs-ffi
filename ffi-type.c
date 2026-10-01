@@ -1,6 +1,7 @@
 #include "ffi-type.h"
 #include "js-helpers.h"
 #include <cutils.h>
+#include <inttypes.h>
 #include <string.h>
 
 #define T(name, type, kind) JS_PROP_STRING_DEF(name, name, JS_PROP_C_W_E),
@@ -108,10 +109,84 @@ ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
   }
 }
 
+#define STRUCT_MAX_DEPTH 8
+#define STRUCT_MAX_ELEMENTS 1024
+
+static ffi_type* value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, int depth);
+
+/* The struct type of an array of element types, owned by `sig`. NULL with an
+ * exception pending on error. libffi fills in size and alignment in
+ * ffi_prep_cif(), from the elements alone, so they have to list every scalar
+ * member in memory order.
+ */
 static ffi_type*
-value_to_type(JSContext* ctx, JSValueConst value, int* kind) {
-  const char* s = JS_ToCString(ctx, value);
-  ffi_type* t = ffi_resolve_type(s, kind);
+struct_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int depth) {
+  int64_t n = js_array_length(ctx, value);
+  ffi_type *st, **elements, **list;
+
+  if(depth >= STRUCT_MAX_DEPTH) {
+    JS_ThrowRangeError(ctx, "struct type nested more than %d deep", STRUCT_MAX_DEPTH);
+    return NULL;
+  }
+
+  if(n < 1 || n > STRUCT_MAX_ELEMENTS) {
+    JS_ThrowRangeError(ctx, "struct type needs 1 to %d elements", STRUCT_MAX_ELEMENTS);
+    return NULL;
+  }
+
+  if(!(st = js_mallocz(ctx, sizeof(ffi_type) + sizeof(ffi_type*) * (n + 1))))
+    return NULL;
+
+  if(!(list = js_realloc(ctx, sig->aggregates, sizeof(ffi_type*) * (sig->aggregate_count + 1)))) {
+    js_free(ctx, st);
+    return NULL;
+  }
+
+  sig->aggregates = list;
+  sig->aggregates[sig->aggregate_count++] = st;
+
+  elements = (ffi_type**)(st + 1);
+  st->type = FFI_TYPE_STRUCT;
+  st->elements = elements;
+
+  for(int64_t i = 0; i < n; i++) {
+    JSValue item = JS_GetPropertyUint32(ctx, value, i);
+    int kind = K_I32;
+    ffi_type* t = value_to_type(ctx, sig, item, &kind, depth + 1);
+
+    JS_FreeValue(ctx, item);
+
+    if(kind < 0)
+      return NULL;
+
+    if(!t || kind == K_VOID) {
+      JS_ThrowTypeError(ctx, "struct type element %" PRId64 " is not a type name or a struct", i);
+      return NULL;
+    }
+
+    elements[i] = t;
+  }
+
+  elements[n] = NULL;
+  return st;
+}
+
+/* Sets *kind to -1 if an exception is pending (an invalid struct type); NULL
+ * with any other kind is an unknown type name. */
+static ffi_type*
+value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, int depth) {
+  const char* s;
+  ffi_type* t;
+
+  if(JS_IsArray(ctx, value)) {
+    ffi_type* st = struct_type(ctx, sig, value, depth);
+
+    *kind = st ? K_STRUCT : -1;
+    return st;
+  }
+
+  s = JS_ToCString(ctx, value);
+  t = ffi_resolve_type(s, kind);
 
   JS_FreeCString(ctx, s);
   return t;
@@ -123,7 +198,7 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
   int kinds[FFI_MAX_ARGS];
   int64_t argc = 0;
 
-  *sig = (FFISignature){0, NULL, NULL, &ffi_type_void, K_VOID};
+  *sig = (FFISignature){0, NULL, NULL, &ffi_type_void, K_VOID, NULL, 0};
 
   if(!JS_IsObject(options))
     return 0;
@@ -139,9 +214,15 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
   for(int64_t i = 0; i < argc; i++) {
     JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
     int kind = K_I32;
-    ffi_type* t = value_to_type(ctx, item, &kind);
+    ffi_type* t = value_to_type(ctx, sig, item, &kind, 0);
 
     JS_FreeValue(ctx, item);
+
+    if(kind < 0) {
+      JS_FreeValue(ctx, args_val);
+      ffi_sig_free(JS_GetRuntime(ctx), sig);
+      return -1;
+    }
 
     types[i] = t ? t : &ffi_type_sint32;
     kinds[i] = t ? kind : K_I32;
@@ -153,7 +234,13 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
 
   if(!JS_IsUndefined(ret_val)) {
     int kind;
-    ffi_type* t = value_to_type(ctx, ret_val, &kind);
+    ffi_type* t = value_to_type(ctx, sig, ret_val, &kind, 0);
+
+    if(kind < 0) {
+      JS_FreeValue(ctx, ret_val);
+      ffi_sig_free(JS_GetRuntime(ctx), sig);
+      return -1;
+    }
 
     if(t) {
       sig->ret_type = t;
@@ -177,14 +264,34 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
   return 0;
 }
 
+int
+ffi_sig_has_struct(const FFISignature* sig) {
+  if(sig->ret_kind == K_STRUCT)
+    return 1;
+
+  for(int i = 0; i < sig->argc; i++)
+    if(sig->arg_kind[i] == K_STRUCT)
+      return 1;
+
+  return 0;
+}
+
 void
 ffi_sig_free(JSRuntime* rt, FFISignature* sig) {
+  for(int i = 0; i < sig->aggregate_count; i++)
+    js_free_rt(rt, sig->aggregates[i]);
+
+  if(sig->aggregates)
+    js_free_rt(rt, sig->aggregates);
+
   if(sig->arg_types)
     js_free_rt(rt, sig->arg_types);
 
   if(sig->arg_kind)
     js_free_rt(rt, sig->arg_kind);
 
+  sig->aggregates = NULL;
+  sig->aggregate_count = 0;
   sig->arg_types = NULL;
   sig->arg_kind = NULL;
   sig->argc = 0;

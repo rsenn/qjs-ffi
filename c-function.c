@@ -122,6 +122,7 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
   const char* cstrings[FFI_MAX_ARGS];
   int cstring_count = 0;
   union native_value rc;
+  JSValue ret;
 
   if(!cf)
     return JS_ThrowTypeError(ctx, "CFunction: invalid function");
@@ -133,6 +134,18 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
       const char* s = JS_ToCString(ctx, v);
       cstrings[cstring_count++] = s;
       args_storage[i].ptr = (void*)s;
+    } else if(cf->sig.arg_kind[i] == K_STRUCT) {
+      /* libffi takes the address of the struct's bytes, which must all be
+       * there: the argument is an ArrayBuffer or view of at least its size. */
+      ptr_len buf;
+
+      if(js_buf(ctx, &buf, v) || buf.len < cf->sig.arg_types[i]->size) {
+        ret = JS_ThrowTypeError(ctx, "CFunction: argument %d must be an ArrayBuffer of at least %zu bytes (a struct passed by value)", i + 1, cf->sig.arg_types[i]->size);
+        goto done;
+      }
+
+      ptrs[i] = buf.ptr;
+      continue;
     } else {
       js_to_native_arg(ctx, cf->sig.arg_kind[i], &args_storage[i], v);
     }
@@ -140,10 +153,25 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
     ptrs[i] = &args_storage[i];
   }
 
-  ffi_call(&cf->cif, cf->fp, &rc, cf->sig.argc ? ptrs : NULL);
+  if(cf->sig.ret_kind == K_STRUCT) {
+    /* libffi writes at least a register's worth, even for a tiny struct. */
+    size_t size = cf->sig.ret_type->size;
+    void* out = js_malloc(ctx, size < sizeof(ffi_arg) ? sizeof(ffi_arg) : size);
 
-  JSValue ret = ffi_native_to_js(ctx, cf->sig.ret_kind, &rc);
+    if(!out) {
+      ret = JS_EXCEPTION;
+      goto done;
+    }
 
+    ffi_call(&cf->cif, cf->fp, out, cf->sig.argc ? ptrs : NULL);
+    ret = JS_NewArrayBufferCopy(ctx, out, size);
+    js_free(ctx, out);
+  } else {
+    ffi_call(&cf->cif, cf->fp, &rc, cf->sig.argc ? ptrs : NULL);
+    ret = ffi_native_to_js(ctx, cf->sig.ret_kind, &rc);
+  }
+
+done:
   while(cstring_count > 0)
     JS_FreeCString(ctx, cstrings[--cstring_count]);
 

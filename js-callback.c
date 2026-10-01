@@ -147,6 +147,13 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
     return NULL;
   }
 
+  if(ffi_sig_has_struct(&cl->sig)) {
+    JS_ThrowTypeError(ctx, "JSCallback: a struct passed or returned by value is not supported");
+    ffi_sig_free(JS_GetRuntime(ctx), &cl->sig);
+    js_free(ctx, cl);
+    return NULL;
+  }
+
   cl->ref_count = 1;
   cl->called = 0;
   cl->ctx = ctx;

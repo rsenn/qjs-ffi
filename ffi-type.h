@@ -26,6 +26,7 @@ enum {
   K_F64,
   K_POINTER,
   K_CSTRING,
+  K_STRUCT,
 };
 
 /* X(name, libffi type, kind): the single source for the FFIType export, the
@@ -84,21 +85,33 @@ JSValue ffi_native_to_js(JSContext* ctx, int kind, const void* p);
  */
 int ffi_resolve_abi(const char* name);
 
-/* Parsed `{ args, returns }` options, shared by CFunction and JSCallback. */
+/* Parsed `{ args, returns }` options, shared by CFunction and JSCallback.
+ * `aggregates` owns the ffi_types built for struct types (K_STRUCT), which
+ * arg_types/ret_type point into.
+ */
 typedef struct FFISignature {
   int argc;
   ffi_type** arg_types;
   int* arg_kind;
   ffi_type* ret_type;
   int ret_kind;
+  ffi_type** aggregates;
+  int aggregate_count;
 } FFISignature;
 
 /* Fills *sig from options.args / options.returns; `options` may be any value
  * (non-objects yield a no-argument, void-returning signature). Unknown type
- * names fall back to i32 for args and void for the return. Returns 0, or -1
- * on out-of-memory. Release with ffi_sig_free().
+ * names fall back to i32 for args and void for the return. A type given as an
+ * array is a struct passed or returned by value: its elements, in order, are
+ * type names or (for a nested struct) arrays, and libffi works out the layout,
+ * so they must list every scalar member, array members repeated per element.
+ * Returns 0, or -1 with an exception pending (out of memory, or an invalid
+ * struct type). Release with ffi_sig_free().
  */
 int ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options);
+
+/* Non-zero if the signature passes or returns a struct by value. */
+int ffi_sig_has_struct(const FFISignature* sig);
 
 /* Safe to call twice: the arrays are cleared on release. */
 void ffi_sig_free(JSRuntime* rt, FFISignature* sig);
