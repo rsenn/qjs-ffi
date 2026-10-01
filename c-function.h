@@ -24,6 +24,14 @@
  */
 JSValue js_cfunction_create(JSContext*, void* fp, JSValueConst spec);
 
+/* Resolves `name` against an opaque `handle` (dlopen's handle, a TCCState..). */
+typedef void* js_symbol_resolver(void* handle, const char* name);
+
+/* { name: CFunction } for every key of `symbol_specs`, each looked up with
+ * `resolve` (dlsym when NULL). With `linked`, a spec's own `ptr` takes
+ * precedence. `who` prefixes error messages. */
+JSValue js_build_symbols(JSContext*, void* handle, JSValueConst symbol_specs, int linked, const char* who, js_symbol_resolver* resolve);
+
 int js_cfunction_init(JSContext*, JSModuleDef*);
 
 #endif /* defined(QJSFFI_C_FUNCTION_H) */

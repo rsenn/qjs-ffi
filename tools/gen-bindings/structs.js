@@ -184,7 +184,7 @@ function __bytes(v) {
 }
 
 function __view(cls, p, size, owner) {
-  const b = toArrayBuffer(BigInt(p), size, false);
+  const b = toArrayBuffer(BigInt(p), 0, size);
 
   Object.setPrototypeOf(b, cls.prototype);
   if(owner) Object.defineProperty(b, "__owner", { value: owner });

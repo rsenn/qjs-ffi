@@ -42,3 +42,13 @@
 
     import { tests, eq } from './tinytest.js';
     await tests({ 'equal arrays'() { eq(['a', 'b'], ['a', 'b']); } });
+
+- buffer-arg-dataview-segfault (js-helpers.c:51): js_buf() resolves an
+  ArrayBuffer or TypedArray but not a DataView, so a DataView passed as a
+  "buffer"/"pointer" argument silently becomes address 0 and the callee gets
+  NULL (strlen crashes); ptr(new DataView(buf)) returns null. found probing
+  bun:ffi parity.
+
+    import { dlopen, ptr } from 'ffi';
+    const { symbols } = dlopen('libc.so.6', { strlen: { args: ['buffer'], returns: 'u64' } });
+    symbols.strlen(new DataView(new Uint8Array([104, 105, 0]).buffer));

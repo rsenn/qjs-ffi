@@ -41,6 +41,7 @@
 #include <cutils.h>
 
 #include "js-helpers.h"
+#include "compiler.h"
 
 #define countof(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -599,10 +600,10 @@ js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValue
 }
 
 /* symbols = { name: CFunction } for every key of symbol_specs, resolved with
- * dlsym(handle, name). With `linked`, a spec's own `ptr` takes precedence over
- * the dlsym() lookup (linkSymbols()). */
-static JSValue
-js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, BOOL linked, const char* who) {
+ * resolve(handle, name), or dlsym() when `resolve` is NULL. With `linked`, a
+ * spec's own `ptr` takes precedence over the lookup (linkSymbols()). */
+JSValue
+js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int linked, const char* who, js_symbol_resolver* resolve) {
   JSPropertyEnum* tab = NULL;
   uint32_t i, len = 0;
 
@@ -639,7 +640,7 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, BOOL l
       }
     }
 
-    if(!fp && !(fp = dlsym(handle, name))) {
+    if(!fp && !(fp = resolve ? resolve(handle, name) : dlsym(handle, name))) {
       JS_ThrowTypeError(ctx, "%s: symbol not found: %s", who, name);
       JS_FreeCString(ctx, name);
       JS_FreeValue(ctx, spec);
@@ -697,7 +698,7 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
   if(!handle)
     return JS_ThrowTypeError(ctx, "dlopen: %s", dlerror());
 
-  JSValue symbols = js_build_symbols(ctx, handle, symbol_specs, FALSE, "dlopen");
+  JSValue symbols = js_build_symbols(ctx, handle, symbol_specs, FALSE, "dlopen", NULL);
 
   if(JS_IsException(symbols)) {
     dlclose(handle);
@@ -723,7 +724,7 @@ js_linksymbols(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   if(argc < 1 || !JS_IsObject(argv[0]))
     return JS_ThrowTypeError(ctx, "linkSymbols: argument 1 must be an object");
 
-  JSValue symbols = js_build_symbols(ctx, RTLD_DEFAULT, argv[0], TRUE, "linkSymbols");
+  JSValue symbols = js_build_symbols(ctx, RTLD_DEFAULT, argv[0], TRUE, "linkSymbols", NULL);
 
   if(JS_IsException(symbols))
     return symbols;
@@ -895,9 +896,10 @@ free_objptr(JSRuntime* rt, void* opaque, void* ptr) {
   }
 }
 
-/* b = toArrayBuffer(ArrayBuffer|Number|string[, size]) */
+/* b = toArrayBuffer(ArrayBuffer|string[, size[, copy]]) -- the pre-bun:ffi
+ * form, still used for a buffer or string source (not valid in bun:ffi). */
 static JSValue
-js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   ptr_len buf = {0, SIZE_MAX};
   void* opaque = 0;
   int copy = -1;
@@ -933,6 +935,109 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
   }
 
   return copy ? JS_NewArrayBufferCopy(ctx, buf.ptr, buf.len) : JS_NewArrayBuffer(ctx, buf.ptr, buf.len, &free_objptr, opaque, FALSE);
+}
+
+/* Deallocator of an ArrayBuffer made by toArrayBuffer(): the native
+ * `void (*)(void *bytes, void *deallocatorContext)` the caller supplied. */
+typedef void bytes_deallocator(void* bytes, void* context);
+
+typedef struct {
+  bytes_deallocator* fn;
+  void* context;
+} bytes_free_data;
+
+static void
+free_bytes(JSRuntime* rt, void* opaque, void* ptr) {
+  bytes_free_data* d = opaque;
+
+  d->fn(ptr, d->context);
+  free(d);
+}
+
+/* A deallocator or its context: a C address, as a Number or BigInt (null and
+ * undefined mean none). Not a JSCallback: the deallocator runs while
+ * QuickJS is finalizing the ArrayBuffer, where re-entering JS is unsafe. */
+static int
+js_cptr(JSContext* ctx, void** pptr, JSValueConst v, const char* what) {
+  *pptr = NULL;
+
+  if(JS_IsUndefined(v) || JS_IsNull(v))
+    return 0;
+
+  if(!JS_IsNumber(v) && !JS_IsBigInt(ctx, v)) {
+    JS_ThrowTypeError(ctx, "toArrayBuffer: %s must be a C pointer (Number or BigInt)", what);
+    return -1;
+  }
+
+  return js_toptr(ctx, pptr, v) ? -1 : 0;
+}
+
+/* b = toArrayBuffer(ptr[, byteOffset[, byteLength[, deallocatorContext], jsTypedArrayBytesDeallocator]])
+ *
+ * bun:ffi's form, for a pointer (Number, BigInt): an ArrayBuffer over the
+ * memory itself (not a copy) from ptr + byteOffset, NUL-terminated when
+ * byteLength is omitted. The memory is only freed if a deallocator, the
+ * address of a native `void (*)(void *bytes, void *context)`, is given. */
+static JSValue
+js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  uint8_t* p;
+  int64_t off = 0, len = -1;
+  bytes_deallocator* dealloc = NULL;
+  void* context = NULL;
+
+  if(argc < 1 || !(JS_IsNull(argv[0]) || JS_IsNumber(argv[0]) || JS_IsBigInt(ctx, argv[0])))
+    return js_toarraybuffer_legacy(ctx, this_val, argc, argv);
+
+  for(int i = 1; i < argc; i++)
+    if(JS_IsBool(argv[i]))
+      return JS_ThrowTypeError(ctx, "toArrayBuffer: argument %d must not be a boolean (the copy flag exists only for an ArrayBuffer or string source)", i + 1);
+
+  if(js_toptr(ctx, &p, argv[0]))
+    return JS_EXCEPTION;
+
+  if(!p)
+    return JS_ThrowTypeError(ctx, "toArrayBuffer: pointer is NULL");
+
+  if(argc > 1 && !JS_IsUndefined(argv[1]) && JS_ToInt64(ctx, &off, argv[1]))
+    return JS_EXCEPTION;
+
+  p += off;
+
+  if(argc > 2 && !JS_IsUndefined(argv[2]) && JS_ToInt64(ctx, &len, argv[2]))
+    return JS_EXCEPTION;
+
+  if(len < 0 && argc > 2 && !JS_IsUndefined(argv[2]))
+    return JS_ThrowRangeError(ctx, "toArrayBuffer: byteLength must not be negative");
+
+  /* (ptr, off, len, dealloc) or (ptr, off, len, context, dealloc) */
+  if(argc > 4) {
+    if(js_cptr(ctx, &context, argv[3], "deallocatorContext") || js_cptr(ctx, (void**)&dealloc, argv[4], "jsTypedArrayBytesDeallocator"))
+      return JS_EXCEPTION;
+  } else if(argc > 3) {
+    if(js_cptr(ctx, (void**)&dealloc, argv[3], "jsTypedArrayBytesDeallocator"))
+      return JS_EXCEPTION;
+  }
+
+  if(len < 0)
+    len = strlen((const char*)p);
+
+  if(!dealloc)
+    return JS_NewArrayBuffer(ctx, p, len, NULL, NULL, FALSE);
+
+  bytes_free_data* d = malloc(sizeof(*d));
+
+  if(!d)
+    return JS_ThrowOutOfMemory(ctx);
+
+  d->fn = dealloc;
+  d->context = context;
+
+  JSValue ab = JS_NewArrayBuffer(ctx, p, len, free_bytes, d, FALSE);
+
+  if(JS_IsException(ab))
+    free(d);
+
+  return ab;
 }
 
 /* s = toPointer(ArrayBuffer[, offset])
@@ -1115,6 +1220,9 @@ static const JSCFunctionListEntry js_funcs[] = {
     JS_CFUNC_DEF("toBuffer", 2, js_toarraybuffer),
     JS_CFUNC_DEF("errno", 0, js_errno),
     JS_CFUNC_DEF("JSContext", 0, js_context),
+#ifdef CONFIG_TCC
+    JS_CFUNC_DEF("cc", 2, js_compiler_cc),
+#endif
 #ifdef RTLD_LAZY
     JS_PROP_INT32_DEF("RTLD_LAZY", RTLD_LAZY, JS_PROP_CONFIGURABLE),
 #endif

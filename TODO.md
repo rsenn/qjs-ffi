@@ -337,3 +337,163 @@ arbitrary time, which is why it is not the default. Checked in
    not polymorphic); its implicit constructor has no symbol.
 4. Out of scope: templates (only explicit instantiations), exceptions across
    the FFI boundary, by-value class parameters and returns, operators.
+
+---
+
+## 5. Meeting the bun:ffi spec: remaining discrepancies
+
+Checked 2026-10-02 against <https://bun.com/docs/runtime/ffi>, Bun's
+`packages/bun-types/ffi.d.ts` and its implementation (`src/runtime/ffi/`).
+Probed against this module (built with `ENABLE_TCC=ON`). Phases 1-5 above and
+`cc()` ([`doc/compiler.md`](doc/compiler.md)) are done; this is what is left.
+Ordered roughly by how likely bun code is to trip over it.
+
+### 5.1 Missing
+
+1. `read.{ptr,i8,i16,i32,i64,u8,u16,u32,u64,f32,f64}(ptr, byteOffset)`: absent
+   (`ffi.read` is `undefined`). Straight reads from an address, no DataView.
+2. `buffer_length` argument type (`FFIType.buffer_length`, bun enum value 21): a
+   `buffer` argument followed by its byte length, filled in from the same
+   object at call time. Not implemented: the name is unknown, so it silently
+   becomes `i32` and the call gets the wrong arity. Argument-only; as a
+   `returns` it must throw ("buffer_length is an argument-only type").
+3. `JSCallback` option `threadsafe`: accepted and ignored. Needs a hop to the
+   JS thread (job queue/`os` message), or a clear `TypeError` until then.
+4. `cc()` option `include` (`string | string[]`, `-I`), from `ffi.d.ts` (the docs
+   page only lists `flags`/`define`). Bun's default `flags` are
+   `-std=c11 -Wl,--export-all-symbols -g -O2`.
+5. `CFunction(...).close()`: `ffi.d.ts` declares it (frees the wrapper).
+6. `JSCallback` instance as a `function`/`ptr` argument (the docs pass it
+   directly, `.ptr` being only "slightly faster"): currently converts to 0, so
+   the C side gets NULL. `js_ptr()` should unwrap a `JSCallback`.
+
+### 5.2 Different shape
+
+1. **Done** (see 5.3; callers ported, `tests/test-to-array-buffer.js`).
+   `toArrayBuffer`/`toBuffer`: bun is `(ptr, byteOffset?, byteLength?,
+   [deallocatorContext,] jsTypedArrayBytesDeallocator?)`, with a NUL-terminated
+   read when `byteLength` is omitted; ours is the legacy
+   `(ArrayBuffer|number|string, size, copy)` (`js_toarraybuffer`, `ffi.c`), so
+   `toArrayBuffer(p, 1, 3)` yields 1 byte. See 5.3. Breaking for every caller of
+   the legacy form (`lib/*.js`, `tools/gen-bindings/emit/*`, `README.md`,
+   `test-ffi.js`, `tests/test-pointer-helpers.js`).
+   `toBuffer` returns an ArrayBuffer (QuickJS has no Node `Buffer`); keep.
+2. `new CFunction({ ptr, args, returns })`: docs use `new`; ours is a factory
+   that throws "CFunction is not a constructor" with `new` (and `CFunction(...)`
+   is what `doc/c-function.md` documents). Accept both.
+3. `CString`: bun's `CString(ptr[, byteOffset[, byteLength]])` is callable with
+   or without `new`, a falsy `ptr` gives `""`, and the result is a string. Ours
+   needs `new`, returns an object with `.ptr`/`.length`/`.toString()` and
+   neither `byteOffset` nor `byteLength`. (bun-types types it as `string`; the
+   object form with `.ptr` is what older Bun gave.)
+4. Pointers: bun hands out a `number` (to 2^53); ours are `bigint` once past 32
+   bits, so `ptr(u8)`, `JSCallback.ptr` and a `malloc()` result are all
+   `bigint`. Anything doing `ptr + 8` throws a mixed-type error. Decision
+   needed: return `number` when it fits in 2^53 (what bun does, and 64-bit
+   Linux/Windows user-space addresses always do), `bigint` only above.
+5. `FFIType.*` are strings here and numbers in bun (`FFIType.i32 === 5`,
+   `buffer_length === 21`); code that compares or indexes by the number
+   differs. Also `suffix` has no `"dylib"` (macOS is not a target).
+6. Errors: bun's `dlopen` failure is an `Error` with `code:
+   "ERR_DLOPEN_FAILED"`; ours is a `TypeError`. A missing symbol is a
+   `TypeError` in both.
+
+### 5.3 toArrayBuffer/toBuffer deallocator arguments: research (implemented)
+
+Read from Bun's `FFIObject.rs` (`to_array_buffer`/`to_buffer`):
+
+*   Both extra arguments are **raw C addresses** (`number | bigint`), not
+    JavaScript functions. `jsTypedArrayBytesDeallocator` is the address of a
+    native `void (*)(void *bytes, void *deallocatorContext)`
+    (JSC's `JSTypedArrayBytesDeallocator`), transmuted from the number;
+    `deallocatorContext` is an address handed back to it untouched. Anything
+    else throws "Expected callback to be a C pointer (number or BigInt)".
+*   Forms: `(ptr, off, len, dealloc)` (4th is the function) and `(ptr, off,
+    len, ctx, dealloc)`; `ctx` may be `null`/`undefined`. With a dealloc but no
+    ctx it is called with NULL.
+*   No deallocator: the memory is borrowed, never freed (`toBuffer` installs a
+    no-op deallocator for the same reason).
+*   A `JSCallback.ptr` is a number too, so it is *accepted*, but the docs warn
+    the callback "may execute on garbage-collector threads and must not call
+    JavaScript". It is not the intended use.
+*   Typical use: `toArrayBuffer(p, 0, n, dlsym(RTLD_DEFAULT, "free"))`; `free`
+    ignores the second argument, which is fine on the SysV x86-64 and aarch64
+    ABIs.
+
+Implemented as below in `js_toarraybuffer()` (`ffi.c`): a null/Number/BigInt
+first argument takes bun's form, anything else the legacy
+`js_toarraybuffer_legacy()`. A boolean among the later arguments of the bun form
+throws, so a missed `(p, n, false)` caller fails loudly; a missed
+`(p, n)` caller does not (it now means byteOffset), the one silent break. The
+in-tree callers (`lib/*.js`, `tools/gen-bindings`, `examples/`, tests) were
+ported: `(p, n, false)` became `(p, 0, n)`, and the copying `(p, n)` became
+`(p, 0, n).slice(0)`. `toArrayBuffer(ptr, off, len, dealloc)` takes an address only.
+
+Plan for QuickJS: `JS_NewArrayBuffer(ctx, ptr + off, len, free_func, opaque,
+FALSE)` takes `void (*)(JSRuntime*, void *opaque, void *ptr)`, a different
+signature, so `opaque` is a small malloc'd `{ fn, ctx }` and `free_func` calls
+`fn(ptr, ctx)` then frees `opaque`. No deallocator: `free_func = NULL`
+(borrow). QuickJS runs it synchronously on the JS thread, when the last
+reference is dropped or the runtime is freed (not on a GC thread), so a
+`JSCallback.ptr` would re-enter the interpreter in the middle of a
+finalization: reject a `JSCallback` instance with a `TypeError` and accept only
+numbers/bigints. Open decision: legacy `toArrayBuffer(ptr, size)` and bun's
+`toArrayBuffer(ptr, byteOffset)` collide for a numeric first argument with two
+arguments. Proposed: bun's meaning for number/bigint/null first arguments,
+and keep the legacy meaning only for an `ArrayBuffer`/string first argument
+(not valid in bun), then port the callers listed in 5.2.1.
+
+### 5.4 Plan: exposing variables (data symbols)
+
+What bun does: nothing. Its docs prose for `cc()` says "functions and
+variables", but `symbols` is typed `Record<string, FFIFunction>` and the
+implementation (`generate_symbol_for_function`, `ffi_body.rs`) requires `args`
+as an array and builds a call wrapper for each entry, so only functions are
+exposed. Variables would be an extension, so the shape below is ours.
+
+Shape: a spec with a `type` and no `args`/`returns` is a data symbol.
+
+```js
+const { symbols } = cc({
+  source: "counter.c",          // int counter = 5; const double pi = 3.14;
+  symbols: {
+    counter: { type: "i32" },
+    pi:      { type: "f64", readonly: true },
+    origin:  { type: ["f32", "f32"] },   // struct: an ArrayBuffer viewing it
+    hello:   { args: [], returns: "i32" }, // functions as before
+  },
+});
+symbols.counter;      // 5      (reads the memory each time)
+symbols.counter = 7;  // writes it (TypeError if readonly)
+```
+
+*   `symbols.<name>` is an accessor property (enumerable), so it is live: a read
+    converts the current value with the `returns` conversion of that type, a
+    write with the `args` conversion. A struct type (array) gives a getter only,
+    returning an external ArrayBuffer over the variable's memory (no copy, no
+    free function), which is also how a C array is exposed.
+*   The address, for passing `&counter` to C: `{ type: "i32", address: true }`
+    makes the property a plain read-only pointer value, like `dlsym()`. (Open
+    decision against a separate accessor; keeps one property per name.)
+*   Where: `js_build_symbols()` (`ffi.c`) decides function vs data by an own
+    `type` property, resolves the address as it already does (`dlsym` /
+    `tcc_get_symbol` / spec `ptr`), so `dlopen`, `linkSymbols` and `cc` all get
+    it. `c-function.c` already has the JS-to-native and native-to-JS
+    conversions per kind; factor them out to share with a getter/setter pair
+    made with `JS_DefinePropertyGetSet` over `JS_NewCFunctionData` (data: the
+    address and the kind; a struct type needs its `ffi_type*`, owned by the
+    spec the way `CFunction` owns its signature).
+*   `void`, `cstring` setters and `function` are the edge cases: `void` is
+    rejected; a `cstring` variable (`char *name`) reads like a `cstring`
+    return, and a write is rejected (it would need the string's storage to
+    outlive the call); a `function` variable reads as a pointer.
+*   Lifetime is the one of the library: after `dlopen().close()` the address
+    dangles, as with the functions. `cc()` code is never freed.
+*   Tests (`tests/test-cc.js`, `tests/test-dlopen-symbols.js`): read/write each
+    scalar kind, readonly, struct view aliasing the C memory, `address: true`
+    against `read`, unknown symbol, `{ type }` mixed with `{ args }` throws.
+*   Docs: replace the "Only functions can be exposed" paragraph in
+    `doc/compiler.md`, add to `doc/c-function.md`/README.
+
+Order of work: 5.1.1 (`read`), ~~5.2.1 + 5.3~~ (done),
+5.2.4, 5.1.2, 5.1.6, 5.2.2/3, 5.1.4/5, the variables of 5.4, 5.1.3 last.

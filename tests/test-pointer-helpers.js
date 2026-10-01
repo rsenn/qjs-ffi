@@ -11,13 +11,13 @@ await tests({
 
   'ptr()/toBuffer() round-trip preserves bytes'() {
     const src = new Uint8Array([1, 2, 3, 4, 5, 250]);
-    const back = new Uint8Array(toBuffer(ptr(src.buffer), src.length));
+    const back = new Uint8Array(toBuffer(ptr(src.buffer), 0, src.length).slice(0));
     eq(src.join(), back.join());
   },
 
-  'toBuffer(ptr, len) honours len'() {
+  'toBuffer(ptr, 0, len) honours len'() {
     const src = new Uint8Array([9, 8, 7, 6]);
-    eq(2, toBuffer(ptr(src.buffer), 2).byteLength);
+    eq(2, toBuffer(ptr(src.buffer), 0, 2).byteLength);
   },
 
   'CString reads a NUL-terminated string'() {

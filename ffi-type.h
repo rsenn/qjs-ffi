@@ -30,7 +30,8 @@ enum {
 };
 
 /* X(name, libffi type, kind): the single source for the FFIType export, the
- * name lookup in ffi_resolve_type() and FFI_TYPE_COUNT.
+ * name lookup in ffi_resolve_type() and FFI_TYPE_COUNT. Besides the short
+ * names, it carries bun:ffi's C-style aliases ("int", "uint8_t", "double" ...).
  */
 #define FFI_TYPE_LIST(X) \
   X("void", ffi_type_void, K_VOID) \
@@ -50,7 +51,24 @@ enum {
   X("pointer", ffi_type_pointer, K_POINTER) \
   X("ptr", ffi_type_pointer, K_POINTER) \
   X("function", ffi_type_pointer, K_POINTER) \
-  X("cstring", ffi_type_pointer, K_CSTRING)
+  X("cstring", ffi_type_pointer, K_CSTRING) \
+  X("int8_t", ffi_type_sint8, K_I8) \
+  X("int16_t", ffi_type_sint16, K_I16) \
+  X("int32_t", ffi_type_sint32, K_I32) \
+  X("int", ffi_type_sint32, K_I32) \
+  X("int64_t", ffi_type_sint64, K_I64) \
+  X("isize", ffi_type_sint64, K_I64) \
+  X("uint8_t", ffi_type_uint8, K_U8) \
+  X("uint16_t", ffi_type_uint16, K_U16) \
+  X("uint32_t", ffi_type_uint32, K_U32) \
+  X("uint64_t", ffi_type_uint64, K_U64) \
+  X("usize", ffi_type_uint64, K_U64) \
+  X("float", ffi_type_float, K_F32) \
+  X("double", ffi_type_double, K_F64) \
+  X("char", ffi_type_sint8, K_I8) \
+  X("buffer", ffi_type_pointer, K_POINTER) \
+  X("fn", ffi_type_pointer, K_POINTER) \
+  X("callback", ffi_type_pointer, K_POINTER)
 
 #define FFI_TYPE_COUNT_ONE(name, type, kind) +1
 #define FFI_TYPE_COUNT (0 FFI_TYPE_LIST(FFI_TYPE_COUNT_ONE))

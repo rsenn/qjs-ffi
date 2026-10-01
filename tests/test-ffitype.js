@@ -10,12 +10,26 @@ function libc(name) {
 const NAMES = [
   'void', 'bool', 'i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'i64', 'u64',
   'i64_fast', 'u64_fast', 'f32', 'f64', 'pointer', 'ptr', 'function', 'cstring',
+  // bun:ffi's C-style aliases
+  'int8_t', 'int16_t', 'int32_t', 'int', 'int64_t', 'isize', 'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t',
+  'usize', 'float', 'double', 'char', 'buffer', 'fn', 'callback',
 ];
 
 await tests({
   'FFIType exposes the full name vocabulary, each mapped to itself'() {
     for(const name of NAMES)
       eq(name, FFIType[name]);
+  },
+
+  'C-style aliases behave like the short name they stand for'() {
+    const abs = CFunction({ ptr: libc('abs'), args: ['int'], returns: 'int' });
+    eq(5, abs(-5));
+    const strlen = CFunction({ ptr: libc('strlen'), args: ['cstring'], returns: 'usize' });
+    eq(5n, strlen('hello'));
+    const toupper = CFunction({ ptr: libc('toupper'), args: ['int32_t'], returns: 'char' });
+    eq(65, toupper(97));
+    const fabs = CFunction({ ptr: libc('fabsf') || libc('abs'), args: ['float'], returns: 'float' });
+    eq(1.5, fabs(-1.5));
   },
 
   'FFIType has no extra names beyond the documented vocabulary'() {

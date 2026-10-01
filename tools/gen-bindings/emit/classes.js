@@ -51,7 +51,7 @@ function __virtual(slot, spec) {
 
     if(vptr === 0n) throw new Error("object has no vtable");
 
-    const fp = new DataView(toArrayBuffer(vptr + BigInt(8 * slot), 8, false)).getBigUint64(0, true);
+    const fp = new DataView(toArrayBuffer(vptr + BigInt(8 * slot), 0, 8)).getBigUint64(0, true);
     let f = cache.get(fp);
 
     if(!f) cache.set(fp, (f = CFunction({ ptr: fp, ...spec })));
@@ -105,7 +105,7 @@ const __finalizer = new FinalizationRegistry(h => {
   try {
     if(!h.destroyed) {
       h.destroyed = true;
-      if(h.dtor) h.dtor()(toArrayBuffer(BigInt(h.ptr), h.size, false));
+      if(h.dtor) h.dtor()(toArrayBuffer(BigInt(h.ptr), 0, h.size));
     }
   } finally {
     __free(h.ptr);

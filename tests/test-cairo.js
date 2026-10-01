@@ -76,7 +76,7 @@ await tests({
     cairo.cairo_surface_flush(surface);
 
     const stride = cairo.cairo_image_surface_get_stride(surface);
-    const px = new Uint8Array(toBuffer(cairo.cairo_image_surface_get_data(surface), stride * HEIGHT));
+    const px = new Uint8Array(toBuffer(cairo.cairo_image_surface_get_data(surface), 0, stride * HEIGHT).slice(0));
     const at = (x, y) => Array.from(px.subarray(y * stride + x * 4, y * stride + x * 4 + 4));
 
     // ARGB32 is native-endian 0xAARRGGBB, i.e. B,G,R,A in memory (little-endian)

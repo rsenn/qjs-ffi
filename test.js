@@ -121,7 +121,7 @@ console.log(u);
 
 /* p is a pointer to "dup this" -- 9 bytes of memory
  */
-b = toArrayBuffer(p, 9);
+b = toArrayBuffer(p, 0, 9).slice(0);
 u = new Uint8Array(b);
 console.log(u);
 
@@ -129,7 +129,7 @@ fp = dlsym(RTLD_DEFAULT, 'strcpy');
 if(fp == null) console.log(dlerror());
 define('strcpy', fp, null, 'string', 'string', 'string');
 
-b = toArrayBuffer(p, 16);
+b = toArrayBuffer(p, 0, 16).slice(0);
 call('free', p);
 
 let q;

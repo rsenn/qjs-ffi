@@ -3,6 +3,7 @@ project(qjs-ffi VERSION 0.9 LANGUAGES C)
 
 option(BUILD_STATIC_MODULES "Also build a static quickjs-ffi module (${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.a)" OFF)
 option(BUILD_LIBFFI "Checkout libffi into third_party/libffi and build it from source instead of using the system library" OFF)
+option(ENABLE_TCC "Checkout TinyCC into third_party/tinycc, build libtcc from source and export cc() (in-memory C compiler) from the ffi module" OFF)
 
 message("Building project [1;31m${PROJECT_NAME}[0m")
 
@@ -35,6 +36,12 @@ else(BUILD_LIBFFI)
     find_library(LIBFFI_LIBRARY ffi)
   endif(NOT LIBFFI_FOUND)
 endif(BUILD_LIBFFI)
+
+if(ENABLE_TCC)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLibTCC.cmake)
+  build_libtcc(libtcc-shared PIC)
+  include_directories("${libtcc-shared_INCLUDE_DIR}")
+endif(ENABLE_TCC)
 
 find_library(LIBDL dl)
 
@@ -98,6 +105,11 @@ target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${L
 if(BUILD_LIBFFI)
   add_dependencies(quickjs-ffi libffi-shared)
 endif(BUILD_LIBFFI)
+if(ENABLE_TCC)
+  target_compile_definitions(quickjs-ffi PRIVATE -DCONFIG_TCC=1 "-DCONFIG_TCC_LIB_DIR=\"${libtcc-shared_LIB_DIR}\"")
+  target_link_libraries(quickjs-ffi PUBLIC ${libtcc-shared_LIBRARY} m)
+  add_dependencies(quickjs-ffi libtcc-shared)
+endif(ENABLE_TCC)
 
 if(BUILD_STATIC_MODULES)
   # Statically-linked module: no JS_SHARED_LIBRARY define, so ffi.c's
@@ -122,6 +134,16 @@ if(BUILD_STATIC_MODULES)
     set(FFI_STATIC_LIBFFI "${LIBFFI_LIBRARY}")
     target_link_libraries(quickjs-ffi-static PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${FFI_STATIC_LIBFFI})
   endif(BUILD_LIBFFI)
+
+  if(ENABLE_TCC)
+    # Likewise a separate, non--fPIC libtcc build for the static target.
+    build_libtcc(libtcc-static)
+    target_compile_definitions(quickjs-ffi-static PRIVATE -DCONFIG_TCC=1 "-DCONFIG_TCC_LIB_DIR=\"${libtcc-static_LIB_DIR}\"")
+    target_include_directories(quickjs-ffi-static PRIVATE "${libtcc-static_INCLUDE_DIR}")
+    target_link_libraries(quickjs-ffi-static PUBLIC ${libtcc-static_LIBRARY} m)
+    add_dependencies(quickjs-ffi-static libtcc-static)
+    list(APPEND FFI_STATIC_LIBFFI "${libtcc-static_LIBRARY}" m)
+  endif(ENABLE_TCC)
 
   # quickjs-ffi.a (a plain archive, unlike the MODULE target above) carries
   # no transitive link info of its own -- a consumer linking it in outside

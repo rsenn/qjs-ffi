@@ -170,11 +170,20 @@ See [doc/js-callback.md](doc/js-callback.md).
 
 *   `p = ptr(buffer[, offset])` returns the address of an ArrayBuffer (or typed
     array) as a Number or BigInt.
-*   `b = toBuffer(p, n)` creates an ArrayBuffer of length n from pointer p.
-    This is the same function as toArrayBuffer().
-*   `b = toArrayBuffer(p, n[, copy])` does the same. The contents are copied
-    unless `copy` is `false`, in which case the ArrayBuffer views the original
-    memory and the caller must keep it alive.
+*   `b = toArrayBuffer(p[, byteOffset[, byteLength[, context]], deallocator])`
+    (bun:ffi's form) creates an ArrayBuffer over the memory at pointer `p`
+    (a Number or BigInt) plus `byteOffset`. It is a view, not a copy, so the
+    caller keeps the memory alive (use `.slice(0)` for a copy); without
+    `byteLength` the memory is read up to the first NUL byte. `toBuffer()` is
+    the same function.
+    `deallocator` is the *address* of a native `void (*)(void *bytes, void
+    *context)`, called with `context` (an address, or NULL) when the
+    ArrayBuffer is freed, e.g. `toArrayBuffer(p, 0, n, dlsym(RTLD_DEFAULT,
+    "free"))`. It is not a JSCallback (rejected with a `TypeError`): it runs
+    while QuickJS finalizes the buffer, where calling back into JS is unsafe.
+*   `b = toArrayBuffer(source[, size[, copy]])` for a source that is an
+    ArrayBuffer (or view) or a string, the pre-bun:ffi form: a string is taken
+    as content, the contents are copied unless `copy` is `false`.
 *   `s = toString(p[, n])` converts a pointer to a C string, n bytes long if n
     is given.
 *   `s = toPointer(buffer[, offset])` is like ptr(), but returns the address
@@ -185,7 +194,7 @@ See [doc/js-callback.md](doc/js-callback.md).
 
 ```
 	const src = new Uint8Array([1, 2, 3, 4]);
-	const back = new Uint8Array(toBuffer(ptr(src.buffer), src.length));
+	const back = new Uint8Array(toBuffer(ptr(src.buffer), 0, src.length).slice(0));
 ```
 
 Note that a string passed to toArrayBuffer() is taken as content, not as an

@@ -55,7 +55,7 @@ function main() {
   // Raw pixel write: a horizontal red -> blue gradient, straight into the
   // native ARGB8888 buffer -- no SDL_MapRGB/SDL_FillRect needed, since we
   // already know the byte layout this software surface uses on this ABI.
-  const pixels = new Uint32Array(toArrayBuffer(pixelsPtr, h * pitch, false));
+  const pixels = new Uint32Array(toArrayBuffer(pixelsPtr, 0, h * pitch));
   const stride = pitch / 4;
 
   for(let y = 0; y < h; y++)

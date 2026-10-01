@@ -55,7 +55,7 @@ function renderAscii(slot, ofs) {
     return;
   }
 
-  const pixels = new Uint8Array(toArrayBuffer(bufferPtr, rows * Math.abs(pitch)));
+  const pixels = new Uint8Array(toArrayBuffer(bufferPtr, 0, rows * Math.abs(pitch)).slice(0));
 
   for(let y = 0; y < rows; y++) {
     let line = '';
@@ -77,7 +77,7 @@ function main(args) {
   check(ft.FT_New_Face(library, fontPath, 0, faceBuf), 'FT_New_Face(' + fontPath + ')');
   const face = readPtr(faceBuf);
 
-  const faceRec = toArrayBuffer(face, 160);
+  const faceRec = toArrayBuffer(face, 0, 160).slice(0);
   const familyName = toString(readPtr(faceRec, FACE_FAMILY_NAME));
   const numGlyphs = new DataView(faceRec).getBigUint64(FACE_NUM_GLYPHS, true);
   console.log('font:', familyName, '(' + numGlyphs + ' glyphs)');
@@ -85,8 +85,8 @@ function main(args) {
   check(ft.FT_Set_Pixel_Sizes(face, 0, pixelSize), 'FT_Set_Pixel_Sizes');
   check(ft.FT_Load_Char(face, char.codePointAt(0), FT_LOAD_RENDER), 'FT_Load_Char(' + JSON.stringify(char) + ')');
 
-  const glyph = readPtr(toArrayBuffer(face, 160), FACE_GLYPH);
-  const slot = toArrayBuffer(glyph, 200);
+  const glyph = readPtr(toArrayBuffer(face, 0, 160).slice(0), FACE_GLYPH);
+  const slot = toArrayBuffer(glyph, 0, 200).slice(0);
   console.log('glyph:', JSON.stringify(char), 'origin (' + new DataView(slot).getInt32(SLOT_BITMAP_LEFT, true) + ',' + new DataView(slot).getInt32(SLOT_BITMAP_TOP, true) + ')');
 
   renderAscii(slot, SLOT_BITMAP);

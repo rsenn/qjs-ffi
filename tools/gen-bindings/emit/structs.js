@@ -55,7 +55,7 @@ function __write(dv, type, off, v) {
 function __variable(name, type) {
   const v = { get ptr() { return __sym(name); } };
   if(__sz(type) !== undefined) {
-    const dv = () => new DataView(toArrayBuffer(__sym(name), __sz(type), false));
+    const dv = () => new DataView(toArrayBuffer(__sym(name), 0, __sz(type)));
     Object.defineProperty(v, "value", { enumerable: true, get: () => __read(dv(), type, 0), set: x => __write(dv(), type, 0, x) });
   }
   return v;

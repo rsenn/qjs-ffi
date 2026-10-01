@@ -256,8 +256,8 @@ await tests({
     // always-zero-args call the old CallClosure made).
     const cmp = new JSCallback(
       (pa, pb) => {
-        const a = new Int32Array(toArrayBuffer(pa, 4, false))[0];
-        const b = new Int32Array(toArrayBuffer(pb, 4, false))[0];
+        const a = new Int32Array(toArrayBuffer(pa, 0, 4))[0];
+        const b = new Int32Array(toArrayBuffer(pb, 0, 4))[0];
         return a - b;
       },
       { args: ['pointer', 'pointer'], returns: 'i32' },

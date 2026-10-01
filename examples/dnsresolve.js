@@ -289,7 +289,7 @@ function Dump(buf, numBytes) {
 function CloneBuf(buf, newLen) {
     let n = newLen !== undefined ? newLen : buf.byteLength;
     let p = toPointer(buf);
-    return toArrayBuffer(p, n);
+    return toArrayBuffer(p, 0, n).slice(0);
 }
 
 function Once(fn, thisArg) {

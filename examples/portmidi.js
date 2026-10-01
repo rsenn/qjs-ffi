@@ -106,7 +106,7 @@ export class PmDeviceInfo extends ArrayBuffer {
   }
 
   static from(address) {
-    let ret = toArrayBuffer(address, 40);
+    let ret = toArrayBuffer(address, 0, 40).slice(0);
     return Object.setPrototypeOf(ret, PmDeviceInfo.prototype);
   }
 
@@ -219,7 +219,7 @@ define('Pm_GetDeviceInfo', dlsym(libportmidi, 'Pm_GetDeviceInfo'), null, 'buffer
 export function Pm_GetDeviceInfo(id) {
   const ptr = call('Pm_GetDeviceInfo', id);
 
-  return Object.setPrototypeOf(toArrayBuffer(ptr, 40), PmDeviceInfo.prototype);
+  return Object.setPrototypeOf(toArrayBuffer(ptr, 0, 40).slice(0), PmDeviceInfo.prototype);
 }
 
 /**
@@ -239,7 +239,7 @@ export function Pm_OpenInput(stream, inputDevice, inputDriverInfo = null, buffer
   let streamPtr = new BigUint64Array(1);
   let ret = call('Pm_OpenInput', streamPtr.buffer, inputDevice, inputDriverInfo, bufferSize, time_proc, time_info);
   let ptr = Number(streamPtr[0]);
-  let buf = toArrayBuffer(ptr, 48);
+  let buf = toArrayBuffer(ptr, 0, 48).slice(0);
   if(typeof stream == 'function') stream(buf, ptr);
   else if('length' in stream) stream.splice(0, stream.length, buf, ptr);
   else throw new TypeError(`Pm_OpenInput argument 1 must be function or array`);
@@ -265,7 +265,7 @@ export function Pm_OpenOutput(stream, outputDevice, outputDriverInfo = null, buf
   let streamPtr = new BigUint64Array(1);
   let ret = call('Pm_OpenOutput', streamPtr.buffer, outputDevice, outputDriverInfo, bufferSize, time_proc, time_info, latency);
   let ptr = Number(streamPtr[0]);
-  let buf = toArrayBuffer(ptr, 48);
+  let buf = toArrayBuffer(ptr, 0, 48).slice(0);
   if(typeof stream == 'function') stream(buf, ptr);
   else if('length' in stream) stream.splice(0, stream.length, buf, ptr);
   else throw new TypeError(`Pm_OpenOutput argument 1 must be function or array`);

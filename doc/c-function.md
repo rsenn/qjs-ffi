@@ -67,6 +67,7 @@ Same vocabulary as [`JSCallback`](js-callback.md#types), matching
 | `"f32"`                 | `float`                           | `number`                                                 |
 | `"f64"`                 | `double`                          | `number`                                                 |
 | `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise `number` if the address fits in 32 bits, `bigint` otherwise |
+| C-style aliases         | as the short name               | `"int8_t"`/`"int16_t"`/`"int32_t"`/`"int"` = `i8`/`i16`/`i32`/`i32`; `"int64_t"`/`"isize"` = `i64`; `"uint8_t"`/`"uint16_t"`/`"uint32_t"` = `u8`/`u16`/`u32`; `"uint64_t"`/`"usize"` = `u64`; `"float"` = `f32`; `"double"` = `f64`; `"char"` = `i8`; `"buffer"`/`"fn"`/`"callback"` = `pointer` (bun:ffi's names) |
 | `"<type> *"`            | `<type> *`                        | same as `"pointer"`, for any `<type>` (`"int *"`, `"struct node **"`, `"void*"`): every name ending in `*` is a pointer and what precedes it is documentation. `"char *"` is therefore a plain pointer; use `"cstring"` for a string |
 | `"cstring"`             | `char *`                          | `string` (return) / `string` (argument, copied via `JS_ToCString`) -- decoded/encoded as a NUL-terminated C string |
 | `[ <type>, ... ]`       | a struct passed or returned by value | an `ArrayBuffer` of the struct's bytes, see [Structs by value](#structs-by-value) |
