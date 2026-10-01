@@ -51,15 +51,24 @@ const RESERVED = new Set([
   'false',
 ]);
 
-let stripNamespace = '';
+let stripNamespaces = [];
 
-export function setNamespace(ns) {
-  stripNamespace = ns ? ns + '::' : '';
+/* The --namespace values, whose prefixes flattenName() drops. */
+export function setNamespaces(namespaces) {
+  stripNamespaces = namespaces.filter(Boolean).map(ns => ns + '::');
 }
 
-/* "ns::Name" -> "ns_Name", or "Name" when ns is the --namespace being stripped. */
+/* "ns::Name" -> "ns_Name", or "Name" when ns is one of the --namespace values
+ * being stripped; every listed namespace goes, so "a::b::Name" is "Name" with
+ * both a and b listed. */
 export function flattenName(name) {
-  return (stripNamespace && name.startsWith(stripNamespace) ? name.slice(stripNamespace.length) : name).replace(/::/g, '_');
+  for(let again = true; again; ) {
+    const prefix = stripNamespaces.find(p => name.startsWith(p));
+
+    if((again = !!prefix)) name = name.slice(prefix.length);
+  }
+
+  return name.replace(/::/g, '_');
 }
 
 export function safeIdent(name) {
@@ -83,6 +92,7 @@ export function header(opts) {
     (opts.library ? ' --library=' + opts.library : '') +
     (opts.ffiType ? ' --ffitype' : '') +
     (opts.structs ? ' --structs' : '') +
+    opts.namespaces.map(n => ' --namespace=' + n).join('') +
     (opts.describe ? ' --describe' : '') +
     (opts.jsdoc ? ' --jsdoc' : '') +
     (opts.cxx ? ' --c++' : '') +

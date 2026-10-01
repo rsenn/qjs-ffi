@@ -1,0 +1,78 @@
+/* Virtual calls go through the object's vtable, so a method needs its slot.
+ * clang's -fdump-vtable-layouts prints them once a probe has made it lay the
+ * class out (see runLayoutDump()):
+ *
+ *   VTable indices for 'geo::Shape' (3 entries).
+ *      0 | geo::Shape::~Shape() [complete]
+ *      1 | geo::Shape::~Shape() [deleting]
+ *      2 | double geo::Shape::area() const
+ *
+ * An index is relative to the address point the object's vptr holds, and
+ * names the methods the class itself declares, overriders included, which the
+ * AST does not flag as virtual.
+ */
+
+/* Map: class name -> [{ index, text }]. */
+export function parseVtableIndices(out) {
+  const classes = new Map();
+  const block = /^VTable indices for '([^']+)' \(\d+ entr(?:y|ies)\)\.\n((?:[ \t]+\d+ \| .*\n?)+)/gm;
+
+  for(const m of out.matchAll(block)) classes.set(m[1], [...m[2].matchAll(/^[ \t]+(\d+) \| (.*)$/gm)].map(e => ({ index: Number(e[1]), text: e[2] })));
+
+  return classes;
+}
+
+/* The number of top-level, comma-separated items of `s`. */
+function countParams(s) {
+  if(!s.trim() || s.trim() === 'void') return 0;
+
+  let depth = 0;
+  let n = 1;
+
+  for(const c of s) {
+    if('(<[{'.includes(c)) depth++;
+    else if(')>]}'.includes(c)) depth--;
+    else if(c === ',' && depth === 0) n++;
+  }
+
+  return n;
+}
+
+/* { name, arity, const } of the method entry `text` declares for `cls`, or
+ * null (a destructor, or not a member of cls). */
+function methodOf(text, cls) {
+  const m = new RegExp('(?:^|[\\s*&])' + cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '::(\\w+)\\(').exec(text);
+
+  if(!m) return null;
+
+  const start = m.index + m[0].length;
+  let depth = 1;
+  let end = start;
+
+  for(; end < text.length && depth > 0; end++) depth += text[end] === '(' ? 1 : text[end] === ')' ? -1 : 0;
+
+  return { name: m[1], arity: countParams(text.slice(start, end - 1)), const: /^\s*const\b/.test(text.slice(end)) };
+}
+
+/* Sets `vtableSlot` on the methods of class entry `cls` that the entries
+ * (see parseVtableIndices()) match by name, number of parameters and
+ * constness, and on its destructor (the complete-object one, which is what
+ * `.delete()` calls). A method that is not matched by exactly one entry, or
+ * shares all three with another of the class, is left alone, and so is bound
+ * to its own symbol: a wrong slot would call the wrong function.
+ */
+export function assignVtableSlots(cls, entries) {
+  const methods = entries.map(e => ({ ...methodOf(e.text, cls.name), index: e.index })).filter(m => m.name);
+  const key = m => m.name + '/' + m.arity + '/' + !!m.const;
+  const own = cls.methods.filter(m => !m.static);
+  const dtor = entries.find(e => e.text.includes('::~') && /\[complete\]\s*$/.test(e.text));
+
+  for(const m of own) {
+    const k = key({ name: m.name, arity: m.arity, const: m.const });
+    const found = methods.filter(e => key(e) === k);
+
+    if(found.length === 1 && own.filter(o => key({ name: o.name, arity: o.arity, const: o.const }) === k).length === 1) m.vtableSlot = found[0].index;
+  }
+
+  if(dtor) cls.destructor = { ...cls.destructor, vtableSlot: dtor.index };
+}

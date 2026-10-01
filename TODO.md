@@ -285,22 +285,38 @@ copy constructor is passed by hidden reference, which libffi does not know),
 assumes 8-byte alignment of 64-bit members). Needs the new `ffi` module
 installed (`tests/test-struct-by-value.js`).
 
+### Done: virtual dispatch
+
+A virtual method is called through the object's vtable (`__virtual(slot, spec)`
+in the generated module: the slot of the vtable its first word points to, a
+`CFunction` per target), so an object wrapped by a base class
+(`Base.at(ptr)`, e.g. what a factory returns) runs its real class's override,
+a pure virtual method is callable, and `.delete()` through a base runs the
+derived destructor (also an implicit one that inherits a virtual destructor).
+The slots come from clang: `runLayoutDump()` adds a probe per polymorphic
+class (a call of the destructor, and the address of a virtual method) and
+compiles with `-S -emit-llvm -fdump-vtable-layouts`, whose `VTable indices`
+blocks `vtable.js` parses; `ir.js` matches each class's own methods to them by
+name, number of parameters and constness, as the AST flags no overrider as
+virtual. A method that does not match exactly one entry (two overloads equal in
+those three) keeps its own symbol, as does everything with `--api=define`.
+Needs codegen for the probe, so a header with polymorphic classes takes a bit
+longer. Not covered: an overrider in a class whose destructor is non-virtual and
+no method is declared `virtual` (nothing triggers its layout), multiple and
+virtual inheritance (below).
+
 ### Next: C++ gaps
 
-1. Virtual methods are bound to the declaring class's own symbol, so they
-   are called non-virtually: a base-class method called on a subclass
-   instance ignores the override. Real dispatch needs the vtable slot index
-   (declaration order, the destructor taking two slots) in the IR.
-2. Multiple and virtual inheritance: the `this` adjustment needs base offsets
+1. Multiple and virtual inheritance: the `this` adjustment needs base offsets
    (`BaseOffsets` in the record layout dump, not captured yet). Extra bases
    are only noted in a comment.
-3. Free functions with C++ linkage are bound (`geo::add` is exported as
+2. Free functions with C++ linkage are bound (`geo::add` is exported as
    `geo_add`, overloads dispatched like methods, symbols bound on first call).
    Still missing: default arguments (every argument must be passed), and the
    by-value class types (`Point`, `Size`, `Mat`, `Scalar`, `Ptr<T>`) most
    OpenCV signatures use.
-4. A class without declared constructors is zero-filled on `new` (only when
+3. A class without declared constructors is zero-filled on `new` (only when
    not polymorphic); its implicit constructor has no symbol.
-5. No finalizer: an owned object is only destroyed by `.delete()`.
-6. Out of scope: templates (only explicit instantiations), exceptions across
+4. No finalizer: an owned object is only destroyed by `.delete()`.
+5. Out of scope: templates (only explicit instantiations), exceptions across
    the FFI boundary, by-value class parameters and returns, operators.

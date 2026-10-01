@@ -4,6 +4,7 @@ import { JsonParser } from 'json';
 import { AstCondenser } from './condense.js';
 import { walkDecls, collectRecordTypedefs } from './ir.js';
 import { header } from './emit/common.js';
+import { parseVtableIndices } from './vtable.js';
 
 function shquote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
@@ -48,7 +49,7 @@ function mtime(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 5;
+const AST_CACHE_VERSION = 6;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
@@ -99,6 +100,7 @@ export function runLayoutDump(opts, source, ast) {
   const types = [];
   const fieldProbes = [];
   const typedefNames = [];
+  const vtableProbes = [];
 
   /* `t` is the record's type spelling; its public, named, non-bitfield fields
    * get a size probe. */
@@ -112,6 +114,34 @@ export function runLayoutDump(opts, source, ast) {
       if(child.kind === 'AccessSpecDecl') access = child.access;
       else if(child.kind === 'FieldDecl' && child.name && !child.isBitfield && access === 'public') fieldProbes.push({ type: t, field: child.name });
     }
+
+    if(node.kind === 'CXXRecordDecl' && node.definitionData && node.definitionData.isPolymorphic) addVtableProbe(node, t);
+  };
+
+  /* clang lays a class's vtable out, and with -fdump-vtable-layouts prints
+   * it, only once code needs it: a call of the destructor does when that is
+   * virtual, taking the address of a virtual method does whatever the
+   * destructor is. The AST flags only the methods declared `virtual`, so
+   * those are the ones tried; an overloaded name would be ambiguous. */
+  const addVtableProbe = (node, t) => {
+    const i = vtableProbes.length;
+    const counts = {};
+    const virtuals = [];
+    let access = node.tagUsed === 'class' ? 'private' : 'public';
+    let destructorOk = true;
+
+    for(const child of node.inner || []) {
+      if(child.kind === 'AccessSpecDecl') access = child.access;
+      else if(child.kind === 'CXXDestructorDecl' && access !== 'public') destructorOk = false;
+      else if(child.kind === 'CXXMethodDecl' && child.name && access === 'public' && child.storageClass !== 'static' && !child.name.startsWith('operator')) {
+        counts[child.name] = (counts[child.name] || 0) + 1;
+        if(child.virtual || child.pure) virtuals.push(child.name);
+      }
+    }
+
+    const unique = virtuals.find(n => counts[n] === 1);
+
+    vtableProbes.push('typedef ' + t + ' __gbc' + i + ';\n' + (destructorOk ? 'void __gbd' + i + '(__gbc' + i + '* p) { p->~__gbc' + i + '(); }\n' : '') + (unique ? 'auto __gbm' + i + ' = &__gbc' + i + '::' + unique + ';\n' : ''));
   };
 
   // Field and typedef sizes are only needed for what will be collected, and
@@ -159,11 +189,14 @@ export function runLayoutDump(opts, source, ast) {
       '"\n' +
       types.map((t, i) => 'enum { __probe' + i + ' = sizeof(' + t + ') };\n').join('') +
       fieldProbes.map((p, i) => 'struct __gb_f' + i + ' { char b[sizeof(((' + p.type + ' *)0)->' + p.field + ')]; };\nenum { __gb_fu' + i + ' = sizeof(struct __gb_f' + i + ') };\n').join('') +
-      typedefNames.map((n, i) => 'struct __gb_t' + i + ' { char b[sizeof(' + n + ')]; };\nenum { __gb_tu' + i + ' = sizeof(struct __gb_t' + i + ') };\n').join(''),
+      typedefNames.map((n, i) => 'struct __gb_t' + i + ' { char b[sizeof(' + n + ')]; };\nenum { __gb_tu' + i + ' = sizeof(struct __gb_t' + i + ') };\n').join('') +
+      vtableProbes.join(''),
   );
   f.close();
 
-  const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', '-fsyntax-only', ...langArgs(opts, source), ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
+  // Only code generation lays a vtable out, which costs more than parsing.
+  const compile = vtableProbes.length ? ['-Xclang', '-fdump-vtable-layouts', '-S', '-emit-llvm', '-o', '/dev/null'] : ['-fsyntax-only'];
+  const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', ...compile, ...langArgs(opts, source), ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
   const p = std.popen(parts.map(shquote).join(' ') + ' 2>/dev/null', 'r');
   const out = p.readAsString();
 
@@ -192,6 +225,12 @@ export function runLayoutDump(opts, source, ast) {
     if(probe) layouts['typedef ' + n] = { size: probe.size };
     delete layouts['struct __gb_t' + i];
   });
+
+  for(const [name, entries] of parseVtableIndices(out)) {
+    const key = Object.keys(layouts).find(k => k.endsWith(' ' + name) && /^(class|struct) /.test(k));
+
+    if(key) layouts[key].vtableIndices = entries;
+  }
 
   return layouts;
 }

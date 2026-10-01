@@ -41,6 +41,24 @@ function __invoke(list, self, args) {
   return self === undefined ? m.f()(...args) : m.f()(self, ...args);
 }
 
+/* A call through slot \`slot\` of the vtable the object's first word points to,
+ * so what the object's real class overrides runs, whatever class wraps it. */
+function __virtual(slot, spec) {
+  const cache = new Map();
+
+  return (self, ...args) => {
+    const vptr = new DataView(self).getBigUint64(0, true);
+
+    if(vptr === 0n) throw new Error("object has no vtable");
+
+    const fp = new DataView(toArrayBuffer(vptr + BigInt(8 * slot), 8, false)).getBigUint64(0, true);
+    let f = cache.get(fp);
+
+    if(!f) cache.set(fp, (f = CFunction({ ptr: fp, ...spec })));
+    return f(self, ...args);
+  };
+}
+
 class __CxxObject extends ArrayBuffer {
   constructor(...args) {
     const info = new.target.__info;
@@ -73,20 +91,24 @@ const CLASS_RESERVED_MEMBERS = new Set(['constructor', 'ptr', 'from', 'at', 'del
 
 /* One CFunction()/__bind() expression for a constructor, method or
  * destructor symbol; `thisType` ("ns::Class *"), if given, is the type of the
- * implicit `this` pointer prepended to the parameters. */
-function classFn(symbol, entry, thisType, opts) {
+ * implicit `this` pointer prepended to the parameters. With a vtable `slot`
+ * (--api=cfunction) the call goes through the object's vtable instead, to
+ * whatever overrides the method in the object's real class. */
+function classFn(symbol, entry, thisType, opts, slot) {
   const cf = [...(thisType ? [thisType] : []), ...paramTypes(entry)];
   const def = [...(thisType ? [thisType] : []), ...entry.defTypes.params];
-  const sym = jsLiteral(symbol);
+  const virtual = slot !== undefined && opts.api !== 'define';
 
-  if(opts.api === 'define') return '__bind(' + sym + ',' + jsLiteral(entry.defTypes.returnType || 'void') + def.map(t => ',' + jsLiteral(t)).join('') + ')';
+  if(opts.api === 'define') return '__bind(' + jsLiteral(symbol) + ',' + jsLiteral(entry.defTypes.returnType || 'void') + def.map(t => ',' + jsLiteral(t)).join('') + ')';
 
-  return wrapReturn(entry.returnType, 'CFunction({ptr:__sym(' + sym + '),args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returnType || 'void', opts) + '})', opts);
+  const types = 'args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returnType || 'void', opts);
+
+  return wrapReturn(entry.returnType, virtual ? '__virtual(' + slot + ',{' + types + '})' : 'CFunction({ptr:__sym(' + jsLiteral(symbol) + '),' + types + '})', opts);
 }
 
 /* `const NAME = [ { n, t, f }, ... ];`, one element per overload. */
 function overloadList(name, entries, thisType, opts) {
-  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.arity + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts) + ')},\n').join('') + '];\n';
+  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.arity + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts, e.vtableSlot) + ')},\n').join('') + '];\n';
 }
 
 /* With every class listed after the class it extends. A class extends its
@@ -149,12 +171,12 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
     const base = baseOf(c);
     const thisType = c.name + ' *';
     const member = n => (CLASS_RESERVED_MEMBERS.has(n) ? '_' + n : n);
-    const methods = c.methods.filter(m => !m.pure);
+    const methods = c.methods.filter(m => !m.pure || m.vtableSlot !== undefined);
     const names = kind => [...new Set(methods.filter(m => !!m.static === (kind === 's')).map(m => m.name))];
     let body = '';
     let out = '';
 
-    if(c.abstract) out += '// ' + c.name + ' is abstract: its pure virtual methods have no symbol and are left to subclasses.\n';
+    if(c.abstract && c.methods.some(m => m.pure && m.vtableSlot === undefined)) out += '// ' + c.name + ' is abstract: its pure virtual methods without a vtable slot have no symbol and are left to subclasses.\n';
     if(c.bases.length > (base ? 1 : 0)) out += '// ' + c.name + ': not extending ' + c.bases.slice(base ? 1 : 0).map(b => b.name).join(', ') + ' (only a single public, non-virtual base at offset 0 is supported).\n';
 
     if(c.constructors.length) out += overloadList(prefix + 'ctor', c.constructors, thisType, opts);
@@ -187,7 +209,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
     if(opts.describe && c.constructors.length) sigs.push(sigCode(id, c.constructors));
     out += sigs.join('');
 
-    const dtor = c.destructor ? '__lazy(()=>' + classFn(c.destructor.mangledName, { params: [], defTypes: { params: [] } }, thisType, opts) + ')' : 'null';
+    const dtor = c.destructor && (c.destructor.mangledName || c.destructor.vtableSlot !== undefined) ? '__lazy(()=>' + classFn(c.destructor.mangledName, { params: [], defTypes: { params: [] } }, thisType, opts, c.destructor.vtableSlot) + ')' : 'null';
     const zeroInit = !c.constructors.length && !c.abstract && !c.polymorphic;
     out += id + '.__info = { size: ' + c.size + ', ctors: ' + (c.constructors.length ? prefix + 'ctor' : 'null') + ', dtor: ' + dtor + (zeroInit ? ', zeroInit: true' : '') + ' };\n';
 

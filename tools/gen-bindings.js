@@ -64,7 +64,9 @@
  *                            .cxx, .hh, .hpp or .hxx extension; a .h needs this)
  *   --std=<std>              C++ standard passed to clang, e.g. c++17
  *   --namespace=<name>       drop the C++ namespace prefix <name>:: from generated
- *                            class/function names (stk::Foo -> Foo instead of stk_Foo)
+ *                            class/function names (stk::Foo -> Foo instead of stk_Foo);
+ *                            repeatable, every listed namespace is dropped (with
+ *                            a and b, a::b::Foo is Foo)
  *   -I<dir>                  extra clang include dir (repeatable)
  *   -D<name[=val]>           extra clang macro define (repeatable)
  *   --library=<path>         dlopen() this shared library instead of

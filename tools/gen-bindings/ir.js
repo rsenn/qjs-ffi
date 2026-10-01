@@ -1,6 +1,7 @@
 import { runLayoutDump } from './clang.js';
 import { normalizeType, splitFunctionType, sizeOfC, mapCType } from './types.js';
 import { header } from './emit/common.js';
+import { assignVtableSlots } from './vtable.js';
 
 /* Builds a name -> underlying-type-string map from every top-level
  * TypedefDecl, for resolving a return type's typedef name in mapCType().
@@ -543,6 +544,8 @@ export function collectIR(root, isSourceFile, idPrefix) {
         }
       }
     }
+
+    if(layout && layout.vtableIndices) assignVtableSlots(cls, layout.vtableIndices);
 
     ir.classes.push(cls);
   }

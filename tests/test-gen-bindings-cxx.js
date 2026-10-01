@@ -1,5 +1,5 @@
 import * as std from 'std';
-import { realpath } from 'os';
+import { realpath, remove } from 'os';
 import { tests, eq, assert } from './tinytest.js';
 
 const root = scriptArgs[0].replace(/[^/]*$/, '') + '../';
@@ -104,7 +104,7 @@ await tests({
   },
 
   'destructor and bases are recorded'() {
-    same({ mangledName: '_ZN3geo4BaseD1Ev', virtual: true }, base.destructor);
+    same({ mangledName: '_ZN3geo4BaseD1Ev', virtual: true, vtableSlot: 0 }, base.destructor);
     same([{ name: 'geo::Base', access: 'public' }], shape.bases);
   },
 
@@ -494,6 +494,57 @@ await tests({
     assert(point.includes('@property {number} x - int, offset 0') && point.includes('@property {number} y - int, offset 4'), 'struct members');
     assert(shape.includes('@extends {geo_Base}') && shape.includes('@property {number} width - int, offset 20'), 'class members join the C++ class block');
     assert(!sh('qjsm ' + root + 'tools/gen-bindings.js --no-cache --std=c++17 --structs --library=' + lib + ' ' + root + 'tests/cxx/shapes.hpp').includes('@property'), 'no --jsdoc, no member docs');
+  },
+
+  '--namespace is repeatable and every listed namespace is dropped from the names'() {
+    const names = (...ns) => {
+      const text = sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--structs', ...ns.map(n => '--namespace=' + n), root + 'tests/cxx/namespaces.hpp'].join(' '));
+
+      return { text, exports: [...text.matchAll(/^export (?:class|function|const) (\w+)/gm)].map(m => m[1]).filter(n => !/^__/.test(n)) };
+    };
+
+    const none = names().exports;
+
+    for(const n of ['a_P', 'a_Q', 'a_g', 'b_f', 'b_c_h']) assert(none.includes(n), n + ' without --namespace: ' + none);
+
+    const one = names('a').exports;
+
+    for(const n of ['P', 'Q', 'g', 'b_f', 'b_c_h']) assert(one.includes(n), n + ' with a: ' + one);
+    assert(!one.includes('a_P'), 'a_ is gone');
+
+    const both = names('a', 'b');
+
+    for(const n of ['P', 'Q', 'g', 'f', 'c_h']) assert(both.exports.includes(n), n + ' with a and b: ' + both.exports);
+    assert(both.text.includes('--namespace=a --namespace=b'), 'the regenerate line lists both');
+
+    const nested = names('b', 'c').exports;
+
+    assert(nested.includes('h') && nested.includes('f') && nested.includes('a_g'), 'b::c::h is h with b and c: ' + nested);
+  },
+
+  '--namespace aborts, writing nothing, when dropping it makes two exports one'() {
+    const out = tmp + 'test-gen-bindings-cxx.collide.js';
+    const gen = (...flags) => {
+      remove(out);
+      return sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--structs', ...flags, '-o', out, root + 'tests/cxx/collide.hpp'].join(' '));
+    };
+
+    gen();
+    assert(/export function a_run|export const a_run/.test(std.loadFile(out)), 'a_run without --namespace');
+
+    gen('--namespace=a');
+    assert(/export const run /.test(std.loadFile(out)) && /export const b_run /.test(std.loadFile(out)), 'only a is dropped, no clash');
+
+    const msg = gen('--namespace=a', '--namespace=b');
+
+    assert(std.loadFile(out) === null, 'nothing is written on a collision');
+    assert(/"run" would be exported by: function a::run; function b::run/.test(msg), msg);
+    assert(/"Item" would be exported by: (struct a::Item; class b::Item|class b::Item; struct a::Item)/.test(msg), msg);
+    assert(/name collision, nothing written/.test(msg), msg);
+
+    remove(out);
+    sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--namespace=a', '--namespace=b', '--emit-ir=' + out, root + 'tests/cxx/collide.hpp'].join(' '));
+    assert(std.loadFile(out) !== null, 'the IR does not depend on names, so --emit-ir is not blocked');
   },
 
   '--jsdoc: classes, methods and functions get typed @param/@returns blocks, overloads under @overload'() {

@@ -3,7 +3,8 @@ import { usage, parseArgs } from './args.js';
 import { sourceFilter, runClangAstDump } from './clang.js';
 import { collectIR, newIR, linkPrototypeChains, mergeIR } from './ir.js';
 import { resolveByValue } from './by-value.js';
-import { bindable, setNamespace } from './emit/common.js';
+import { nameCollisions } from './names.js';
+import { bindable, setNamespaces } from './emit/common.js';
 import { generateCFunction, generateDefine } from './emit/functions.js';
 
 export function main() {
@@ -51,7 +52,15 @@ export function main() {
     resolveByValue(ir, opts);
   }
 
-  setNamespace(opts.namespace);
+  setNamespaces(opts.namespaces);
+
+  const clashes = opts.emitIr ? [] : nameCollisions(ir, opts);
+
+  if(clashes.length) {
+    for(const c of clashes) std.err.puts('gen-bindings.js: after dropping ' + opts.namespaces.map(n => n + '::').join(', ') + ', "' + c.ident + '" would be exported by: ' + c.entities.join('; ') + '\n');
+    std.err.puts('gen-bindings.js: name collision, nothing written; drop fewer --namespace values\n');
+    std.exit(1);
+  }
 
   const out = opts.emitIr ? JSON.stringify(ir, null, 2) + '\n' : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
   const dest = opts.emitIr || opts.output;
