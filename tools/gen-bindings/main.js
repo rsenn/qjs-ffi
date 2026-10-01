@@ -17,6 +17,11 @@ export function main() {
     std.exit(1);
   }
 
+  if(opts.finalize && opts.api === 'define') {
+    std.err.puts('gen-bindings.js: --finalize needs --api=cfunction\n');
+    std.exit(1);
+  }
+
   let ir;
 
   if(opts.fromIr) {

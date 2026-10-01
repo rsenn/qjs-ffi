@@ -49,6 +49,12 @@
  *                            passed to a pointer parameter as it is, with the
  *                            layout in `Name.size/align/fields`, and for every
  *                            extern variable an accessor { ptr, value }
+ *   --finalize               a C++ object made with `new` is also destroyed (its
+ *                            destructor run and its memory freed) when it is
+ *                            garbage collected, not only by .delete(); the
+ *                            object then lives in calloc'd memory, and the
+ *                            destructor runs on a later turn of the event loop
+ *                            (--api=cfunction)
  *   --describe               name the parameters of every bound function, method
  *                            and constructor in its JS signature, and attach
  *                            each one's C types and overloads as

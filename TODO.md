@@ -305,6 +305,24 @@ longer. Not covered: an overrider in a class whose destructor is non-virtual and
 no method is declared `virtual` (nothing triggers its layout), multiple and
 virtual inheritance (below).
 
+### Done: --finalize
+
+`--finalize` (opt-in, `--api=cfunction`) also destroys an object made with
+`new` when it is garbage collected: its destructor runs and its memory is
+freed, where without it only `.delete()` runs the destructor. A
+FinalizationRegistry callback gets what was registered, not the object, whose
+memory would be gone, so the object lives in `calloc`'d memory that the
+wrapper only views (an external ArrayBuffer, the constructor returning it), and
+the callback runs the destructor on a view of its own, through the vtable for a
+virtual one, then `free`s it. `.delete()` still destroys at once and marks the
+record, so the collector does not destroy it twice; it keeps the memory until
+collection, so a field read after it stays valid. An object wrapped with
+`at(ptr)` is never registered. Limits: the callback runs on a later turn of the
+event loop, not inside the collection (`std.gc()` then an `os.setTimeout` turn);
+an object still alive at exit is not destroyed; a destructor runs at an
+arbitrary time, which is why it is not the default. Checked in
+`tests/test-gen-bindings-finalize.js`, also under valgrind.
+
 ### Next: C++ gaps
 
 1. Multiple and virtual inheritance: the `this` adjustment needs base offsets
@@ -317,6 +335,5 @@ virtual inheritance (below).
    OpenCV signatures use.
 3. A class without declared constructors is zero-filled on `new` (only when
    not polymorphic); its implicit constructor has no symbol.
-4. No finalizer: an owned object is only destroyed by `.delete()`.
-5. Out of scope: templates (only explicit instantiations), exceptions across
+4. Out of scope: templates (only explicit instantiations), exceptions across
    the FFI boundary, by-value class parameters and returns, operators.

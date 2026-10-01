@@ -58,7 +58,11 @@ function __virtual(slot, spec) {
     return f(self, ...args);
   };
 }
+`;
 
+/* The root class of the generated ones. An object made with \`new\` owns
+ * ArrayBuffer memory, and only delete() runs its destructor. */
+const CXX_OBJECT = `
 class __CxxObject extends ArrayBuffer {
   constructor(...args) {
     const info = new.target.__info;
@@ -81,6 +85,74 @@ class __CxxObject extends ArrayBuffer {
     const dtor = this.constructor.__info.dtor;
     if(dtor) dtor()(this);
     __deleted.add(this);
+  }
+}
+`;
+
+/* --finalize: an object made with \`new\` is also destroyed when it is garbage
+ * collected. A FinalizationRegistry callback gets what was registered, not
+ * the object, whose memory would be gone, so the object lives in calloc'd
+ * memory the wrapper only views, and the callback runs the destructor on a
+ * view of its own (unless delete() did) and frees it. delete() keeps the memory
+ * until then, so a field read after it stays valid. Callbacks run on a later
+ * turn of the event loop, not inside the collection. */
+const CXX_OBJECT_FINALIZED = `
+const __calloc = CFunction({ ptr: dlsym(RTLD_DEFAULT, "calloc"), args: ["u64", "u64"], returns: "pointer" });
+const __free = CFunction({ ptr: dlsym(RTLD_DEFAULT, "free"), args: ["pointer"], returns: "void" });
+const __owned = new WeakMap();
+
+const __finalizer = new FinalizationRegistry(h => {
+  try {
+    if(!h.destroyed) {
+      h.destroyed = true;
+      if(h.dtor) h.dtor()(toArrayBuffer(BigInt(h.ptr), h.size, false));
+    }
+  } finally {
+    __free(h.ptr);
+  }
+});
+
+class __CxxObject extends ArrayBuffer {
+  constructor(...args) {
+    const info = new.target.__info;
+
+    if(!info.ctors && !info.zeroInit) throw new TypeError(new.target.name + " cannot be constructed");
+
+    const p = __calloc(1, info.size);
+
+    if(p === null) throw new Error("out of memory");
+
+    const self = __view(new.target, p, info.size);
+
+    try {
+      if(info.ctors) __invoke(info.ctors, self, args);
+    } catch(e) {
+      __free(p);
+      throw e;
+    }
+
+    const h = { ptr: p, size: info.size, dtor: info.dtor, destroyed: false };
+
+    __owned.set(self, h);
+    __finalizer.register(self, h);
+    return self;
+  }
+
+  get ptr() { return __ptr(this); }
+
+  static at(p, owner) { return __view(this, p, this.__info.size, owner); }
+
+  static from(p) { return this.at(p); }
+
+  delete() {
+    if(__deleted.has(this)) return;
+
+    const dtor = this.constructor.__info.dtor;
+    if(dtor) dtor()(this);
+    __deleted.add(this);
+
+    const h = __owned.get(this);
+    if(h) h.destroyed = true;
   }
 }
 `;
@@ -153,7 +225,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
 
   let out = '';
 
-  if(classes.length || cxxFunctions.length) out += CLASS_HELPERS;
+  if(classes.length || cxxFunctions.length) out += CLASS_HELPERS + (opts.finalize && classes.length ? CXX_OBJECT_FINALIZED : CXX_OBJECT);
   if(classes.length || plain.length) out += '\n// classes and structs\n';
 
   const { baseOf } = orderClasses(classes);

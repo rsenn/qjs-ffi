@@ -272,7 +272,8 @@ IR (`--emit-ir`) on its own, and a C header with the layout checked by
 
 C++ classes are the same kind of class, extending a common `ArrayBuffer`
 subclass: `new Shape(3, 2.0)` allocates the object and runs its constructor,
-`s.delete()` runs the destructor, `Shape.at(ptr)` wraps an existing object, and
+`s.delete()` runs the destructor (with `--finalize`, collecting an object that
+was not deleted runs it too, on a later turn of the event loop), `Shape.at(ptr)` wraps an existing object, and
 `s.ptr` is its address. Constants with a known value are plain exports,
 whether or not `--structs` is given.
 

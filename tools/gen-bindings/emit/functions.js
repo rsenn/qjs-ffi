@@ -56,6 +56,8 @@ export function generateCFunction(ir, opts) {
     'dlsym',
     opts.library ? 'dlopen' : null,
     opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
+    // calloc() and free() are not in the bound library.
+    opts.library && opts.finalize && classes.length > 0 ? 'RTLD_DEFAULT' : null,
   ].filter(Boolean);
 
   let out = header(opts);

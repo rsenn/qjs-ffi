@@ -22,6 +22,7 @@ export function usage() {
       '  --ffitype                write types as FFIType.i32 instead of "i32" (cfunction API only)\n' +
       '  --structs                also wrap structs/unions as ArrayBuffer classes, and extern variables\n' +
       '  --describe               name parameters in signatures, attach types as fn[Symbol.for("describe")]\n' +
+      '  --finalize               also destroy C++ objects made with new when they are garbage collected\n' +
       '  --jsdoc                  JSDoc comments with parameter and return types on functions, methods, classes\n' +
       '  --exclude=<name>         do not bind this function(repeatable)\n' +
       '  --c++                    parse every source as C++ (implied by .cc/.cpp/.cxx/.hh/.hpp/.hxx)\n' +
@@ -53,6 +54,7 @@ export function parseArgs(argv) {
     excludes: [],
     ffiType: false,
     structs: false,
+    finalize: false,
     describe: false,
     jsdoc: false,
     cxx: false,
@@ -78,6 +80,8 @@ export function parseArgs(argv) {
       opts.ffiType = true;
     } else if(a === '--structs') {
       opts.structs = true;
+    } else if(a === '--finalize') {
+      opts.finalize = true;
     } else if(a === '--describe') {
       opts.describe = true;
     } else if(a === '--jsdoc') {

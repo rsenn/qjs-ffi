@@ -94,6 +94,7 @@ export function header(opts) {
     (opts.structs ? ' --structs' : '') +
     opts.namespaces.map(n => ' --namespace=' + n).join('') +
     (opts.describe ? ' --describe' : '') +
+    (opts.finalize ? ' --finalize' : '') +
     (opts.jsdoc ? ' --jsdoc' : '') +
     (opts.cxx ? ' --c++' : '') +
     (opts.std ? ' --std=' + opts.std : '') +
