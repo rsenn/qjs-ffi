@@ -118,9 +118,10 @@ await tests({
     same(['geo::Point', 'geo::Shape::Inner'], ir.structs.map(s => s.name));
   },
 
-  'extern "C" functions are bound, other C++ free functions are skipped with a reason'() {
-    same(['c_fn'], ir.methods.map(m => m.name));
-    eq('geo::free_fn', ir.skipped[0].name);
+  'C++ free functions are listed by qualified name with their mangledName, overloads separately'() {
+    same(['geo::free_fn', 'geo::add', 'geo::add', 'c_fn'], ir.methods.map(m => m.name));
+    same(['_ZN3geo7free_fnEi', '_ZN3geo3addEii', '_ZN3geo3addEdd', undefined], ir.methods.map(m => m.mangledName));
+    same([], ir.skipped);
   },
 
   'a .h header needs --c++'() {
@@ -139,7 +140,7 @@ await tests({
     const out = sh('qjsm ' + root + 'tools/gen-bindings.js --from-ir=' + file + ' --structs');
 
     assert(/export const c_fn = /.test(out), out);
-    assert(/export const struct_geo_Point = /.test(out), out);
+    assert(/export class geo_Point extends ArrayBuffer/.test(out), out);
   },
 
   'structs and classes have the filter-struct.json shape'() {
@@ -387,6 +388,15 @@ await tests({
     });
   },
 
+  'C++ free functions are callable, overloads picked by argument type'() {
+    return withGenerated(['--std=c++17'], m => {
+      eq(7, m.geo_free_fn(7));
+      eq(5, m.geo_add(2, 3));
+      eq(4, m.geo_add(1.5, 2));
+      eq(9, m.c_fn(9));
+    });
+  },
+
   'the define API with --structs emits working classes too'() {
     return withGenerated(['--std=c++17', '--api=define', '--structs'], async m => {
       const s = new m.geo_Shape(3, 2.0);
@@ -395,6 +405,102 @@ await tests({
       } finally {
         s.delete();
       }
+    });
+  },
+
+  '--describe: describeClass()/describeObject() report parameter names, C types and overloads'() {
+    return withGenerated(['--std=c++17', '--describe'], async m => {
+      const { describeClass } = await import('../../qjs-modules/lib/describe-class.js');
+      const { describeObject } = await import('../../qjs-modules/lib/describe-object.js');
+      const shape = describeClass(m.geo_Shape);
+      const method = name => shape.prototypeChain[0].methods.find(f => f.name === name);
+
+      same(['w', 'h'], shape.constructorParams);
+      same([['w: i32', 'h: f64'], ['other: Shape *']], shape.constructorSignatures.map(s => s.params).sort((a, b) => b.length - a.length));
+      same(['f'], method('scale').params);
+      same(['f: f64'], method('scale').signatures[0].params);
+      eq('void', method('scale').signatures[0].returnType);
+      same([], shape.staticChain[0].methods.find(f => f.name === 'count').params);
+
+      const add = describeObject(m.geo_add).methods;
+      const fn = describeObject(m.c_fn);
+
+      assert(add === undefined || add.length === 0, 'a function has no members of its own');
+      same(['a', 'b'], describeClass(m.geo_add).constructorParams);
+      same([['a: i32', 'b: i32'], ['a: f64', 'b: f64']], m.geo_add[Symbol.for('describe')].map(s => s.params));
+      same(['a'], describeClass(m.c_fn).constructorParams);
+      eq('i32', m.c_fn[Symbol.for('describe')][0].returnType);
+      eq('c_fn', fn.name);
+    });
+  },
+
+  '--structs: plain structs and C++ instances are ArrayBuffers, at() is a live view, layout is on the class'() {
+    return withGenerated(['--std=c++17', '--structs'], async m => {
+      const p = new m.geo_Point();
+
+      p.x = 3;
+      p.y = 4;
+      assert(p instanceof ArrayBuffer, 'a struct is an ArrayBuffer');
+      eq(8, p.byteLength);
+      eq(4, m.geo_Point.at(p.ptr).y);
+      eq(8, m.geo_Point.size);
+      eq(4, m.geo_Point.fields.y.offset);
+
+      const s = new m.geo_Shape(3, 2.0);
+
+      try {
+        assert(s instanceof ArrayBuffer && s instanceof m.geo_Base, 'a class instance is an ArrayBuffer and its base');
+        eq(24, s.byteLength);
+
+        const v = m.geo_Shape.at(s.ptr);
+
+        eq(3, v.width);
+        v.width = 9;
+        eq(9, s.width);
+        eq(18, s.area());
+      } finally {
+        s.delete();
+      }
+    });
+  },
+
+  '--jsdoc: classes, methods and functions get typed @param/@returns blocks, overloads under @overload'() {
+    const name = 'test-gen-bindings-cxx.jsdoc.js';
+    const lib = realpath(tmp + 'libshapes.so')[0];
+    const out = sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--jsdoc', '--library=' + lib, '-o', tmp + name, root + 'tests/cxx/shapes.hpp'].join(' '));
+    const text = std.loadFile(tmp + name);
+
+    assert(text !== null, 'no module written, output was:\n' + out);
+
+    const block = (before) => text.slice(text.lastIndexOf('/**', text.indexOf(before)), text.indexOf(before));
+
+    assert(block('export class geo_Shape ').includes('@extends {geo_Base}'), 'class lacks @extends');
+    assert(block('export class geo_Shape ').includes('@param {geo_Shape|object|number|bigint|null} other - Shape *'), 'constructor pointer param');
+    assert(block('  scale(').includes('@param {number} f - f64') && block('  scale(').includes('@returns {void}'), 'method params/returns');
+    assert(block('  static count(').includes('geo::Shape::count (static)') && block('  static count(').includes('@returns {number} - i32'), 'static method doc');
+    eq(2, block('export const geo_add').split('@overload').length - 1);
+    assert(block('export const c_fn').includes('@param {number} a - i32'), 'plain C function params');
+    assert(!sh('qjsm ' + root + 'tools/gen-bindings.js --no-cache --std=c++17 --library=' + lib + ' ' + root + 'tests/cxx/shapes.hpp').includes('/**'), 'no --jsdoc, no doc blocks');
+  },
+
+  '--describe: the named wrappers still dispatch overloads, extra arguments and from()'() {
+    return withGenerated(['--std=c++17', '--describe'], async m => {
+      const a = new m.geo_Shape(4, 3.0);
+      const b = new m.geo_Shape(a);
+      const c = m.geo_Shape.from(a.ptr);
+
+      try {
+        eq(12, b.area());
+        eq(4, c.width);
+        eq(2, m.geo_Shape.count());
+      } finally {
+        a.delete();
+        b.delete();
+      }
+
+      eq(5, m.geo_add(2, 3));
+      eq(4, m.geo_add(1.5, 2));
+      eq(9, m.c_fn(9));
     });
   },
 });

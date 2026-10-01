@@ -242,23 +242,36 @@ Useful options are `--follow-includes` to also bind the headers included by
 the source, `--exclude=<name>` to skip a function, `-I` and `-D` for clang, and
 `--api=define` to target the legacy API. Ready made bindings are in lib/.
 
-With `--structs` the module also exports a layout for every struct and union
-(`struct_<name>`, `union_<name>`, and each typedef name) and an accessor for
-every extern variable. Structs are handled through their address, since
-passing one by value is not supported:
+With `--structs` the module also exports a class for every struct and union
+(and each typedef name) and an accessor for every extern variable. The classes
+extend `ArrayBuffer`, so an instance can be passed to a pointer parameter as it
+is. Structs are handled through their address, since passing one by value is
+not supported:
 
 ```
-	const m = cairo.cairo_matrix_t.alloc();        // zero-filled, JS-owned memory
-	cairo.cairo_matrix_init(m.ptr, 1, 0, 0, 1, 10, 20);
+	const m = new cairo.cairo_matrix_t();          // zero-filled, JS-owned memory
+	cairo.cairo_matrix_init(m, 1, 0, 0, 1, 10, 20);
 	console.log(m.x0, m.y0);                       // 10 20
-	cairo.cairo_matrix_t.view(pointer)             // the same fields over native memory
+	cairo.cairo_matrix_t.at(pointer)               // the same fields over native memory
 	cairo.some_variable.value                      // extern variable (.ptr is its address)
 ```
 
-`size`, `align` and `fields` (type and byte offset of each) describe the layout.
-Bitfields and array or nested-struct members have no accessor, only an entry in
-`fields`. Constants with a known value are plain exports, whether or not
-`--structs` is given.
+The members are accessors going through a `DataView`; see the header of
+tools/gen-structs.js for how each kind of member is read and written.
+`Name.size`, `Name.align` and `Name.fields` (type and byte offset of each)
+describe the layout. `tools/gen-structs.js` produces the same classes from an
+IR (`--emit-ir`) on its own, and a C header with the layout checked by
+`_Static_assert`s.
+
+C++ classes are the same kind of class, extending a common `ArrayBuffer`
+subclass: `new Shape(3, 2.0)` allocates the object and runs its constructor,
+`s.delete()` runs the destructor, `Shape.at(ptr)` wraps an existing object, and
+`s.ptr` is its address. Constants with a known value are plain exports,
+whether or not `--structs` is given.
+
+The tools are in tools/ (gen-bindings.js, gen-structs.js, and the modules of
+the former in tools/gen-bindings/). Installed, `qjs-ffi-genbindings` and
+`qjs-ffi-genstructs` in bin/ start them from `share/qjs-ffi/tools`.
 
 The generator runs in two phases joined by a JSON description of the C API
 (functions, enums, structs, constants). `--emit-ir=api.json` stops after the

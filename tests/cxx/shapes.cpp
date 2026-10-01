@@ -14,5 +14,7 @@ void Shape::setKind(Kind) {}
 int Shape::count() { return live; }
 void Shape::secret() {}
 int free_fn(int a) { return a; }
+int add(int a, int b) { return a + b; }
+double add(double a, double b) { return a + b + 0.5; }
 }
 extern "C" int c_fn(int a) { return a; }

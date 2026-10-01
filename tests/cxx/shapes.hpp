@@ -28,6 +28,8 @@ private:
   void secret();
 };
 int free_fn(int a);
+int add(int a, int b);
+double add(double a, double b);
 }
 extern "C" { int c_fn(int a); }
 template <class T> struct Box { T v; T get() const { return v; } };

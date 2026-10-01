@@ -155,14 +155,16 @@ install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
                     WORLD_EXECUTE)
 
-# tools/gen-bindings.js: a qjsm script (shebang #!/usr/bin/env qjsm), not a
-# compiled binary -- installed as a plain executable file, not a CMake
-# target.
-install(PROGRAMS tools/gen-bindings.js DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        RENAME qjs-ffi-genbindings
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
-                    WORLD_EXECUTE)
-install(PROGRAMS tools/gen-structs.js DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        RENAME qjs-ffi-genstructs
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
-                    WORLD_EXECUTE)
+if(NOT CMAKE_INSTALL_DATADIR)
+  set(CMAKE_INSTALL_DATADIR share)
+endif(NOT CMAKE_INSTALL_DATADIR)
+
+# tools/*.js are qjsm scripts, not compiled binaries. gen-bindings.js imports
+# the modules in tools/gen-bindings/ relative to its own path, which qjsm
+# resolves against the path the script is run as, not a symlink's target. So
+# the tree is installed as a whole and bin/ gets two-line wrappers importing
+# it by its installed path.
+install(DIRECTORY tools/ DESTINATION "${CMAKE_INSTALL_DATADIR}/qjs-ffi/tools" FILES_MATCHING PATTERN "*.js")
+install(CODE "set(QJS_FFI_BINDIR \"${CMAKE_INSTALL_BINDIR}\")
+set(QJS_FFI_DATADIR \"${CMAKE_INSTALL_DATADIR}\")")
+install(SCRIPT cmake/install-tool-wrappers.cmake)

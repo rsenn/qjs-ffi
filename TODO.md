@@ -165,10 +165,10 @@ libffi struct types (struct-by-value is unsupported today).
 - Struct/union layouts (size, align, field byte offsets, bitfield bit offsets)
   come from clang's `-fdump-record-layouts-simple`, forced by a probe
   translation unit (`runLayoutDump()`), and are stored in the IR and the AST
-  cache. `--structs` emits them as `struct_<name>` / `union_<name>` with
-  `view()`/`alloc()` accessors, plus `{ ptr, value }` accessors for extern
-  variables (resolved on first use). Off by default so existing generated
-  output does not change.
+  cache. `--structs` emits them as ArrayBuffer classes (the `gen-structs.js`
+  ones, see "Done: one generator" below), plus `{ ptr, value }` accessors for
+  extern variables (resolved on first use). Off by default so existing
+  generated output does not change.
 
 ### Next: struct accessors beyond scalars
 
@@ -221,6 +221,42 @@ and `tools/gen-bindings.js` now writes `"<type> *"` where it wrote `"pointer"`
 stays `cstring`. Generated modules need an `ffi` with this change: an older one
 reads `"int *"` as an unknown name and silently falls back to `i32`.
 
+### Done: --describe
+
+`--describe` gives every bound function, method and constructor a JS signature
+with the C parameter names, and sets `fn[Symbol.for('describe')]` to
+`[{ params: ["name: type"], returnType, arity }, ...]` (one entry per overload),
+so `describeObject()`/`describeClass()` (qjs-modules `lib/describe-*.js`, which
+merge it as `signatures` / `constructorSignatures`) report them. Overloads share
+the widest overload's names. Without the flag the output is unchanged. Plain C
+functions become a named wrapper around the `CFunction` (one extra call).
+Default arguments are not in the IR, so none are reported.
+
+### Done: --jsdoc
+
+`--jsdoc` puts a JSDoc block before every bound function, method and class:
+`@param {type} name - ffi type` and `@returns {type} - ffi type`, one
+`@overload` group per overload, `@extends` on a class and its constructors'
+`@param`s in the class block. JS types follow the ffi table (`number`,
+`bigint`, `boolean`, `string`); a pointer is `number|bigint|null|object`, plus
+the class when it points to a bound one. Independent of `--describe`.
+
+### Done: one generator, ArrayBuffer wrappers
+
+`tools/gen-bindings.js` is a small entry script over `tools/gen-bindings/`
+(args, clang + AST cache, condenser, IR collection, `emit/*`), and
+`tools/gen-structs.js` a thin CLI over `tools/gen-bindings/structs.js`, which
+`--structs` and the C++ class output now share. Structs, unions and bound C++
+classes are all classes extending `ArrayBuffer` (C++ ones through a common
+`__CxxObject`), so an instance is passed to a `CFunction` pointer argument as it
+is; `.ptr`, `at(ptr)` (`from(ptr)` for C++ classes) and `delete()` stay.
+Breaking for generated code: `struct_<name>.alloc()/view(p)` became
+`new Name()` / `Name.at(p)`, and C++ instances no longer have `__ptr`/`__buf`.
+Installed, the tools live in `share/qjs-ffi/tools` (qjsm resolves a script's
+imports against the path it is run as, not a symlink's target), with
+`qjs-ffi-genbindings`/`qjs-ffi-genstructs` as wrappers in `bin/`. `lib/` still
+holds output of the previous generator; `regen.sh` brings it up to date.
+
 ### Next: C++ gaps
 
 1. Virtual methods are bound to the declaring class's own symbol, so they
@@ -230,9 +266,11 @@ reads `"int *"` as an unknown name and silently falls back to `i32`.
 2. Multiple and virtual inheritance: the `this` adjustment needs base offsets
    (`BaseOffsets` in the record layout dump, not captured yet). Extra bases
    are only noted in a comment.
-3. Free functions with C++ linkage (`geo::free_fn`) are only listed in
-   `skipped`; binding them needs namespace-qualified exports and overload
-   dispatch like methods.
+3. Free functions with C++ linkage are bound (`geo::add` is exported as
+   `geo_add`, overloads dispatched like methods, symbols bound on first call).
+   Still missing: default arguments (every argument must be passed), and the
+   by-value class types (`Point`, `Size`, `Mat`, `Scalar`, `Ptr<T>`) most
+   OpenCV signatures use.
 4. A class without declared constructors is zero-filled on `new` (only when
    not polymorphic); its implicit constructor has no symbol.
 5. No finalizer: an owned object is only destroyed by `.delete()`.
