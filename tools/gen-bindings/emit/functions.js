@@ -96,8 +96,6 @@ export function generateDefine(ir, opts) {
   const views = opts.structs || classes.length > 0 || cxxFunctions.length > 0;
   const imports = [
     'dlsym',
-    'define',
-    'call',
     views ? 'toArrayBuffer' : null,
     views ? 'read as __rd' : null,
     views ? 'ptr as __ptr' : null,
@@ -107,7 +105,7 @@ export function generateDefine(ir, opts) {
   ].filter(Boolean);
 
   let out = header(opts);
-  out += 'import { ' + imports.join(', ') + " } from 'ffi';\n\n";
+  out += 'import { ' + imports.join(', ') + " } from 'ffi';\nimport { define, call } from 'legacy.js';\n\n";
 
   if(opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 

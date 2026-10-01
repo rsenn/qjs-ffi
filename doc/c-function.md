@@ -5,7 +5,7 @@ directly-callable JavaScript function. It mirrors [bun:ffi's
 `CFunction`](https://bun.com/docs/runtime/ffi#cfunction).
 
 Unlike the legacy [`define()`/`call()`](legacy.md)
-pair, there is no name-keyed registry: the `ffi_cif` (libffi's prepared call
+pair (which is built on `CFunction` itself), there is no name-keyed registry: the `ffi_cif` (libffi's prepared call
 interface) is built once, at construction time, and stored directly on the
 returned function's closure data. Calling the function invokes libffi
 against that stored `cif`/function pointer with no string lookup involved.

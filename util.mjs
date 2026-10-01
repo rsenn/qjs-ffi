@@ -3,7 +3,8 @@
 
 import * as std from "std";
 import * as os from "os";
-import * as ffi from "./ffi";
+import * as ffi from "ffi";
+import * as legacy from "./legacy.js";
 
 
 /* Define a function
@@ -16,12 +17,12 @@ export function define(so, name, rtype, ...args) {
     console.log(name, "not in so");
     std.exit(1);
   }
-  if (!ffi.define(name, p, null, rtype, ...args)) {
+  if (!legacy.define(name, p, null, rtype, ...args)) {
     console.log("define failed");
     std.exit(1);
   }
   return function (...a) {
-    return ffi.call(name, ...a);
+    return legacy.call(name, ...a);
   }
 }
 

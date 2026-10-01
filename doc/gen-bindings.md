@@ -732,8 +732,10 @@ export const geom_move = CFunction({ptr:__sym('geom_move'),args:['shape *','f64'
 ```
 
 `--api=define` targets the [legacy API](legacy.md): every function is a
-`define()` once and a closure around `call()`. It has no struct types, so a
-function with a struct by value is skipped:
+`define()` once and a closure around `call()`, both imported from `legacy.js`
+(`import { define, call } from 'legacy.js'`, so that module has to be on
+`QUICKJS_MODULE_PATH`). It has no struct types, so a function with a struct by
+value is skipped:
 
 ```js
 export const geom_abs = __bind('geom_abs','sint32','sint32');
@@ -822,7 +824,6 @@ module or one from `lib/` exports, with the C types when it was generated with
 *   A struct by value needs a layout libffi can reproduce: not a packed struct.
 *   Preprocessor macros are not bound (they are not in the AST), only enums and
     `const` variables with a literal value.
-*   Little-endian, 64-bit Linux layout rules only.
 *   `--finalize` needs `--api=cfunction`. With `--api=define` a virtual method is
     called through its own symbol, not the vtable, and structs by value are
     skipped.

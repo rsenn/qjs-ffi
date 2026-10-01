@@ -1,5 +1,6 @@
 import * as os from 'os';
-import { call, debug, define, dlclose, dlerror, dlopen, dlsym, errno, JSContext, RTLD_DEFAULT, RTLD_NOW, toArrayBuffer, toPointer, toString } from 'ffi';
+import { debug, dlclose, dlerror, dlopen, dlsym, errno, JSContext, RTLD_DEFAULT, RTLD_NOW, toArrayBuffer, toPointer, toString } from 'ffi';
+import { call, define } from './legacy.js';
 /* test.js
  *
  * Test harness for JavaScript ffi

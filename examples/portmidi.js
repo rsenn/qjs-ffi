@@ -1,7 +1,9 @@
 import { lazyProperty, memoize } from 'util';
-import { call, define, dlopen, dlsym, RTLD_NOW, toArrayBuffer, toPointer, toString } from 'ffi';
+import { dlopen, dlsym, RTLD_NOW, toArrayBuffer, toPointer, toString } from 'ffi';
+import { call, define } from '../legacy.js';
 
-export { dlopen, dlsym, RTLD_NOW, define, call, toArrayBuffer, toString, toPointer } from 'ffi';
+export { dlopen, dlsym, RTLD_NOW, toArrayBuffer, toString, toPointer } from 'ffi';
+export { define, call } from '../legacy.js';
 
 const libportmidi = dlopen('libportmidi.so', RTLD_NOW);
 

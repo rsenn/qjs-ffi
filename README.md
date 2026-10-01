@@ -14,8 +14,8 @@
 
 The API follows [bun:ffi](https://bun.com/docs/runtime/ffi): `dlopen()` with a
 symbol table returns directly callable functions, and there is no name lookup at
-call time. The older `define()`/`call()` interface is still available, see
-[Legacy API](doc/legacy.md).
+call time. The older `define()`/`call()` interface is available as the module
+`legacy.js`, see [Legacy API](doc/legacy.md).
 
 Linux x86_64 is the main target. mingw64 cross builds compile but have not been
 tested. libffi and libdl are required.

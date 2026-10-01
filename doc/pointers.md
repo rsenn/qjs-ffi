@@ -22,8 +22,8 @@ Everywhere a pointer is returned (`dlsym()`, a `pointer`-typed result,
 Everywhere a pointer is taken, a `number`, a `bigint`, `null` (NULL) or an
 `ArrayBuffer` or view (its address) is accepted, so a typed array or a
 [generated struct class](gen-bindings.md) can be passed to a `pointer`
-parameter as it is. A string is never read as an address, except by the
-legacy functions (see [`toPointer()`](#topointer)).
+parameter as it is. A string is never read as an address (see
+[`toPointer()`](#topointer)).
 
 ## `ptr()`
 
@@ -55,8 +55,8 @@ toPointer(buffer[, byteOffset]); // "0x55d0c8a4e2a0"
 
 Like `ptr()`, but returns the address as a hexadecimal string, `"0"` for NULL.
 Meant for display. Do not pass the string back as a pointer to the functions
-here: a string is read as content by `toArrayBuffer()`, and as a number only by
-the legacy `define()`/`call()`.
+here: a string is read as content by `toArrayBuffer()`, and is copied by the
+legacy `call()`.
 
 ## `toArrayBuffer()`
 

@@ -177,6 +177,11 @@ install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
                     WORLD_EXECUTE)
 
+# legacy.js (define()/call() on top of CFunction) sits next to the module, in the
+# build directory too, so that one QUICKJS_MODULE_PATH finds both.
+configure_file(legacy.js "${CMAKE_CURRENT_BINARY_DIR}/legacy.js" COPYONLY)
+install(FILES legacy.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
+
 if(NOT CMAKE_INSTALL_DATADIR)
   set(CMAKE_INSTALL_DATADIR share)
 endif(NOT CMAKE_INSTALL_DATADIR)

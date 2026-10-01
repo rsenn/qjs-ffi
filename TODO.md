@@ -117,29 +117,27 @@ shape) or else `dlsym(RTLD_DEFAULT, name)`. It shares `js_build_symbols()` in
 `ffi.c` with the `dlopen(path, symbolSpecs)` path. Verified in
 `tests/test-link-symbols.js`.
 
-### Phase 6 — deprecate/remove legacy `define`/`call`/`function_s`
+### Phase 6 — remove legacy `define`/`call`/`function_s`: done
 
-**Postponed by decision: legacy `define()`/`call()` stay, undeprecated and
-unchanged, until further notice.** Do not start this phase unprompted.
-
-Only once Phases 1–5 are stable and everything in `test.js`/`test2.js`/
-`test-ffi.js`/`test-portmidi.js`/`examples/` has been ported to the new API:
-
-1. Mark `define`/`call` deprecated (keep working, maybe a one-time `warn()`).
-2. Once nothing in-tree uses them, delete `function_s`, `define_function`,
-   `call_function`, and the global `ffi_type_head` list/`find_ffi_type`/
-   `find_type` (superseded by the static `FFIType` export, done — see
-   `js_ffitype_funcs` in `ffi-type.c`, spliced into `ffi.c`'s `js_funcs` via
-   `JS_OBJECT_DEF`).
-3. This is the step that actually deletes the strcmp-scanning code the user
-   flagged — everything before this phase is additive, so the old path keeps
-   working throughout the migration and can be dropped only when nothing
-   depends on it anymore.
+`define()` and `call()` are gone from `ffi.c` (`function_s`, `define_function`,
+`call_function`, the `ffi_type_head` list and its `strcmp` lookups with them).
+[`legacy.js`](legacy.js), a JavaScript module, implements them on top of
+`CFunction`: `define()` builds a `CFunction` per name, `call()` converts the
+arguments the way the old C code did (a string is copied with its NUL, an
+`ArrayBuffer` passed by address, a `JSCallback` by its `.ptr`, booleans as 1/0)
+and the result to a number. Kept as they were: the number results, the 30
+parameters, a name defined twice keeps the first. Changed: `call()` of an
+unknown name throws, `longdouble` is refused (no `CFunction` type), `size_t`
+is 64 bits (it was `uint`). The in-tree clients import it (`lib/posix/socket.js`,
+`examples/portmidi.js`, `util.mjs`, `test.js`, the tests), and
+`gen-bindings --api=define` output imports `define` and `call` from
+`legacy.js`; CMake copies it next to `ffi.so` in the build directory and
+installs it into the C module directory. Tests: `tests/test-legacy.js`.
 
 ### Phase 7 — docs/examples pass
 
 1. Update `README.md` to document the new API as primary, old API as
-   "legacy" (Phase 6 is postponed, so the old API stays).
+   "legacy" (`legacy.js`).
 2. Update `test-ffi.js`/`test.js`/`test2.js`/`examples/` to the new API.
 
 ---

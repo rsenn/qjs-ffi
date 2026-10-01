@@ -26,7 +26,6 @@ import { dlopen, dlsym, dlclose, dlerror, errno,
          linkSymbols, CFunction, JSCallback, cc,
          ptr, toBuffer, toArrayBuffer, toPointer, toString, read, CString,
          FFIType, suffix, pointerSize, JSContext, debug,
-         define, call,
          RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
          RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND,
          RTLD_DEFAULT, RTLD_NEXT } from "ffi";
@@ -48,7 +47,7 @@ where the platform defines them. Run scripts with `qjsm`, see
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
 | [Generating bindings](gen-bindings.md) | `tools/gen-bindings.js`, a binding generator for C and C++ headers |
-| [Legacy API](legacy.md) | `define()` and `call()` |
+| [Legacy API](legacy.md) | `define()` and `call()`, in the module `legacy.js` |
 
 ## Usage
 

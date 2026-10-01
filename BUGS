@@ -52,3 +52,7 @@
     import { dlopen, ptr } from 'ffi';
     const { symbols } = dlopen('libc.so.6', { strlen: { args: ['buffer'], returns: 'u64' } });
     symbols.strlen(new DataView(new Uint8Array([104, 105, 0]).buffer));
+
+- test-js-free-of-string (test.js:134): strdup is defined with a char * return, which the legacy API gives as a js string, and that string is then passed to free(), which aborts with invalid pointer (same before legacy.js). found porting the legacy clients.
+
+    qjsm test.js

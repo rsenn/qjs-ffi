@@ -34,7 +34,7 @@ Start with the [overview](ffi.md).
 
 | Page | Covers |
 | ---- | ------ |
-| [Legacy API](legacy.md) | `define()` and `call()` |
+| [Legacy API](legacy.md) | `define()` and `call()`, the module `legacy.js` |
 
 ## Internals
 
@@ -59,7 +59,7 @@ doc/
   c-compiler.md               cc()
   misc.md                     JSContext, debug
   gen-bindings.md             the binding generators
-  legacy.md                   define / call
+  legacy.md                   define / call (legacy.js)
   internals/                  design notes
 examples/                     bindings to real libraries
 tests/                        runnable examples, one suite per feature

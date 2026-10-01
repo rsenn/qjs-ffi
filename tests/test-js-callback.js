@@ -1,5 +1,6 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { JSCallback, define, call, dlsym, toArrayBuffer, RTLD_DEFAULT } from 'ffi';
+import { JSCallback, dlsym, toArrayBuffer, RTLD_DEFAULT } from 'ffi';
+import { define, call } from '../legacy.js';
 
 function assertThrows(fn, msg) {
   try {
