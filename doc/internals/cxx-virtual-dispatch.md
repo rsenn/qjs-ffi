@@ -2,7 +2,7 @@
 
 Status: **plan, nothing implemented.** Scope: the C++ classes that
 `tools/gen-bindings.js` emits (see `classesCode()` and
-[TODO.md](../TODO.md), "C++ gaps" item 1).
+[TODO.md](../../TODO.md), "C++ gaps" item 1).
 
 ## 1. Problem
 

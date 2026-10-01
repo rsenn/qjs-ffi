@@ -95,8 +95,8 @@ type Symbols = {
 
 This is the same spec as [`CFunction`](c-function.md) and `dlopen()` take
 (minus `ptr`, which `cc()` fills in with the compiled function's address), so
-the [type table](c-function.md#types), [structs by
-value](c-function.md#structs-by-value) and [ABI names](c-function.md#abi)
+the [type table](types.md), [structs by
+value](types.md#structs-by-value) and [ABI names](types.md#abi)
 documented there apply unchanged. Every name must exist in the compiled code,
 or `cc()` throws a `TypeError` (`cc: symbol not found: <name>`).
 
@@ -149,7 +149,7 @@ One function per entry of `symbols`, in the same order.
 
 ## Types
 
-`cc()` shares the [`CFunction` type table](c-function.md#types): `"i8"` ...
+`cc()` shares the [type table](types.md): `"i8"` ...
 `"u64"`, `"i64_fast"`, `"u64_fast"`, `"f32"`, `"f64"`, `"bool"`, `"pointer"`
 (`"ptr"`, `"function"`, and any name ending in `*`), `"cstring"` and, for
 structs passed or returned by value, an array of member types. Bun's C-style
@@ -217,6 +217,7 @@ it was built.
 
 ## See also
 
-- [`doc/c-function.md`](c-function.md) -- the call wrapper behind each returned function, and the type table
+- [Types and ABI](types.md) -- the type names and struct-by-value rules
+- [`CFunction`](c-function.md) -- the call wrapper behind each returned function
 - [`tests/test-cc.js`](../tests/test-cc.js)
 - [bun:ffi C compiler docs](https://bun.com/docs/runtime/c-compiler)

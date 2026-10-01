@@ -10,14 +10,13 @@ pointers.
 The API follows [bun:ffi](https://bun.com/docs/runtime/ffi): `dlopen()` with a
 symbol table returns directly callable functions, there is no name lookup at
 call time, and 64-bit integers come back as `BigInt`. The older
-`define()`/`call()` interface is still available, see [Legacy API](#legacy-api).
+`define()`/`call()` interface is still available, see [Legacy API](doc/legacy.md).
 
 libffi and libdl are required. Linux x86_64 is the main target, mingw64
 cross builds compile but have not been tested.
 
 See tests/ for small runnable examples, examples/ for bindings to real
-libraries (cairo, freetype, SDL2, zlib, portmidi) and doc/ for the reference
-pages of individual classes.
+libraries (cairo, freetype, SDL2, zlib, portmidi) and doc/ for the reference.
 
 ## How to use it? ##
 Use dlopen() with a table of symbols. Every entry becomes a function that can
@@ -42,7 +41,8 @@ null to search the symbols already loaded into the process. A missing library
 or symbol throws a TypeError.
 
 Each spec has the form `{ args, returns, abi }`, the same options as
-[CFunction](doc/c-function.md).
+[CFunction](doc/c-function.md). The other functions are in
+[doc/ffi.md](doc/ffi.md).
 
 ## Installation ##
 Installing qjs-ffi is done with CMake:
@@ -65,6 +65,8 @@ CMake options:
 *   `BUILD_STATIC_MODULES` also builds a static `quickjs-ffi.a`
 *   `BUILD_LIBFFI` checks out libffi into third_party/libffi and builds it
     instead of using the system library
+*   `ENABLE_TCC` checks out TinyCC into third_party/tinycc, builds libtcc and
+    exports `cc()`, see [doc/c-compiler.md](doc/c-compiler.md)
 
 Run the tests with:
 
@@ -75,302 +77,26 @@ $ tests/run-all.sh
 Scripts in this project are run with `qjsm`, not `qjs`: `qjs` lacks
 `process` and other globals, and swallows uncaught errors in module mode.
 
-## Available imports ##
-```
-  import { dlopen, dlsym, dlclose, dlerror, errno,
-           linkSymbols, CFunction, JSCallback,
-           ptr, toBuffer, toArrayBuffer, toPointer, toString, CString,
-           FFIType, suffix, pointerSize, JSContext, debug,
-           define, call,
-           RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
-           RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND,
-           RTLD_DEFAULT, RTLD_NEXT } from "ffi";
-```
-
-The RTLD_* constants are only published if the platform defines them.
-
-## dlopen, dlsym, dlclose, dlerror, errno ##
-
-dlopen() has two call shapes, picked by the type of the second argument:
-
-```
-  lib = dlopen(path, symbolSpecs)   // object: bun-shaped, see above
-  h   = dlopen(path, flags)         // number: raw libdl handle
-```
-
-The raw form, dlsym(), dlclose() and dlerror() are thin wrappers around the
-libdl functions of the same name, described in the **man** pages, which also
-describe the RTLD_* constants. Note that errno() is a function.
-
-dlsym() returns the address as a Number or BigInt, or null if not found.
-
-## CFunction ##
-
-CFunction() wraps an already resolved function pointer, for example one from
-dlsym(), as a plain callable function:
-
-```
-	import { dlsym, CFunction, RTLD_DEFAULT } from "ffi";
-
-	const strdup = CFunction({
-	  ptr: dlsym(RTLD_DEFAULT, "strdup"),
-	  args: ["cstring"],
-	  returns: "cstring",
-	});
-
-	console.log(strdup("hello"));
-```
-
-The prepared libffi call interface is built once, when the function is
-created. See [doc/c-function.md](doc/c-function.md).
-
-## linkSymbols ##
-
-linkSymbols() is dlopen() without opening a library. Each entry is resolved
-from its own `ptr`, or else with `dlsym(RTLD_DEFAULT, name)`:
-
-```
-	import { linkSymbols } from "ffi";
-
-	const { symbols } = linkSymbols({
-	  abs: { args: ["i32"], returns: "i32" },
-	  strlen: { args: ["cstring"], returns: "u64" },
-	});
-
-	symbols.abs(-5);         // 5
-	symbols.strlen("hello"); // 5n
-```
-
-It returns `{ symbols }` and has no close(), since nothing was opened.
-`suffix` is `"so"` (`"dll"` on Windows), for building library file names:
-
-```
-	dlopen(`libz.${suffix}.1`, { ... });
-```
-
-## JSCallback ##
-
-new JSCallback(fn, { args, returns }) turns a JavaScript function into a
-native function pointer. Pass its `.ptr` to C code that expects a callback,
-and call `.close()` when done:
-
-```
-	import { JSCallback } from "ffi";
-
-	const cb = new JSCallback((a, b) => a + b, { args: ["i32", "i32"], returns: "i32" });
-
-	someNativeFunction(cb.ptr);
-
-	cb.close();
-```
-
-See [doc/js-callback.md](doc/js-callback.md).
-
-## Pointers and buffers ##
-
-*   `p = ptr(buffer[, offset])` returns the address of an ArrayBuffer (or typed
-    array) as a Number or BigInt.
-*   `b = toArrayBuffer(p[, byteOffset[, byteLength[, context]], deallocator])`
-    (bun:ffi's form) creates an ArrayBuffer over the memory at pointer `p`
-    (a Number or BigInt) plus `byteOffset`. It is a view, not a copy, so the
-    caller keeps the memory alive (use `.slice(0)` for a copy); without
-    `byteLength` the memory is read up to the first NUL byte. `toBuffer()` is
-    the same function.
-    `deallocator` is the *address* of a native `void (*)(void *bytes, void
-    *context)`, called with `context` (an address, or NULL) when the
-    ArrayBuffer is freed, e.g. `toArrayBuffer(p, 0, n, dlsym(RTLD_DEFAULT,
-    "free"))`. It is not a JSCallback (rejected with a `TypeError`): it runs
-    while QuickJS finalizes the buffer, where calling back into JS is unsafe.
-*   `b = toArrayBuffer(source[, size[, copy]])` for a source that is an
-    ArrayBuffer (or view) or a string, the pre-bun:ffi form: a string is taken
-    as content, the contents are copied unless `copy` is `false`.
-*   `read.u8(p, byteOffset)` (also `i8`, `i16`, `u16`, `i32`, `u32`, `i64`,
-    `u64`, `f32`, `f64` and `ptr`) reads a value straight from an address, as
-    bun:ffi does, with no DataView or ArrayBuffer. `i64`/`u64` give a bigint,
-    `ptr` a pointer like ptr(). The offset defaults to 0, may be negative, and
-    the read need not be aligned; a NULL pointer throws a `TypeError`.
-*   `s = toString(p[, n])` converts a pointer to a C string, n bytes long if n
-    is given.
-*   `s = toPointer(buffer[, offset])` is like ptr(), but returns the address
-    as a string such as `"0x55d0c8a4e2a0"`.
-*   `new CString(p[, byteOffset[, byteLength]])` wraps a C string. `.ptr` is
-    the address, `.length` its length in bytes and `.toString()` decodes it.
-    Without byteLength the string ends at the first NUL byte.
-
-```
-	const src = new Uint8Array([1, 2, 3, 4]);
-	const back = new Uint8Array(toBuffer(ptr(src.buffer), 0, src.length).slice(0));
-```
-
-Note that a string passed to toArrayBuffer() is taken as content, not as an
-address. That is why ptr() returns a number and toPointer() should only be used
-for display.
-
-## FFIType ##
-
-`FFIType` holds the type names as constants, so `FFIType.i32` can be used
-where `"i32"` is written above.
-
-## ABI ##
-
-ABI is the call type for a function pointer. The following values are allowed.
-Not specifying an abi is the same as "default". Names that are unknown, or not
-available on the platform, fall back to "default".
-
-*   "default"
-*   "sysv"
-*   "unix64"
-*   "stdcall"
-*   "win64"
-
-## TYPES ##
-Types define parameter and return types. A struct passed or returned by value is
-given as an array of its member types (see doc/c-function.md). "void" is only
-useful as a return type.
-
-*   "void"
-*   "bool"
-*   "i8", "u8"
-*   "i16", "u16"
-*   "i32", "u32"
-*   "i64", "u64" (BigInt, exact)
-*   "i64_fast", "u64_fast" (Number, lossy above 2^53)
-*   "f32", "f64"
-*   "pointer", "ptr", "function" (null for NULL, else Number or BigInt)
-*   any name ending in "*", e.g. "int *", "struct node **" or "void*": a pointer,
-    exactly like "pointer"; what precedes the "*" only documents the type
-*   "cstring" (JavaScript string, converted for the duration of the call)
-
-An unrecognized parameter type falls back to "i32", an unrecognized return type
-to "void".
-
-## Generating bindings ##
-
-tools/gen-bindings.js reads C headers with clang and writes a JavaScript module
-with one CFunction per function, plus an export for every enum used:
-
-```
-$ qjsm tools/gen-bindings.js --library=libcairo.so.2 /usr/include/cairo/cairo.h -o lib/cairo.js
-```
-
-Useful options are `--follow-includes` to also bind the headers included by
-the source, `--exclude=<name>` to skip a function, `-I` and `-D` for clang, and
-`--api=define` to target the legacy API. Ready made bindings are in lib/.
-
-With `--structs` the module also exports a class for every struct and union
-(and each typedef name) and an accessor for every extern variable. The classes
-extend `ArrayBuffer`, so an instance can be passed to a pointer parameter as it
-is. Structs are mostly handled through their address:
-
-```
-	const m = new cairo.cairo_matrix_t();          // zero-filled, JS-owned memory
-	cairo.cairo_matrix_init(m, 1, 0, 0, 1, 10, 20);
-	console.log(m.x0, m.y0);                       // 10 20
-	cairo.cairo_matrix_t.at(pointer)               // the same fields over native memory
-	cairo.some_variable.value                      // extern variable (.ptr is its address)
-```
-
-A struct passed or returned by value (`vec3 f(vec3 a)`) is bound too: the struct
-class is accepted as the argument, and a call returns an instance of it. This
-needs `--api=cfunction` and an `ffi` module with struct support (see
-doc/c-function.md). A function stays skipped, with the reason in the output, when
-the struct is a union, a C++ class, or its layout cannot be reproduced for libffi
-(a packed struct, say).
-
-The members are accessors going through a `DataView`; see the header of
-tools/gen-structs.js for how each kind of member is read and written.
-`Name.size`, `Name.align` and `Name.fields` (type and byte offset of each)
-describe the layout. `tools/gen-structs.js` produces the same classes from an
-IR (`--emit-ir`) on its own, and a C header with the layout checked by
-`_Static_assert`s.
-
-C++ classes are the same kind of class, extending a common `ArrayBuffer`
-subclass: `new Shape(3, 2.0)` allocates the object and runs its constructor,
-`s.delete()` runs the destructor (with `--finalize`, collecting an object that
-was not deleted runs it too, on a later turn of the event loop), `Shape.at(ptr)` wraps an existing object, and
-`s.ptr` is its address. Constants with a known value are plain exports,
-whether or not `--structs` is given.
-
-`tools/describe-module.sh <module.js> [export...]` lists what a generated module
-or one from lib/ exports, with the C types when it was generated with
-`--describe`; `--json` prints the raw results. It uses describeClass() and
-describeObject(), kept in tools/describe/ as copies of qjs-modules' lib/.
-
-The tools are in tools/ (gen-bindings.js, gen-structs.js, and the modules of
-the former in tools/gen-bindings/). Installed, `qjs-ffi-genbindings` and
-`qjs-ffi-genstructs` in bin/ start them from `share/qjs-ffi/tools`.
-
-The generator runs in two phases joined by a JSON description of the C API
-(functions, enums, structs, constants). `--emit-ir=api.json` stops after the
-first phase and `--from-ir=api.json` generates the JavaScript without running
-clang. The condensed clang AST is cached in `.tmp/gen-bindings/`, so a repeat
-run takes a fraction of a second; `--no-cache` disables that.
-
-```
-	import * as cairo from "./lib/cairo.js";
-
-	const surface = cairo.cairo_image_surface_create(cairo.CAIRO_FORMAT_ARGB32, 320, 240);
-```
-
-See examples/cairo.js and tests/test-cairo.js, which draws to PNG and SVG.
-
-## JSContext ##
-
-Returns the current JSContext *ctx. This allows functions within the
-QuickJS C API to be called from within a js module. This allows for
-limited "introspection".
-
-## debug ##
-
-This is provided as a convenience feature, to allow debugging of ffi.so. If
-ffi.so is compiled with debug (-g), debugging with gdb can be done:
-```
-$ gdb qjsm
-(gdb) set args script.js
-(gdb) b js_debug
-Make breakpoint pending on future shared library load? (y or [n]) y
-(gdb) run
-```
-The breakpoint is triggered on the first call to debug() in the JavaScript.
-
-## Legacy API ##
-
-The original interface registers functions by name in a global list. It still
-works and is unchanged, but every call() searches that list by string
-comparison, and every result is a double. Prefer dlopen() or CFunction().
-
-```
-	import { dlsym, define, call, toString, RTLD_DEFAULT } from "ffi";
-
-	define("strdup", dlsym(RTLD_DEFAULT, "strdup"), null, "char *", "char *");
-	var p = call("strdup", "hello");
-	console.log(toString(p));
-```
-
-define(name, function_pointer, abi, ret_type, types...) returns true if the
-function has been defined. n = call(name, params...) calls it.
-
-*   call() always returns a double, which presumes that all integers and
-    pointers fit into 52 bits.
-*   JavaScript strings are copied and passed as a pointer to the copy. They
-    cannot be altered by the C function.
-*   ArrayBuffers are passed as a pointer, and their contents can be written.
-*   true and false become 1 and 0, null becomes NULL.
-*   Up to 30 parameters can be defined.
-*   If null is passed as the function pointer, define() substitutes a dummy
-    function that prints "dummy function in ffi" on stderr.
-
-Legacy types are the libffi names ("sint8", "uint32", "double", "pointer",
-...), C-like aliases ("int", "long", "size_t", "unsigned char", "char *",
-"void *") and the semantic types "string" (JavaScript string) and "buffer"
-(ArrayBuffer). Any other name ending in "*" is a pointer as well ("struct foo *").
+## Documentation ##
+
+The reference is in [doc/](doc/README.md), organised like the bun:ffi pages:
+
+*   [Foreign function interface](doc/ffi.md): overview, with every import
+*   [Libraries and symbols](doc/dlopen.md): `dlopen()`, `linkSymbols()`, `dlsym()`, `dlerror()`, `errno()`, `RTLD_*`
+*   [Types and ABI](doc/types.md): `FFIType`, type names, structs by value, ABI names
+*   [CFunction](doc/c-function.md) and [JSCallback](doc/js-callback.md)
+*   [Pointers and memory](doc/pointers.md): `ptr()`, `toArrayBuffer()`, `read`, `CString`, `toString()`
+*   [C compiler](doc/c-compiler.md): `cc()`, with TinyCC (`-DENABLE_TCC=ON`)
+*   [Generating bindings](doc/gen-bindings.md): `tools/gen-bindings.js`
+*   [Legacy API](doc/legacy.md): `define()` and `call()`
 
 ## Limitations ##
 
 * Structure pass by value needs the member types spelled out (no unions, no
   C++ classes, not in a JSCallback)
 * No varargs
-* No C structure access, use toBuffer() and a typed array or DataView
+* C structures are accessed through generated classes (see
+  [doc/gen-bindings.md](doc/gen-bindings.md)), or with read() and toArrayBuffer()
 * Only little-endian
 * Only the legacy API is limited to double return values
 

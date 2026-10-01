@@ -62,8 +62,9 @@ currently-live `JSCallback` instance (useful for debugging/introspection).
 
 ## Types
 
-Same vocabulary as [`CFunction`](c-function.md#types), matching
-[bun:ffi's `FFIType`](https://bun.com/docs/runtime/ffi#ffitype):
+Same vocabulary as in [Types and ABI](types.md), matching
+[bun:ffi's `FFIType`](https://bun.com/docs/runtime/ffi#ffitype), without struct
+types:
 
 | Name                    | C type                          | JS value                                              |
 | ----------------------- | -------------------------------- | ------------------------------------------------------ |

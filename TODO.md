@@ -353,7 +353,7 @@ arbitrary time, which is why it is not the default. Checked in
 Checked 2026-10-02 against <https://bun.com/docs/runtime/ffi>, Bun's
 `packages/bun-types/ffi.d.ts` and its implementation (`src/runtime/ffi/`).
 Probed against this module (built with `ENABLE_TCC=ON`). Phases 1-5 above and
-`cc()` ([`doc/compiler.md`](doc/compiler.md)) are done; this is what is left.
+`cc()` ([`doc/c-compiler.md`](doc/c-compiler.md)) are done; this is what is left.
 Ordered roughly by how likely bun code is to trip over it.
 
 ### 5.1 Missing
@@ -502,7 +502,7 @@ symbols.counter = 7;  // writes it (TypeError if readonly)
     scalar kind, readonly, struct view aliasing the C memory, `address: true`
     against `read`, unknown symbol, `{ type }` mixed with `{ args }` throws.
 *   Docs: replace the "Only functions can be exposed" paragraph in
-    `doc/compiler.md`, add to `doc/c-function.md`/README.
+    `doc/c-compiler.md`, add to `doc/dlopen.md`/`doc/types.md`.
 
 Order of work: ~~5.1.1 (`read`)~~ (done), ~~5.2.1 + 5.3~~ (done),
 5.2.4, 5.1.2, 5.1.6, 5.2.2/3, 5.1.4/5, the variables of 5.4, 5.1.3 last.
