@@ -184,6 +184,11 @@ See [doc/js-callback.md](doc/js-callback.md).
 *   `b = toArrayBuffer(source[, size[, copy]])` for a source that is an
     ArrayBuffer (or view) or a string, the pre-bun:ffi form: a string is taken
     as content, the contents are copied unless `copy` is `false`.
+*   `read.u8(p, byteOffset)` (also `i8`, `i16`, `u16`, `i32`, `u32`, `i64`,
+    `u64`, `f32`, `f64` and `ptr`) reads a value straight from an address, as
+    bun:ffi does, with no DataView or ArrayBuffer. `i64`/`u64` give a bigint,
+    `ptr` a pointer like ptr(). The offset defaults to 0, may be negative, and
+    the read need not be aligned; a NULL pointer throws a `TypeError`.
 *   `s = toString(p[, n])` converts a pointer to a C string, n bytes long if n
     is given.
 *   `s = toPointer(buffer[, offset])` is like ptr(), but returns the address

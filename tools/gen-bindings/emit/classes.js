@@ -47,11 +47,11 @@ function __virtual(slot, spec) {
   const cache = new Map();
 
   return (self, ...args) => {
-    const vptr = new DataView(self).getBigUint64(0, true);
+    const vptr = __rd.u64(self, 0);
 
     if(vptr === 0n) throw new Error("object has no vtable");
 
-    const fp = new DataView(toArrayBuffer(vptr + BigInt(8 * slot), 0, 8)).getBigUint64(0, true);
+    const fp = __rd.u64(vptr + BigInt(8 * slot), 0);
     let f = cache.get(fp);
 
     if(!f) cache.set(fp, (f = CFunction({ ptr: fp, ...spec })));

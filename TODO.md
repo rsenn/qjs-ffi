@@ -223,6 +223,14 @@ and `tools/gen-bindings.js` now writes `"<type> *"` where it wrote `"pointer"`
 stays `cstring`. Generated modules need an `ffi` with this change: an older one
 reads `"int *"` as an unknown name and silently falls back to `i32`.
 
+### Done: reads through ffi's read()
+
+Generated modules read struct members, extern variables and vtable slots with
+`read.*` (imported as `__rd`) instead of a DataView; writes still use a
+DataView (`__dv`), as `ffi` has no write counterpart. Needs an `ffi` with
+`read` (5.1.1), like the `toArrayBuffer` change; `lib/*.js` are older output and
+were not regenerated.
+
 ### Done: --describe
 
 `--describe` gives every bound function, method and constructor a JS signature
@@ -350,8 +358,9 @@ Ordered roughly by how likely bun code is to trip over it.
 
 ### 5.1 Missing
 
-1. `read.{ptr,i8,i16,i32,i64,u8,u16,u32,u64,f32,f64}(ptr, byteOffset)`: absent
-   (`ffi.read` is `undefined`). Straight reads from an address, no DataView.
+1. **Done** (`ffi-read.[ch]`, `tests/test-read.js`).
+   `read.{ptr,i8,i16,i32,i64,u8,u16,u32,u64,f32,f64}(ptr, byteOffset)`: straight
+   reads from an address, no DataView.
 2. `buffer_length` argument type (`FFIType.buffer_length`, bun enum value 21): a
    `buffer` argument followed by its byte length, filled in from the same
    object at call time. Not implemented: the name is unknown, so it silently
@@ -495,5 +504,5 @@ symbols.counter = 7;  // writes it (TypeError if readonly)
 *   Docs: replace the "Only functions can be exposed" paragraph in
     `doc/compiler.md`, add to `doc/c-function.md`/README.
 
-Order of work: 5.1.1 (`read`), ~~5.2.1 + 5.3~~ (done),
+Order of work: ~~5.1.1 (`read`)~~ (done), ~~5.2.1 + 5.3~~ (done),
 5.2.4, 5.1.2, 5.1.6, 5.2.2/3, 5.1.4/5, the variables of 5.4, 5.1.3 last.

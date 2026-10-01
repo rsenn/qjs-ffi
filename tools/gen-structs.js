@@ -4,10 +4,10 @@
  *
  * Every struct, union and (C++) class of the IR becomes a class extending
  * ArrayBuffer, with a getter and a setter for each member at the byte offset
- * the IR gives, going through a DataView:
+ * the IR gives, read with ffi's read() and written through a DataView:
  *
  *   export class filter_ops extends ArrayBuffer {
- *     get size() { return __dv(this).getBigUint64(8, true); }
+ *     get size() { return __rd.u64(this, 8); }
  *     set size(v) { __dv(this).setBigUint64(8, BigInt(v), true); }
  *     ...
  *   }

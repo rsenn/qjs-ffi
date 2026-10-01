@@ -13,24 +13,15 @@ function __sz(type) {
   return __sizes[type.endsWith("*") ? "pointer" : type];
 }
 
-function __read(dv, type, off) {
+function __read(p, type, off) {
   if(type.endsWith("*")) type = "pointer";
   switch(type) {
-    case "bool": return dv.getUint8(off) !== 0;
-    case "i8": return dv.getInt8(off);
-    case "u8": return dv.getUint8(off);
-    case "i16": return dv.getInt16(off, true);
-    case "u16": return dv.getUint16(off, true);
-    case "i32": return dv.getInt32(off, true);
-    case "u32": return dv.getUint32(off, true);
-    case "i64": return dv.getBigInt64(off, true);
-    case "u64": return dv.getBigUint64(off, true);
-    case "i64_fast": return Number(dv.getBigInt64(off, true));
-    case "u64_fast": return Number(dv.getBigUint64(off, true));
-    case "f32": return dv.getFloat32(off, true);
-    case "f64": return dv.getFloat64(off, true);
-    case "pointer": case "ptr": case "function": return __ptrOut(dv.getBigUint64(off, true));
-    case "cstring": { const p = __ptrOut(dv.getBigUint64(off, true)); return p === null ? null : __cstr(p); }
+    case "bool": return __rd.u8(p, off) !== 0;
+    case "i8": case "u8": case "i16": case "u16": case "i32": case "u32": case "i64": case "u64": case "f32": case "f64": return __rd[type](p, off);
+    case "i64_fast": return Number(__rd.i64(p, off));
+    case "u64_fast": return Number(__rd.u64(p, off));
+    case "pointer": case "ptr": case "function": return __ptrOut(__rd.u64(p, off));
+    case "cstring": { const q = __ptrOut(__rd.u64(p, off)); return q === null ? null : __cstr(q); }
   }
 }
 
@@ -56,7 +47,7 @@ function __variable(name, type) {
   const v = { get ptr() { return __sym(name); } };
   if(__sz(type) !== undefined) {
     const dv = () => new DataView(toArrayBuffer(__sym(name), 0, __sz(type)));
-    Object.defineProperty(v, "value", { enumerable: true, get: () => __read(dv(), type, 0), set: x => __write(dv(), type, 0, x) });
+    Object.defineProperty(v, "value", { enumerable: true, get: () => __read(__sym(name), type, 0), set: x => __write(dv(), type, 0, x) });
   }
   return v;
 }
