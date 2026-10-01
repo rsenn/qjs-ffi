@@ -209,6 +209,13 @@ js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec) {
   }
 
   JS_SetOpaque(func_obj, cf);
+
+  /* Like a function's own: not writable or enumerable, but configurable. */
+  if(JS_DefinePropertyValueStr(ctx, func_obj, "length", JS_NewInt32(ctx, cf->sig.argc), JS_PROP_CONFIGURABLE) < 0) {
+    JS_FreeValue(ctx, func_obj);
+    return JS_EXCEPTION;
+  }
+
   return func_obj;
 }
 

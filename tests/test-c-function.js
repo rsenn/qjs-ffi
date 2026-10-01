@@ -36,6 +36,19 @@ await tests({
     assert(fn.length === 0 || typeof fn.length === 'number', 'should look like a normal function');
   },
 
+  'length is the declared argument count, a struct counting as one argument'() {
+    const f = (args, returns = 'void') => CFunction({ ptr: libc('abs'), args, returns });
+
+    eq(0, f([]).length);
+    eq(1, f(['i32'], 'i32').length);
+    eq(3, f(['cstring', 'cstring', 'u64'], 'i32').length);
+    eq(2, f([['i32', 'i32'], 'f64'], 'i32').length);
+
+    const d = Object.getOwnPropertyDescriptor(f(['i32']), 'length');
+
+    assert(d && d.writable === false && d.enumerable === false && d.configurable === true, 'length is a function-style property: ' + JSON.stringify(d));
+  },
+
   /* --- Real libc functions: CFunction's actual purpose (wrap an
    * already-resolved pointer with no dlopen()/symbol map involved). --- */
 
