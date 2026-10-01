@@ -3,6 +3,7 @@
 #include <string.h>
 
 static const char hello[] = "hello";
+static struct inner shared = {7, 'k'};
 
 void
 sample_fill(struct sample *s) {
@@ -33,6 +34,10 @@ sample_fill(struct sample *s) {
   s->pair[1].a = 2, s->pair[1].b = 'b';
   s->len = sizeof(*s);
   s->slice = 99;
+  s->flags[0] = 1, s->flags[2] = 1, s->flags[3] = 1;
+  s->cols[0] = GREEN, s->cols[1] = RED;
+  s->ptrs[0] = &shared;
+  s->names[0] = (char *)hello;
 }
 
 /* The values the JS test writes through the generated setters. */
@@ -61,6 +66,10 @@ sample_check(const struct sample *s) {
   if(s->pair[1].a != 5 || s->pair[1].b != 'z') return 22;
   if(s->len != 12345) return 23;
   if(s->slice != 7) return 24;
+  if(s->flags[0] || !s->flags[1] || s->flags[2] || s->flags[3]) return 25;
+  if(s->cols[0] != RED || s->cols[1] != GREEN) return 26;
+  if(!s->ptrs[1] || s->ptrs[1]->a != 55 || s->ptrs[1]->b != 'p') return 27;
+  if(s->names[1] != (char *)0x4321) return 28;
   return 0;
 }
 

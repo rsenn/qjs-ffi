@@ -48,7 +48,7 @@ await tests({
   'a zeroed buffer of the struct size, aliased by its typedef'() {
     const s = new sample();
 
-    eq(176, s.byteLength);
+    eq(216, s.byteLength);
     eq(sample, sample_t);
     eq(4, new inner().byteLength);
     eq(4, new number().byteLength);
@@ -80,8 +80,43 @@ await tests({
     eq(-3, s.in.a);
     eq(120, s.in.b);
     eq(2, new DataView(s.pair.buffer, s.pair.byteOffset).getInt16(4, true));
-    eq(176n, s.len);
+    eq(216n, s.len);
     eq(99, s.slice_);
+  },
+
+  'bool and enum arrays are typed-array views'() {
+    const s = new sample();
+
+    lib.symbols.sample_fill(s.ptr);
+    assert(s.flags instanceof Uint8Array, 'flags is not a Uint8Array');
+    eq('1,0,1,1', s.flags.join());
+    assert(s.cols instanceof Int32Array, 'cols is not an Int32Array');
+    eq('5,0', s.cols.join());
+  },
+
+  'a pointer array is a Proxy: null slots, struct wrappers, plain pointers'() {
+    const s = new sample();
+
+    lib.symbols.sample_fill(s.ptr);
+    eq(2, s.ptrs.length);
+    assert(s.ptrs[0] instanceof inner, 'ptrs[0] is not an inner');
+    eq(7, s.ptrs[0].a);
+    eq(107, s.ptrs[0].b);
+    eq(null, s.ptrs[1]);
+    eq(undefined, s.ptrs[2]);
+    assert(s.names[0] !== null && typeof s.names[0] !== 'object', 'names[0] is not a plain pointer');
+    eq(null, s.names[1]);
+    eq('true,false', [...s.ptrs].map(p => p instanceof inner).join());
+  },
+
+  'a pointer array slot set to a wrapper reads back as a live wrapper'() {
+    const s = new sample();
+    const p = new inner();
+
+    s.ptrs[1] = p;
+    p.a = 56;
+    assert(s.ptrs[1] instanceof inner, 'not an inner');
+    eq(56, s.ptrs[1].a);
   },
 
   'setters write what C reads'() {
@@ -116,6 +151,15 @@ await tests({
     s.pair[6] = 122;
     s.len = 12345;
     s.slice_ = 7;
+    s.flags.set([0, 1, 0, 0]);
+    s.cols.set([0, 5]);
+
+    const p = new inner();
+
+    p.a = 55;
+    p.b = 112;
+    s.ptrs[1] = p;
+    s.names[1] = 0x4321;
 
     eq(0, lib.symbols.sample_check(s.ptr));
   },

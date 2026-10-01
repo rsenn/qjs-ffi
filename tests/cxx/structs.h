@@ -33,6 +33,10 @@ typedef struct sample {
   struct inner pair[2];
   size_t len;
   int slice;
+  _Bool flags[4];
+  enum color cols[2];
+  struct inner *ptrs[2];
+  char *names[2];
 } sample_t;
 
 union number {

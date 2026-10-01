@@ -22,7 +22,10 @@
  * takes a wrapper, an ArrayBuffer or a view); a pointer to a struct, union or
  * class of known size as null or a live wrapper of that struct over the
  * pointed-to memory (ffi's toArrayBuffer, not copied); bitfields, read and written
- * through their storage unit; arrays of scalars as live typed-array views;
+ * through their storage unit; arrays of scalars (bool included, as 0/1) as live
+ * typed-array views; arrays of pointers as a Proxy over a BigUint64Array whose
+ * numeric indices give what a pointer member gives (null, Number/BigInt or a
+ * struct wrapper) and take what its setter takes;
  * nested structs as views onto the same memory; anything else as a Uint8Array
  * over its bytes. A member with an unknown offset is left out. Everything is
  * little-endian, like the rest of this project.
@@ -225,6 +228,33 @@ function __ptrIn(v) {
   return v === null || v === undefined ? 0n : typeof v === "object" ? BigInt(v.ptr !== undefined ? v.ptr : __ptr(v)) : BigInt(v);
 }
 
+const __index = /^(0|[1-9]\\d*)$/;
+
+function __ptrArray(a, wrap) {
+  const at = i => {
+    const p = a[i];
+    return p === 0n ? null : wrap ? wrap(p) : __ptrOut(p);
+  };
+
+  return new Proxy(a, {
+    get(t, k) {
+      if(typeof k === "string" && __index.test(k)) return Number(k) < t.length ? at(Number(k)) : undefined;
+      if(k === Symbol.iterator) return function*() { for(let i = 0; i < t.length; i++) yield at(i); };
+
+      const v = Reflect.get(t, k, t);
+      return typeof v === "function" ? v.bind(t) : v;
+    },
+    set(t, k, v) {
+      if(typeof k === "string" && __index.test(k)) {
+        if(Number(k) >= t.length) return false;
+        t[k] = __ptrIn(v);
+        return true;
+      }
+      return Reflect.set(t, k, v, t);
+    },
+  });
+}
+
 function __bytes(v) {
   return ArrayBuffer.isView(v) ? new Uint8Array(v.buffer, v.byteOffset, v.byteLength) : new Uint8Array(v);
 }
@@ -267,8 +297,17 @@ function accessors(f, ir) {
   if(arr && hasType) {
     const elem = scalarOf(null, arr.elem, ir.typedefs);
 
-    if(elem && elem !== 'bool' && arr.count * SIZES[elem] === f.size && at % SIZES[elem] === 0) {
+    if(elem && arr.count * SIZES[elem] === f.size && at % SIZES[elem] === 0) {
       const view = 'new ' + ARRAYS[elem] + '(this, ' + at + ', ' + arr.count + ')';
+
+      if(elem === 'pointer') {
+        const target = pointeeOf(arr.elem, ir);
+
+        return {
+          get: 'return __ptrArray(' + view + ', ' + (target ? identOf(target) + '.at' : 'null') + ');',
+          set: 'const a = ' + view + ';\n    for(let i = 0; i < a.length && i < v.length; i++) a[i] = __ptrIn(v[i]);',
+        };
+      }
 
       return { get: 'return ' + view + ';', set: view + '.set(v);' };
     }
@@ -402,7 +441,8 @@ function plan(ir, wanted) {
     if(b) visit(b);
 
     for(const f of e.fields) {
-      const rec = f.bits === undefined && f.offset !== null && (recordOf(f.type, ir) || pointeeOf(f.type, ir));
+      const arr = arrayOf(f.type);
+      const rec = f.bits === undefined && f.offset !== null && (recordOf(f.type, ir) || pointeeOf(arr ? arr.elem : f.type, ir));
       if(rec && rec !== e.name) visit(ir.structs.get(rec));
     }
 
