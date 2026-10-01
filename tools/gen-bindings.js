@@ -272,6 +272,11 @@ const { NEED_DATA, NONE, OBJECT, OBJECT_END, ARRAY, ARRAY_END, KEY, STRING, TRUE
 class AstCondenser {
   constructor(parser) {
     this.p = parser;
+
+    // clang writes a location's "line" only when it differs from the last
+    // location it wrote, in document order, so a node without one is on the
+    // line last seen anywhere, skipped subtrees included.
+    this.line = 0;
   }
 
   next() {
@@ -300,8 +305,17 @@ class AstCondenser {
   skip(t) {
     if(t !== OBJECT && t !== ARRAY) return;
 
-    for(let depth = 1; depth > 0; ) {
+    for(let depth = 1, key = null; depth > 0; ) {
       const u = this.next();
+
+      if(u === KEY) {
+        key = this.p.token;
+        continue;
+      }
+
+      if(u === NUMBER && key === 'line') this.line = Number(this.p.token);
+      key = null;
+
       if(u === OBJECT || u === ARRAY) depth++;
       else if(u === OBJECT_END || u === ARRAY_END) depth--;
     }
@@ -319,6 +333,8 @@ class AstCondenser {
     
         if(keys && !keys.has(key)) this.skip(v);
         else o[key] = this.plain(v, keys);
+
+        if(key === 'line' && typeof o[key] === 'number') this.line = o[key];
       }
 
       return o;
@@ -365,6 +381,8 @@ class AstCondenser {
       } else if(key === 'loc') {
         if(parent === 'TranslationUnitDecl' || parent === null) o.loc = this.plain(v, LOC_KEYS);
         else this.skip(v);
+
+        if(policy !== 'shallow') o.line = this.line;
       } else if(key === 'inner') {
         if(policy === 'full') o.inner = this.inner(kind, v);
         else this.skip(v);
@@ -417,7 +435,7 @@ function mtime(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 4;
+const AST_CACHE_VERSION = 5;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
@@ -716,6 +734,28 @@ const BASE_TYPES = {
   __uintptr_t: { cf: 'u64', def: 'uint64' },
 };
 
+/* Byte size of each FFIType name; `long double` (mapped to f64, lossy) is
+ * the exception, see sizeOfC(). */
+const FFI_SIZES = { bool: 1, i8: 1, u8: 1, i16: 2, u16: 2, i32: 4, u32: 4, i64: 8, u64: 8, i64_fast: 8, u64_fast: 8, f32: 4, f64: 8, pointer: 8, ptr: 8, function: 8, cstring: 8 };
+
+/* Byte size of the C type `cType`, whose mapCType() result is `m`, from the
+ * type alone (scalars, pointers, arrays of those), or null. Only a fallback
+ * for what the layout probe could not size. */
+function sizeOfC(m, cType, typedefs, enumIndex) {
+  const array = /^(.*?)\s*((?:\[\d+\])+)$/.exec(cType);
+
+  if(array) {
+    const elem = sizeOfC(mapCType(array[1], typedefs, enumIndex), array[1], typedefs, enumIndex);
+    const count = [...array[2].matchAll(/\[(\d+)\]/g)].reduce((n, d) => n * Number(d[1]), 1);
+
+    return elem === null ? null : elem * count;
+  }
+
+  if(!m.supported) return null;
+  if(m.def === 'longdouble') return 16;
+  return m.cf in FFI_SIZES ? FFI_SIZES[m.cf] : m.cf.endsWith('*') ? 8 : null;
+}
+
 /* The "T *" spelling the ffi module reads as a pointer type: the stars of
  * `t` (a normalized pointer type) joined, one space before them. */
 function pointerName(t) {
@@ -961,20 +1001,111 @@ function collectIR(root, isSourceFile, idPrefix) {
     }
   }
 
-  /* `size` is the field's byte size from the layout probe; a bitfield has
-   * `bits` instead, and a reference member occupies a pointer. */
-  function structField(node, bitOffset, size) {
-    const qualType = (node.type && (node.type.desugaredQualType || node.type.qualType)) || '';
-    const m = mapCType(qualType, typedefs, enumIndex);
-    const field = { name: node.name || '', type: typeName(m, node.type.qualType), cType: node.type.qualType };
+  /* The layout clang dumped for the record type spelled `name`, if any. */
+  function layoutOf(name) {
+    const l = (root.layouts || {})[normalizeType(name)];
 
-    if(node.isBitfield) field.bits = Number(((node.inner || []).find(x => 'value' in x) || {}).value);
-    if(bitOffset !== undefined) {
-      if(node.isBitfield) field.bitOffset = bitOffset;
-      else field.offset = bitOffset / 8;
+    return l && l.align !== undefined ? l : undefined;
+  }
+
+  /* { size, align } in bytes of the C type `cType` (`resolved` being its
+   * canonical spelling), or null if it cannot be told from the type alone:
+   * scalars, pointers, arrays of those and records clang laid out. */
+  function typeInfo(cType, resolved) {
+    const t = resolved || cType;
+    const array = /^(.*?)\s*((?:\[\d+\])+)$/.exec(t);
+
+    if(array) {
+      const elem = typeInfo(array[1], null);
+      const count = [...array[2].matchAll(/\[(\d+)\]/g)].reduce((n, d) => n * Number(d[1]), 1);
+
+      return elem && { size: elem.size * count, align: elem.align };
     }
-    if(/&$/.test(field.cType)) size = 8;
-    if(size !== undefined && !node.isBitfield) field.size = size;
+
+    const m = mapCType(t, typedefs, enumIndex);
+
+    if(m.supported) {
+      const size = sizeOfC(m, t, typedefs, enumIndex);
+
+      return size === null ? null : { size, align: m.def === 'longdouble' ? 16 : size };
+    }
+
+    const l = layoutOf(cType) || (resolved && layoutOf(resolved));
+
+    return l ? { size: l.size, align: l.align } : null;
+  }
+
+  /* Bit offsets of the fields of a record clang could not lay out (a member
+   * of incomplete type spoils the whole record): fields placed one after the
+   * other at their natural alignment, bitfields packed into units of their
+   * declared type like the x86-64 ABI does, up to the first field whose size
+   * is unknown; the rest stay undefined. A packed record is not attempted. */
+  function fallbackOffsets(node) {
+    const fields = (node.inner || []).filter(c => c.kind === 'FieldDecl');
+    const offsets = [];
+    const up = (n, a) => Math.ceil(n / a) * a;
+    let cursor = 0;
+
+    if((node.inner || []).some(c => c.kind === 'PackedAttr')) return offsets;
+
+    for(const f of fields) {
+      const info = typeInfo(f.type.qualType, f.type.desugaredQualType);
+      if(!info) break;
+
+      if(f.isBitfield) {
+        const unit = 8 * info.size;
+        const width = Number(((f.inner || []).find(x => 'value' in x) || {}).value);
+
+        if(node.tagUsed === 'union') offsets.push(0);
+        else if(width === 0) offsets.push((cursor = up(cursor, unit)));
+        else {
+          if((cursor % unit) + width > unit) cursor = up(cursor, unit);
+          offsets.push(cursor);
+          cursor += width;
+        }
+      } else if(node.tagUsed === 'union') {
+        offsets.push(0);
+      } else {
+        cursor = up(cursor, 8 * info.align);
+        offsets.push(cursor);
+        cursor += 8 * info.size;
+      }
+    }
+
+    return offsets;
+  }
+
+  /* One struct member: `type` is the C type as written, `offset` and `size`
+   * bytes (null where unknown), `ffi` what mapCType() makes of it. `bitOffset`
+   * is the absolute bit offset from the layout dump and `size` the probed
+   * byte size. A bitfield's `offset`/`size` are those of its storage unit (the
+   * declared type, aligned) and its `bitOffset` is relative to that unit; a
+   * reference member occupies a pointer. */
+  function structField(node, bitOffset, size) {
+    const cType = node.type.qualType;
+    const m = mapCType((node.type && (node.type.desugaredQualType || cType)) || '', typedefs, enumIndex);
+    const field = { name: node.name || '', type: cType, offset: null, size: null };
+    const info = typeInfo(cType, node.type.desugaredQualType);
+
+    if(size === undefined || /&$/.test(cType)) size = /&$/.test(cType) ? 8 : info ? info.size : null;
+
+    if(node.isBitfield) {
+      const unit = info ? info.size : null;
+
+      field.size = unit;
+      field.bits = Number(((node.inner || []).find(x => 'value' in x) || {}).value);
+      field.bitOffset = null;
+
+      if(bitOffset !== undefined && unit) {
+        field.offset = Math.floor(bitOffset / (8 * unit)) * unit;
+        field.bitOffset = bitOffset - field.offset * 8;
+      }
+    } else {
+      field.size = size;
+      if(bitOffset !== undefined) field.offset = bitOffset / 8;
+    }
+
+    field.ffi = typeName(m, cType);
     addEnum(m.enumId);
     return field;
   }
@@ -1010,6 +1141,7 @@ function collectIR(root, isSourceFile, idPrefix) {
 
     const fields = [];
     const layout = (root.layouts || {})[node.name ? (node.tagUsed || 'struct') + ' ' + name : aliases[0]];
+    const offsets = layout ? layout.offsets : fallbackOffsets(node);
     let packed = false;
     let access = node.kind === 'CXXRecordDecl' && node.tagUsed === 'class' ? 'private' : 'public';
     let fieldIndex = 0;
@@ -1022,11 +1154,10 @@ function collectIR(root, isSourceFile, idPrefix) {
 
       // Every field takes a layout slot, but only public ones are listed.
       const index = fieldIndex++;
-      if(access === 'public') fields.push(structField(child, layout && layout.offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
+      if(access === 'public') fields.push(structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
     }
 
-    const s = { name, type: 'object', kind: node.tagUsed || 'struct', methods: [], getters: [], setters: [], fields, prototypeChain: [] };
-    if(layout) ((s.size = layout.size), (s.align = layout.align));
+    const s = { name, type: node.tagUsed || 'struct', size: layout ? layout.size : null, align: layout ? layout.align : null, line: node.line === undefined ? null : node.line, methods: [], getters: [], setters: [], fields, prototypeChain: [] };
     if(aliases.length) s.typedefs = aliases;
     if(packed) s.packed = true;
     ir.structs.push(s);
@@ -1141,7 +1272,8 @@ function collectIR(root, isSourceFile, idPrefix) {
     const tag = node.tagUsed || 'class';
     const layout = (root.layouts || {})[tag + ' ' + name];
     const info = node.definitionData || {};
-    const cls = { name, type: 'object', kind: tag, bases: [], methods: [], getters: [], setters: [], fields: [], prototypeChain: [], constructors: [] };
+    const offsets = layout ? layout.offsets : fallbackOffsets(node);
+    const cls = { name, type: tag, size: null, align: null, line: node.line === undefined ? null : node.line, bases: [], methods: [], getters: [], setters: [], fields: [], prototypeChain: [], constructors: [] };
     let access = tag === 'class' ? 'private' : 'public';
     let fieldIndex = 0;
 
@@ -1164,7 +1296,7 @@ function collectIR(root, isSourceFile, idPrefix) {
 
       if(child.kind === 'FieldDecl') {
         const index = fieldIndex++;
-        if(access === 'public') cls.fields.push(structField(child, layout && layout.offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
+        if(access === 'public') cls.fields.push(structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
         continue;
       }
 
@@ -1182,7 +1314,7 @@ function collectIR(root, isSourceFile, idPrefix) {
         case 'VarDecl': {
           const { field, m } = variableField(child);
 
-          cls.fields.push({ ...field, static: true, mangledName: child.mangledName });
+          cls.fields.push({ name: field.name, type: field.cType, ffi: field.type, ...(field.const ? { const: true } : {}), ...(field.value === undefined ? {} : { value: field.value }), static: true, mangledName: child.mangledName });
           addEnum(m.enumId);
           break;
         }
@@ -1239,15 +1371,20 @@ function collectIR(root, isSourceFile, idPrefix) {
  *             of the enums the signature uses)
  *   fields    exported variables/constants: { name, type, value?, const? }
  *   enums     { id, name, kind:"enum", fields:[{ name, type:"number", value }] }
- *   structs   describeObject()-shaped ({ name, type:"object", methods,
- *             getters, setters, fields, prototypeChain }, the last four empty
- *             here) plus kind:"struct"|"union"|"class", size, align (bytes),
- *             packed?, typedefs? (names that alias it); each field is
- *             { name, type, cType, offset, size } in bytes, or `bits` +
- *             `bitOffset` for a bitfield (which has no `size`); `size` is
- *             missing where clang could not give one (flexible array).
+ *   structs   { name, type:"struct"|"union", size, align (bytes), line,
+ *             methods:[], getters:[], setters:[], fields, prototypeChain:[] },
+ *             describeObject()-shaped, plus packed? and typedefs? (names that
+ *             alias it). `size`, `align` and `line` are null where unknown.
+ *             Each field is { name, type, offset, size, ffi }: `type` is the C
+ *             type as written ("size_t", "char[4096]", "int (*)()"),
+ *             `offset`/`size` are bytes (null where clang gave no layout, e.g.
+ *             after a member of incomplete type) and `ffi` is what the field
+ *             maps to for the ffi module ("u64", "struct node *"; the C type
+ *             again when unsupported). A bitfield also has `bits`, its
+ *             `offset`/`size` are those of its storage unit (the declared
+ *             type) and its `bitOffset` counts from that unit's first bit.
  *             Sizes/offsets come from clang's record layouts (see
- *             runLayoutDump())
+ *             runLayoutDump()), else from the type
  *   typedefs  typedef / using aliases: { name (qualified), kind:"typedef"|
  *             "using", type (FFIType name, else the C type), cType (as
  *             written), resolved? (canonical, when it differs), record? (the
@@ -1255,10 +1392,11 @@ function collectIR(root, isSourceFile, idPrefix) {
  *   skipped   { name, reason } for declarations that could not be bound
  * `source` records how the IR was produced, for the generated file's header.
  *   classes   C++ classes (and structs with methods or bases), shaped like
- *             structs: { name (qualified, "ns::Class"), kind:"class"|"struct",
- *             size, align, abstract?, polymorphic?, bases:[{ name, access,
+ *             structs: { name (qualified, "ns::Class"), type:"class"|"struct",
+ *             size, align, line, abstract?, polymorphic?, bases:[{ name, access,
  *             virtual? }], fields (as `structs`, plus static:true and
- *             mangledName for static members), constructors, methods,
+ *             mangledName for static members, which have no offset/size),
+ *             constructors, methods,
  *             destructor?:{ mangledName, virtual? } }. Only public members.
  *             `prototypeChain` lists the ancestors (first base each), see
  *             linkPrototypeChains().
@@ -1616,7 +1754,7 @@ function structsCode(ir, opts) {
   if(!opts.structs) return '';
 
   let out = '';
-  const structs = ir.structs.filter(s => s.size !== undefined);
+  const structs = ir.structs.filter(s => s.size != null);
   const variables = ir.fields.filter(f => !(f.const && f.value !== undefined));
 
   if(!structs.length && !variables.length) return '';
@@ -1629,14 +1767,17 @@ function structsCode(ir, opts) {
     const fields = {};
 
     s.fields.forEach((f, i) => {
-      const e = { type: f.type };
-      if(f.offset !== undefined) e.offset = f.offset;
-      if(f.bits !== undefined) ((e.bits = f.bits), (e.bitOffset = f.bitOffset));
-      if(!isFfiType(f.type)) e.cType = f.cType;
+      const e = { type: f.ffi };
+      if(f.bits === undefined && f.offset != null) e.offset = f.offset;
+      if(f.bits !== undefined) {
+        e.bits = f.bits;
+        if(f.offset != null) e.bitOffset = f.offset * 8 + f.bitOffset;
+      }
+      if(!isFfiType(f.ffi)) e.cType = f.type;
       fields[f.name || '__anon' + i] = e;
     });
 
-    const ident = safeIdent((s.kind + '_' + s.name).replace(/::/g, '_'));
+    const ident = safeIdent((s.type + '_' + s.name).replace(/::/g, '_'));
     out += 'export const ' + ident + ' = __struct(' + s.size + ', ' + s.align + ', ' + JSON.stringify(fields) + ');\n';
     for(const alias of s.typedefs || []) out += 'export const ' + safeIdent(alias) + ' = ' + ident + ';\n';
   }
@@ -1829,11 +1970,11 @@ function classesCode(classes, opts, helpers) {
         else {
           const v = prefix + 'v_' + f.name;
 
-          out += 'const ' + v + ' = __lazy(() => __variable(' + JSON.stringify(f.mangledName) + ', ' + JSON.stringify(f.type) + '));\n';
+          out += 'const ' + v + ' = __lazy(() => __variable(' + JSON.stringify(f.mangledName) + ', ' + JSON.stringify(f.ffi) + '));\n';
           out += 'Object.defineProperty(' + id + ', ' + JSON.stringify(f.name) + ', { enumerable: true, get: () => ' + v + '().value, set: x => { ' + v + '().value = x; } });\n';
         }
-      } else if(f.offset !== undefined && f.bits === undefined && f.type !== 'void' && isFfiType(f.type)) {
-        fields[f.name] = { type: f.type, offset: f.offset };
+      } else if(f.offset != null && f.bits === undefined && f.ffi !== 'void' && isFfiType(f.ffi)) {
+        fields[f.name] = { type: f.ffi, offset: f.offset };
       }
     }
 

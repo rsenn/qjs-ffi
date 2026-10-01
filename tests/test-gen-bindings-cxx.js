@@ -142,9 +142,11 @@ await tests({
     assert(/export const struct_geo_Point = /.test(out), out);
   },
 
-  'structs and classes are describeObject()-shaped'() {
+  'structs and classes have the filter-struct.json shape'() {
     for(const e of [...ir.structs, ...ir.classes]) {
-      eq('object', e.type);
+      assert(['struct', 'union', 'class'].includes(e.type), e.name + ': type is the tag, got ' + e.type);
+      eq(undefined, e.kind);
+      same(['name', 'type', 'size', 'align', 'line'], Object.keys(e).slice(0, 5));
       same([], e.getters);
       same([], e.setters);
       assert(Array.isArray(e.methods) && Array.isArray(e.fields) && Array.isArray(e.prototypeChain), e.name + ' lacks a describeObject() member list');
@@ -179,8 +181,9 @@ await tests({
 
     const flag = find(rec.fields, 'flag');
     eq(3, flag.bits);
-    eq(undefined, flag.size);
-    eq(undefined, flag.offset);
+    eq(4, flag.size);
+    eq(56, flag.offset);
+    eq(0, flag.bitOffset);
 
     eq(8, find(widget.fields, 'ref').size);
     eq(undefined, find(widget.fields, 'priv'));
@@ -224,6 +227,55 @@ await tests({
     const tail = find(types.structs, 'tail');
     eq(4, find(tail.fields, 'n').size);
     eq(undefined, find(tail.fields, 'data').size);
+  },
+
+  'fields keep the C type as written next to the ffi mapping'() {
+    const rec = find(genIR('--std=c++17', root + 'tests/cxx/types.hpp').structs, 'ty::Rec');
+
+    same(['char', 'i8'], [find(rec.fields, 'tag').type, find(rec.fields, 'tag').ffi]);
+    same(['int[3]', 'int[3]'], [find(rec.fields, 'arr').type, find(rec.fields, 'arr').ffi]);
+    same(['Rec *', 'Rec *'], [find(rec.fields, 'next').type, find(rec.fields, 'next').ffi]);
+  },
+
+  'structs and unions carry their declaration line'() {
+    const layout = genIR(root + 'tests/cxx/layout.h');
+
+    eq(5, find(layout.structs, 'holder').line);
+    eq(15, find(layout.structs, 'num').line);
+    eq('union', find(layout.structs, 'num').type);
+  },
+
+  'a member of incomplete type leaves the rest of the layout null, like filter_in'() {
+    const holder = find(genIR(root + 'tests/cxx/layout.h').structs, 'holder');
+    const at = n => find(holder.fields, n);
+
+    eq(null, holder.size);
+    eq(null, holder.align);
+    same([0, 8], [at('name').offset, at('n').offset]);
+    same([null, null, null], [at('part').offset, at('buf').offset, at('len').offset]);
+    same([8, 16, 8], [at('name').size, at('buf').size, at('len').size]);
+    eq(null, at('part').size);
+  },
+
+  'bitfields share a storage unit: offset/size of the unit, bitOffset inside it'() {
+    const holder = find(genIR(root + 'tests/cxx/layout.h').structs, 'holder');
+    const row = n => {
+      const f = find(holder.fields, n);
+      return [f.offset, f.size, f.bits, f.bitOffset];
+    };
+
+    same([12, 4, 1, 0], row('a'));
+    same([12, 4, 2, 1], row('b'));
+    same([12, 4, 5, 3], row('c'));
+    same([12, 2, 4, 8], row('s'));
+  },
+
+  'a union lists every member at offset 0'() {
+    const num = find(genIR(root + 'tests/cxx/layout.h').structs, 'num');
+
+    same([0, 0, 0], num.fields.map(f => f.offset));
+    same([4, 8, 8], num.fields.map(f => f.size));
+    eq(8, num.size);
   },
 
   'sizes and typedefs survive the AST cache'() {
