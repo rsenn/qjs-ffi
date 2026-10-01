@@ -193,6 +193,14 @@ function shquote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
+/* Whether a declaration from file `f` is one to collect for `source`: the
+ * source itself, or with --follow-includes any file under its directory. */
+function sourceFilter(opts, source) {
+  const dir = source.replace(/[^/]*$/, '');
+
+  return f => f === source || (opts.followIncludes && dir !== '' && f !== null && f.startsWith(dir));
+}
+
 /* A .h header is ambiguous, so it needs --c++ to be parsed as C++. */
 function isCxx(opts, source) {
   return opts.cxx || /\.(cc|cpp|cxx|c\+\+|hh|hpp|hxx|h\+\+)$/i.test(source);
@@ -212,8 +220,8 @@ function langArgs(opts, source) {
  * dropped. Which children a node keeps is decided the moment its "kind" key
  * arrives (clang always writes "id", then "kind", before anything else).
  */
-const TOP_KINDS = new Set(['FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl', 'CXXRecordDecl', 'NamespaceDecl', 'LinkageSpecDecl']);
-const CLASS_KINDS = new Set(['FieldDecl', 'VarDecl', 'EnumDecl', 'CXXRecordDecl', 'CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
+const TOP_KINDS = new Set(['FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl', 'TypeAliasDecl', 'CXXRecordDecl', 'NamespaceDecl', 'LinkageSpecDecl']);
+const CLASS_KINDS = new Set(['FieldDecl', 'VarDecl', 'EnumDecl', 'TypedefDecl', 'TypeAliasDecl', 'CXXRecordDecl', 'CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
 const DROP_KEYS = new Set(['range', 'referencedDecl', 'previousDecl', 'parentDeclContext', 'valueCategory', 'isUsed', 'isReferenced']);
 const RECORD_INFO_KEYS = new Set(['isAbstract', 'isPolymorphic']);
 
@@ -248,6 +256,7 @@ function nodePolicy(parent, kind) {
     case 'CXXRecordDecl':
       return CLASS_KINDS.has(kind) || kind === 'AlignedAttr' ? 'full' : kind === 'AccessSpecDecl' || kind === 'PackedAttr' ? 'leaf' : 'skip';
     case 'TypedefDecl':
+    case 'TypeAliasDecl':
       return kind === 'ElaboratedType' ? 'leaf' : 'skip';
     case 'VarDecl':
     case 'EnumConstantDecl':
@@ -408,10 +417,10 @@ function mtime(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 3;
+const AST_CACHE_VERSION = 4;
 
 function cachePath(opts, source, cmd) {
-  return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source) + '.ast.json';
+  return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
 }
 
 function mkdirs(dir) {
@@ -444,36 +453,83 @@ function readAstCache(file) {
 /* Sizes and field offsets, which clang's JSON AST does not carry. clang only
  * dumps a record's layout once something needs it, so a probe translation
  * unit forces one per complete record with sizeof(). Returns
- * { "struct point": { size, align, offsets: [bit offset per FieldDecl] } }
- * (size/align in bytes), keyed by the spelling clang prints for the type:
- * the tag for a named record, else its first typedef name.
+ * { "struct point": { size, align, offsets: [bit offset per FieldDecl],
+ * fieldSizes: { field: bytes } } } (size/align in bytes), keyed by the
+ * spelling clang prints for the type: the tag for a named record, else its
+ * first typedef name; plus { "typedef <qualified name>": { size } } for every
+ * typedef/using alias.
+ *
+ * A field's size is probed as the size of a record holding `char[sizeof(field)]`,
+ * since the layout dump is the only thing clang prints numbers with. A
+ * bitfield, flexible array or incomplete type simply gets no size.
  */
 function runLayoutDump(opts, source, ast) {
   const aliases = collectRecordTypedefs(ast);
   const types = [];
+  const fieldProbes = [];
+  const typedefNames = [];
 
-  for(const node of ast.inner || []) {
-    if(node.kind !== 'RecordDecl' || !node.completeDefinition) continue;
+  /* `t` is the record's type spelling; its public, named, non-bitfield fields
+   * get a size probe. */
+  const addRecord = (node, t, probeFields) => {
+    types.push(t);
+    if(!probeFields) return;
 
-    const t = node.name ? (node.tagUsed || 'struct') + ' ' + node.name : (aliases[node.id] || [])[0];
-    if(t) types.push(t);
+    let access = node.kind === 'CXXRecordDecl' && node.tagUsed === 'class' ? 'private' : 'public';
+
+    for(const child of node.inner || []) {
+      if(child.kind === 'AccessSpecDecl') access = child.access;
+      else if(child.kind === 'FieldDecl' && child.name && !child.isBitfield && access === 'public') fieldProbes.push({ type: t, field: child.name });
+    }
+  };
+
+  // Field and typedef sizes are only needed for what will be collected, and
+  // system headers hold thousands of typedefs.
+  const isSourceFile = sourceFilter(opts, source);
+  let currentFile = null;
+
+  for(const top of ast.inner || []) {
+    if(top.loc && top.loc.file !== undefined) currentFile = top.loc.file;
+
+    const wanted = isSourceFile(currentFile);
+
+    walkDecls([top], (node, scope) => {
+      if(node.kind === 'TypedefDecl' || node.kind === 'TypeAliasDecl') {
+        if(wanted && node.name) typedefNames.push(scope + node.name);
+        return;
+      }
+
+      if(node.kind === 'RecordDecl' && scope === '' && node === top) {
+        if(!node.completeDefinition) return;
+
+        const t = node.name ? (node.tagUsed || 'struct') + ' ' + node.name : (aliases[node.id] || [])[0];
+        if(t) addRecord(node, t, wanted);
+        return;
+      }
+
+      if(node.kind !== 'CXXRecordDecl' || node.isImplicit || !node.completeDefinition) return;
+
+      const t = node.name ? (node.tagUsed || 'class') + ' ' + scope + node.name : (aliases[node.id] || [])[0];
+      if(t) addRecord(node, t, wanted);
+    });
   }
-
-  walkDecls(ast.inner, (node, scope) => {
-    if(node.kind !== 'CXXRecordDecl' || node.isImplicit || !node.completeDefinition) return;
-
-    const t = node.name ? (node.tagUsed || 'class') + ' ' + scope + node.name : (aliases[node.id] || [])[0];
-    if(t) types.push(t);
-  });
 
   const layouts = {};
   const [real, err] = realpath(source);
-  if(!types.length || err) return layouts;
+  if(!types.length && !typedefNames.length) return layouts;
+  if(err) return layouts;
 
   mkdirs(opts.cacheDir);
   const probe = opts.cacheDir.replace(/\/*$/, '/') + 'probe-' + fnv1a(real + Date.now()) + (isCxx(opts, source) ? '.cpp' : '.c');
   const f = std.open(probe, 'w');
-  f.puts('#include "' + real + '"\n' + types.map((t, i) => 'enum { __probe' + i + ' = sizeof(' + t + ') };\n').join(''));
+  f.puts(
+    '#include "' +
+      real +
+      '"\n' +
+      types.map((t, i) => 'enum { __probe' + i + ' = sizeof(' + t + ') };\n').join('') +
+      fieldProbes.map((p, i) => 'struct __gb_f' + i + ' { char b[sizeof(((' + p.type + ' *)0)->' + p.field + ')]; };\nenum { __gb_fu' + i + ' = sizeof(struct __gb_f' + i + ') };\n').join('') +
+      typedefNames.map((n, i) => 'struct __gb_t' + i + ' { char b[sizeof(' + n + ')]; };\nenum { __gb_tu' + i + ' = sizeof(struct __gb_t' + i + ') };\n').join(''),
+  );
   f.close();
 
   const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', '-fsyntax-only', ...langArgs(opts, source), ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
@@ -491,6 +547,20 @@ function runLayoutDump(opts, source, ast) {
 
     if(type && size && align) layouts[type[1]] = { size: size[1] / 8, align: align[1] / 8, offsets: offsets && offsets[1].trim() ? offsets[1].split(',').map(Number) : [] };
   }
+
+  fieldProbes.forEach((p, i) => {
+    const probe = layouts['struct __gb_f' + i];
+
+    if(probe && layouts[p.type]) (layouts[p.type].fieldSizes = layouts[p.type].fieldSizes || {})[p.field] = probe.size;
+    delete layouts['struct __gb_f' + i];
+  });
+
+  typedefNames.forEach((n, i) => {
+    const probe = layouts['struct __gb_t' + i];
+
+    if(probe) layouts['typedef ' + n] = { size: probe.size };
+    delete layouts['struct __gb_t' + i];
+  });
 
   return layouts;
 }
@@ -797,6 +867,9 @@ function walkDecls(nodes, fn, scope = '', access) {
   }
 }
 
+/* C++ declarations that live inside a class and are collected on their own. */
+const NESTED_KINDS = new Set(['CXXRecordDecl', 'EnumDecl', 'TypedefDecl', 'TypeAliasDecl']);
+
 const CLASS_MEMBER_KINDS = new Set(['CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
 
 /* In C++ mode every struct is a CXXRecordDecl; one that declares no
@@ -862,6 +935,10 @@ function collectIR(root, isSourceFile, idPrefix) {
       case 'FunctionDecl':
         collectFunction(node, scope);
         break;
+      case 'TypedefDecl':
+      case 'TypeAliasDecl':
+        collectTypedef(node, scope);
+        break;
       case 'LinkageSpecDecl':
         for(const child of node.inner || []) collectDecl(child, scope);
         break;
@@ -871,7 +948,9 @@ function collectIR(root, isSourceFile, idPrefix) {
     }
   }
 
-  function structField(node, bitOffset) {
+  /* `size` is the field's byte size from the layout probe; a bitfield has
+   * `bits` instead, and a reference member occupies a pointer. */
+  function structField(node, bitOffset, size) {
     const qualType = (node.type && (node.type.desugaredQualType || node.type.qualType)) || '';
     const m = mapCType(qualType, typedefs, enumIndex);
     const field = { name: node.name || '', type: typeName(m, node.type.qualType), cType: node.type.qualType };
@@ -881,8 +960,31 @@ function collectIR(root, isSourceFile, idPrefix) {
       if(node.isBitfield) field.bitOffset = bitOffset;
       else field.offset = bitOffset / 8;
     }
+    if(/&$/.test(field.cType)) size = 8;
+    if(size !== undefined && !node.isBitfield) field.size = size;
     addEnum(m.enumId);
     return field;
+  }
+
+  /* typedef / using: `type` is the FFIType name when the aliased type maps to
+   * one (else the C type), `record` the struct it names, if any. */
+  function collectTypedef(node, scope) {
+    const name = node.name && scope + node.name;
+    if(!name || seen.has('typedef ' + name)) return;
+    seen.add('typedef ' + name);
+
+    const cType = node.type.qualType;
+    const resolved = node.type.desugaredQualType;
+    const m = mapCType(resolved || cType, typedefs, enumIndex);
+    const entry = { name, kind: node.kind === 'TypeAliasDecl' ? 'using' : 'typedef', type: typeName(m, cType), cType };
+    const elaborated = (node.inner || []).find(c => c.kind === 'ElaboratedType');
+    const owned = elaborated && elaborated.ownedTagDecl;
+    const layout = (root.layouts || {})['typedef ' + name];
+
+    if(resolved && resolved !== cType) entry.resolved = resolved;
+    if(owned && (owned.kind === 'RecordDecl' || owned.kind === 'CXXRecordDecl')) entry.record = owned.name ? scope + owned.name : (recordTypedefs[owned.id] || [])[0];
+    if(layout) entry.size = layout.size;
+    ir.typedefs.push(entry);
   }
 
   function collectStruct(node, scope) {
@@ -896,15 +998,21 @@ function collectIR(root, isSourceFile, idPrefix) {
     const fields = [];
     const layout = (root.layouts || {})[node.name ? (node.tagUsed || 'struct') + ' ' + name : aliases[0]];
     let packed = false;
+    let access = node.kind === 'CXXRecordDecl' && node.tagUsed === 'class' ? 'private' : 'public';
+    let fieldIndex = 0;
 
     for(const child of node.inner || []) {
+      if(child.kind === 'AccessSpecDecl') access = child.access;
       if(child.kind === 'PackedAttr') packed = true;
+      if(NESTED_KINDS.has(child.kind) && access === 'public') collectDecl(child, name + '::');
       if(child.kind !== 'FieldDecl') continue;
 
-      fields.push(structField(child, layout && layout.offsets[fields.length]));
+      // Every field takes a layout slot, but only public ones are listed.
+      const index = fieldIndex++;
+      if(access === 'public') fields.push(structField(child, layout && layout.offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
     }
 
-    const s = { name, kind: node.tagUsed || 'struct', fields };
+    const s = { name, type: 'object', kind: node.tagUsed || 'struct', methods: [], getters: [], setters: [], fields, prototypeChain: [] };
     if(layout) ((s.size = layout.size), (s.align = layout.align));
     if(aliases.length) s.typedefs = aliases;
     if(packed) s.packed = true;
@@ -1020,7 +1128,7 @@ function collectIR(root, isSourceFile, idPrefix) {
     const tag = node.tagUsed || 'class';
     const layout = (root.layouts || {})[tag + ' ' + name];
     const info = node.definitionData || {};
-    const cls = { name, kind: tag, bases: [], fields: [], constructors: [], methods: [] };
+    const cls = { name, type: 'object', kind: tag, bases: [], methods: [], getters: [], setters: [], fields: [], prototypeChain: [], constructors: [] };
     let access = tag === 'class' ? 'private' : 'public';
     let fieldIndex = 0;
 
@@ -1043,7 +1151,7 @@ function collectIR(root, isSourceFile, idPrefix) {
 
       if(child.kind === 'FieldDecl') {
         const index = fieldIndex++;
-        if(access === 'public') cls.fields.push(structField(child, layout && layout.offsets[index]));
+        if(access === 'public') cls.fields.push(structField(child, layout && layout.offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
         continue;
       }
 
@@ -1054,6 +1162,8 @@ function collectIR(root, isSourceFile, idPrefix) {
       switch (child.kind) {
         case 'CXXRecordDecl':
         case 'EnumDecl':
+        case 'TypedefDecl':
+        case 'TypeAliasDecl':
           collectDecl(child, name + '::');
           break;
         case 'VarDecl': {
@@ -1116,18 +1226,29 @@ function collectIR(root, isSourceFile, idPrefix) {
  *             of the enums the signature uses)
  *   fields    exported variables/constants: { name, type, value?, const? }
  *   enums     { id, name, kind:"enum", fields:[{ name, type:"number", value }] }
- *   structs   describeClass-like: { name, kind:"struct"|"union", size, align
- *             (bytes), fields:[{ name, type, cType, offset (bytes) | bits +
- *             bitOffset (bitfields) }], packed?, typedefs? }; size/offsets
- *             come from clang's record layouts (see runLayoutDump())
+ *   structs   describeObject()-shaped ({ name, type:"object", methods,
+ *             getters, setters, fields, prototypeChain }, the last four empty
+ *             here) plus kind:"struct"|"union"|"class", size, align (bytes),
+ *             packed?, typedefs? (names that alias it); each field is
+ *             { name, type, cType, offset, size } in bytes, or `bits` +
+ *             `bitOffset` for a bitfield (which has no `size`); `size` is
+ *             missing where clang could not give one (flexible array).
+ *             Sizes/offsets come from clang's record layouts (see
+ *             runLayoutDump())
+ *   typedefs  typedef / using aliases: { name (qualified), kind:"typedef"|
+ *             "using", type (FFIType name, else the C type), cType (as
+ *             written), resolved? (canonical, when it differs), record? (the
+ *             struct it names), size? (bytes) }
  *   skipped   { name, reason } for declarations that could not be bound
  * `source` records how the IR was produced, for the generated file's header.
- *   classes   C++ classes (and structs with methods or bases), describeClass-
- *             like: { name (qualified, "ns::Class"), kind:"class"|"struct",
+ *   classes   C++ classes (and structs with methods or bases), shaped like
+ *             structs: { name (qualified, "ns::Class"), kind:"class"|"struct",
  *             size, align, abstract?, polymorphic?, bases:[{ name, access,
  *             virtual? }], fields (as `structs`, plus static:true and
  *             mangledName for static members), constructors, methods,
  *             destructor?:{ mangledName, virtual? } }. Only public members.
+ *             `prototypeChain` lists the ancestors (first base each), see
+ *             linkPrototypeChains().
  *             A method is a `methods`-style entry plus `mangledName` (the
  *             dlsym() name), `static`, `const?`, `virtual?`, `pure?`; its
  *             `params` do not list `this`. A constructor is the same with
@@ -1135,7 +1256,27 @@ function collectIR(root, isSourceFile, idPrefix) {
  *             an abstract class has none.
  */
 function newIR() {
-  return { name: 'bindings', type: 'object', version: 1, methods: [], fields: [], getters: [], setters: [], enums: [], structs: [], classes: [], skipped: [], prototypeChain: [] };
+  return { name: 'bindings', type: 'object', version: 1, methods: [], fields: [], getters: [], setters: [], enums: [], structs: [], classes: [], typedefs: [], skipped: [], prototypeChain: [] };
+}
+
+/* Fills each class's `prototypeChain` like describeObject() does for a JS
+ * object: one { level, constructorName, methods, getters, setters, fields }
+ * per ancestor, following the first base (the one a generated class extends).
+ * Needs every class of the IR, so it runs after the sources are merged. */
+function linkPrototypeChains(ir) {
+  const byName = new Map(ir.classes.map(c => [c.name, c]));
+
+  for(const c of ir.classes) {
+    const visited = new Set([c.name]);
+
+    c.prototypeChain = [];
+
+    for(let b = c; b.bases[0] && byName.has(b.bases[0].name) && !visited.has(b.bases[0].name); ) {
+      b = byName.get(b.bases[0].name);
+      visited.add(b.name);
+      c.prototypeChain.push({ level: c.prototypeChain.length, constructorName: b.name, methods: b.methods, getters: b.getters, setters: b.setters, fields: b.fields });
+    }
+  }
 }
 
 /* Merges `from` into `into`, keeping the first declaration of a name (a
@@ -1157,6 +1298,7 @@ function mergeIR(into, from) {
   add(into.enums, from.enums, 'id');
   add(into.structs, from.structs, 'name');
   add(into.classes, from.classes, 'name');
+  add(into.typedefs, from.typedefs, 'name');
   add(into.skipped, from.skipped, 'name');
   return into;
 }
@@ -1194,18 +1336,19 @@ function constValue(node) {
   return undefined;
 }
 
-/* record node id -> every typedef name wrapping it (`typedef struct {..} T;`) */
+/* record node id -> every (qualified) typedef name wrapping it
+ * (`typedef struct {..} T;`) */
 function collectRecordTypedefs(root) {
   const names = {};
 
-  for(const node of root.inner || []) {
-    if(node.kind !== 'TypedefDecl') continue;
+  walkDecls(root.inner, (node, scope) => {
+    if(node.kind !== 'TypedefDecl') return;
 
     const elaborated = (node.inner || []).find(c => c.kind === 'ElaboratedType');
     const owned = elaborated && elaborated.ownedTagDecl;
 
-    if(owned && owned.kind === 'RecordDecl') (names[owned.id] = names[owned.id] || []).push(node.name);
-  }
+    if(owned && (owned.kind === 'RecordDecl' || owned.kind === 'CXXRecordDecl')) (names[owned.id] = names[owned.id] || []).push(scope + node.name);
+  });
 
   return names;
 }
@@ -1793,13 +1936,14 @@ function main() {
         std.exit(1);
       }
 
-      const dir = source.replace(/[^/]*$/, '');
-      const isSourceFile = f => f === source || (opts.followIncludes && dir !== '' && f !== null && f.startsWith(dir));
+      const isSourceFile = sourceFilter(opts, source);
       const found = collectIR(root, isSourceFile, i + ':');
 
       if(!found.methods.length && !found.classes.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
       mergeIR(ir, found);
     });
+
+    linkPrototypeChains(ir);
   }
 
   const out = opts.emitIr ? JSON.stringify(ir, null, 2) + '\n' : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);

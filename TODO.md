@@ -200,6 +200,18 @@ Constructors of an abstract class are omitted: the compiler emits only the
 base-object constructor (`C2`) for it, so there is no `C1` to `dlsym()`. A
 pure virtual method has no symbol either.
 
+### Done: field sizes, typedefs, describeObject() shape
+
+Struct and class IR entries are `describeObject()`-shaped (`type: "object"`,
+`methods`/`getters`/`setters`/`fields`/`prototypeChain`; a class's
+`prototypeChain` lists its ancestors) and every field carries a byte `offset`
+and `size` (a bitfield has `bits`/`bitOffset` instead). Sizes come from the
+layout probe (`char[sizeof(field)]` records, see `runLayoutDump()`), limited to
+the files being collected. `typedef` and `using` aliases are collected into
+`ir.typedefs` (qualified name, `type`, `cType`, `resolved?`, `record?`,
+`size?`), including those nested in classes. JS output is unchanged: nothing
+emits `typedefs` or field sizes yet.
+
 ### Next: C++ gaps
 
 1. Virtual methods are bound to the declaring class's own symbol, so they

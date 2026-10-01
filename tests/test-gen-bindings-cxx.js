@@ -142,6 +142,107 @@ await tests({
     assert(/export const struct_geo_Point = /.test(out), out);
   },
 
+  'structs and classes are describeObject()-shaped'() {
+    for(const e of [...ir.structs, ...ir.classes]) {
+      eq('object', e.type);
+      same([], e.getters);
+      same([], e.setters);
+      assert(Array.isArray(e.methods) && Array.isArray(e.fields) && Array.isArray(e.prototypeChain), e.name + ' lacks a describeObject() member list');
+    }
+    same([], find(ir.structs, 'geo::Point').methods);
+  },
+
+  'a class lists its ancestors in prototypeChain, like describeObject'() {
+    eq(1, shape.prototypeChain.length);
+    eq(0, shape.prototypeChain[0].level);
+    eq('geo::Base', shape.prototypeChain[0].constructorName);
+    same(['id'], shape.prototypeChain[0].fields.map(f => f.name));
+    same([], base.prototypeChain);
+  },
+
+  'every field has a byte offset and a byte size'() {
+    const point = find(ir.structs, 'geo::Point');
+
+    same([{ offset: 0, size: 4 }, { offset: 4, size: 4 }], point.fields.map(f => ({ offset: f.offset, size: f.size })));
+    eq(4, find(shape.fields, 'width').size);
+    eq(4, find(base.fields, 'id').size);
+  },
+
+  'field sizes cover arrays, pointers, nested structs and references; bitfields have bits instead'() {
+    const types = genIR('--std=c++17', root + 'tests/cxx/types.hpp');
+    const rec = find(types.structs, 'ty::Rec');
+    const size = n => find(rec.fields, n).size;
+    const widget = find(types.structs, 'ty::Widget');
+
+    same([1, 8, 12, 8, 5, 8], ['tag', 'd', 'arr', 'next', 'bytes', 'pair'].map(size));
+    same([0, 8, 16, 32, 40, 48], ['tag', 'd', 'arr', 'next', 'bytes', 'pair'].map(n => find(rec.fields, n).offset));
+
+    const flag = find(rec.fields, 'flag');
+    eq(3, flag.bits);
+    eq(undefined, flag.size);
+    eq(undefined, flag.offset);
+
+    eq(8, find(widget.fields, 'ref').size);
+    eq(undefined, find(widget.fields, 'priv'));
+    eq(32, widget.size);
+  },
+
+  'C++ typedef and using aliases are parsed, qualified, with size'() {
+    const types = genIR('--std=c++17', root + 'tests/cxx/types.hpp');
+    const byName = Object.fromEntries(types.typedefs.map(t => [t.name, t]));
+
+    same(['ty::Widget::id_t', 'ty::byte_t', 'ty::cb_t', 'ty::pair_t', 'ty::word_t'], Object.keys(byName).sort());
+    same({ name: 'ty::byte_t', kind: 'typedef', type: 'u8', cType: 'unsigned char', size: 1 }, byName['ty::byte_t']);
+    same({ name: 'ty::word_t', kind: 'using', type: 'u16', cType: 'unsigned short', size: 2 }, byName['ty::word_t']);
+    eq('function', byName['ty::cb_t'].type);
+    eq(8, byName['ty::cb_t'].size);
+    eq('i64', byName['ty::Widget::id_t'].type);
+    eq('using', byName['ty::Widget::id_t'].kind);
+  },
+
+  'a typedef of an anonymous C++ struct names the struct it creates'() {
+    const types = genIR('--std=c++17', root + 'tests/cxx/types.hpp');
+    const alias = find(types.typedefs, 'ty::pair_t');
+
+    eq('ty::pair_t', alias.record);
+    eq(8, alias.size);
+    same(['ty::pair_t'], find(types.structs, 'ty::pair_t').typedefs);
+    same([4, 1], find(types.structs, 'ty::pair_t').fields.map(f => f.size));
+  },
+
+  'C typedefs: struct, function pointer, enum, pointer; flexible array has no size'() {
+    const types = genIR(root + 'tests/cxx/types.h');
+    const byName = Object.fromEntries(types.typedefs.map(t => [t.name, t]));
+
+    eq('point', byName.point_t.record);
+    eq(8, byName.point_t.size);
+    eq('function', byName.cmp_t.type);
+    eq('i32', byName.color_t.type);
+    eq('pointer', byName.point_ptr.type);
+    eq(8, byName.point_ptr.size);
+
+    const tail = find(types.structs, 'tail');
+    eq(4, find(tail.fields, 'n').size);
+    eq(undefined, find(tail.fields, 'data').size);
+  },
+
+  'sizes and typedefs survive the AST cache'() {
+    const cache = tmp + 'test-gen-bindings-cxx.cache';
+    sh('rm -rf ' + cache);
+
+    const run = () => {
+      const file = tmp + 'test-gen-bindings-cxx.cached.ir.json';
+      sh(['qjsm', root + 'tools/gen-bindings.js', '--cache-dir=' + cache, '--std=c++17', '--emit-ir=' + file, root + 'tests/cxx/types.hpp'].join(' '));
+      return JSON.parse(std.loadFile(file));
+    };
+    const cold = run();
+    const warm = run();
+
+    assert(sh('ls ' + cache).includes('.ast.json'), 'no cache file was written');
+    eq(8, find(find(warm.structs, 'ty::Rec').fields, 'next').size);
+    same(cold.typedefs, warm.typedefs);
+  },
+
   'generated classes construct, call, read and write fields, and destroy'() {
     return withGenerated(['--std=c++17'], async m => {
       const before = m.geo_Shape.count();
