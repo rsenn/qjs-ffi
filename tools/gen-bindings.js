@@ -21,6 +21,9 @@
  *   --api=define              -- one `define()`+`call()` pair per function,
  *                                 wrapped in a plain JS function(legacy API)
  *
+ * C++ classes (see --c++) become `export class ns_Name`, extending their
+ * first public base class; see classesCode() for what a class offers.
+ *
  * Also emits `export const NAME = value;` for every enum reachable from a
  * bound function's args/returns (enum-typed or enum-typedef-typed), so
  * callers get the same symbolic constants the C API uses.
@@ -46,6 +49,9 @@
  *                            accessor { ptr, value }, resolved on first use
  *   --exclude=<name>         do not bind this function(repeatable), e.g. one
  *                            the shared library does not actually export
+ *   --c++                    parse every source as C++ (implied by a .cc, .cpp,
+ *                            .cxx, .hh, .hpp or .hxx extension; a .h needs this)
+ *   --std=<std>              C++ standard passed to clang, e.g. c++17
  *   -I<dir>                  extra clang include dir (repeatable)
  *   -D<name[=val]>           extra clang macro define (repeatable)
  *   --library=<path>         dlopen() this shared library instead of
@@ -62,8 +68,6 @@
 import * as std from 'std';
 import { mkdir, realpath, remove, stat } from 'os';
 import { JsonParser } from 'json';
-
-const { NEED_DATA, NONE, OBJECT, OBJECT_END, ARRAY, ARRAY_END, KEY, STRING, TRUE, FALSE, NULL, NUMBER } = JsonParser;
 
 /* How this script is invoked, for use in the usage banner and the
  * generated file's "regenerate with:" comment. Installed (via
@@ -87,7 +91,9 @@ function usage() {
       '  --ffitype                write types as FFIType.i32 instead of "i32" (cfunction API only)\n' +
       '  --structs                also emit struct/union layouts and extern variable accessors\n' +
       '  --exclude=<name>         do not bind this function(repeatable)\n' +
-      '  -I<dir>                  extra clang include dir (repeatable)\n' +
+      '  --c++                    parse every source as C++ (implied by .cc/.cpp/.cxx/.hh/.hpp/.hxx)\n' +
+      '  --std=<std>              C++ standard for clang, e.g. c++17 (C++ sources only)\n' +
+      '  -I<dir>                 extra clang include dir (repeatable)\n' +
       '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
       '  --library=<path>         dlopen() this shared library instead of RTLD_DEFAULT\n' +
       '  --clang=<path>           clang binary to invoke (default: clang)\n' +
@@ -113,6 +119,8 @@ function parseArgs(argv) {
     excludes: [],
     ffiType: false,
     structs: false,
+    cxx: false,
+    std: null,
     emitIr: null,
     fromIr: null,
     cacheDir: '.tmp/gen-bindings',
@@ -133,6 +141,10 @@ function parseArgs(argv) {
       opts.ffiType = true;
     } else if(a === '--structs') {
       opts.structs = true;
+    } else if(a === '--c++') {
+      opts.cxx = true;
+    } else if(a.startsWith('--std=')) {
+      opts.std = a.slice('--std='.length);
     } else if(a === '--follow-includes') {
       opts.followIncludes = true;
     } else if(a.startsWith('-I')) {
@@ -181,6 +193,16 @@ function shquote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
+/* A .h header is ambiguous, so it needs --c++ to be parsed as C++. */
+function isCxx(opts, source) {
+  return opts.cxx || /\.(cc|cpp|cxx|c\+\+|hh|hpp|hxx|h\+\+)$/i.test(source);
+}
+
+/* clang's language selection for `source`; empty for plain C. */
+function langArgs(opts, source) {
+  return isCxx(opts, source) ? ['-x', 'c++', ...(opts.std ? ['-std=' + opts.std] : [])] : [];
+}
+
 /* --- streaming AST condenser ---------------------------------------------- */
 
 /* clang's JSON AST is megabytes per header (cairo.h: ~3.7MB), nearly all of
@@ -190,8 +212,14 @@ function shquote(s) {
  * dropped. Which children a node keeps is decided the moment its "kind" key
  * arrives (clang always writes "id", then "kind", before anything else).
  */
-const TOP_KINDS = new Set(['FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl']);
+const TOP_KINDS = new Set(['FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl', 'CXXRecordDecl', 'NamespaceDecl', 'LinkageSpecDecl']);
+const CLASS_KINDS = new Set(['FieldDecl', 'VarDecl', 'EnumDecl', 'CXXRecordDecl', 'CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
 const DROP_KEYS = new Set(['range', 'referencedDecl', 'previousDecl', 'parentDeclContext', 'valueCategory', 'isUsed', 'isReferenced']);
+const RECORD_INFO_KEYS = new Set(['isAbstract', 'isPolymorphic']);
+
+/* System-library namespaces (std, __gnu_cxx, ...) hold megabytes of
+ * declarations nobody binds. */
+const SYSTEM_NAMESPACE = /^(std|__\w*)$/;
 const LOC_KEYS = new Set(['file', 'line', 'spellingLoc', 'expansionLoc']);
 const EXPR_KEYS = new Set(['kind', 'value', 'opcode', 'inner']);
 const EXPR_KIND = /(Expr|Literal|Operator)$/;
@@ -205,12 +233,20 @@ function nodePolicy(parent, kind) {
   switch (parent) {
     case 'TranslationUnitDecl':
       return TOP_KINDS.has(kind) ? 'full' : 'shallow';
+    case 'NamespaceDecl':
+    case 'LinkageSpecDecl':
+      return TOP_KINDS.has(kind) ? 'full' : 'skip';
     case 'FunctionDecl':
+    case 'CXXMethodDecl':
+    case 'CXXConstructorDecl':
+    case 'CXXDestructorDecl':
       return kind === 'ParmVarDecl' ? 'leaf' : 'skip';
     case 'EnumDecl':
       return kind === 'EnumConstantDecl' ? 'full' : 'skip';
     case 'RecordDecl':
       return kind === 'FieldDecl' || kind === 'RecordDecl' || kind === 'EnumDecl' || kind === 'AlignedAttr' ? 'full' : kind === 'PackedAttr' ? 'leaf' : 'skip';
+    case 'CXXRecordDecl':
+      return CLASS_KINDS.has(kind) || kind === 'AlignedAttr' ? 'full' : kind === 'AccessSpecDecl' || kind === 'PackedAttr' ? 'leaf' : 'skip';
     case 'TypedefDecl':
       return kind === 'ElaboratedType' ? 'leaf' : 'skip';
     case 'VarDecl':
@@ -221,6 +257,8 @@ function nodePolicy(parent, kind) {
   }
   return EXPR_KIND.test(parent) && EXPR_KIND.test(kind) ? 'expr' : 'skip';
 }
+
+const { NEED_DATA, NONE, OBJECT, OBJECT_END, ARRAY, ARRAY_END, KEY, STRING, TRUE, FALSE, NULL, NUMBER } = JsonParser;
 
 class AstCondenser {
   constructor(parser) {
@@ -252,6 +290,7 @@ class AstCondenser {
   /* Consumes the rest of a value whose first token `t` was already read. */
   skip(t) {
     if(t !== OBJECT && t !== ARRAY) return;
+
     for(let depth = 1; depth > 0; ) {
       const u = this.next();
       if(u === OBJECT || u === ARRAY) depth++;
@@ -264,19 +303,26 @@ class AstCondenser {
   plain(t, keys) {
     if(t === OBJECT) {
       const o = {};
+    
       for(let u; (u = this.next()) !== OBJECT_END; ) {
         const key = this.p.token;
         const v = this.next();
+    
         if(keys && !keys.has(key)) this.skip(v);
         else o[key] = this.plain(v, keys);
       }
+
       return o;
     }
+
     if(t === ARRAY) {
       const a = [];
+      
       for(let u; (u = this.next()) !== ARRAY_END; ) a.push(this.plain(u, keys));
+      
       return a;
     }
+
     return this.scalar(t);
   }
 
@@ -293,9 +339,11 @@ class AstCondenser {
 
       if(kind === undefined) {
         o[key] = this.scalar(v);
+
         if(key === 'kind') {
           kind = o.kind;
           policy = parent === null ? 'full' : nodePolicy(parent, kind);
+        
           if(policy === 'skip') {
             this.skip(OBJECT);
             return null;
@@ -314,19 +362,24 @@ class AstCondenser {
       } else if(DROP_KEYS.has(key) || (policy === 'shallow' && key !== 'name')) {
         this.skip(v);
       } else {
-        o[key] = this.plain(v, null);
+        o[key] = this.plain(v, key === 'definitionData' ? RECORD_INFO_KEYS : null);
+
+        if(kind === 'NamespaceDecl' && key === 'name' && SYSTEM_NAMESPACE.test(o.name)) policy = 'shallow';
       }
     }
+
     return o;
   }
 
   inner(parent, t) {
     if(t !== ARRAY) throw new Error('clang AST: "inner" is not an array');
     const a = [];
+
     for(let u; (u = this.next()) !== ARRAY_END; ) {
       const n = this.node(parent);
       if(n) a.push(n);
     }
+    
     return a;
   }
 
@@ -355,7 +408,7 @@ function mtime(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 2;
+const AST_CACHE_VERSION = 3;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source) + '.ast.json';
@@ -363,6 +416,7 @@ function cachePath(opts, source, cmd) {
 
 function mkdirs(dir) {
   let path = '';
+
   for(const part of dir.split('/')) {
     path += part + '/';
     if(part && part !== '.') mkdir(path, 0o755);
@@ -377,11 +431,13 @@ function readAstCache(file) {
 
   const stamp = mtime(file);
   let root;
+
   try {
     root = JSON.parse(cached);
   } catch(e) {
     return null;
   }
+
   return root.files.every(f => mtime(f) >= 0 && mtime(f) <= stamp) ? root.ast : null;
 }
 
@@ -403,17 +459,24 @@ function runLayoutDump(opts, source, ast) {
     if(t) types.push(t);
   }
 
+  walkDecls(ast.inner, (node, scope) => {
+    if(node.kind !== 'CXXRecordDecl' || node.isImplicit || !node.completeDefinition) return;
+
+    const t = node.name ? (node.tagUsed || 'class') + ' ' + scope + node.name : (aliases[node.id] || [])[0];
+    if(t) types.push(t);
+  });
+
   const layouts = {};
   const [real, err] = realpath(source);
   if(!types.length || err) return layouts;
 
   mkdirs(opts.cacheDir);
-  const probe = opts.cacheDir.replace(/\/*$/, '/') + 'probe-' + fnv1a(real + Date.now()) + '.c';
+  const probe = opts.cacheDir.replace(/\/*$/, '/') + 'probe-' + fnv1a(real + Date.now()) + (isCxx(opts, source) ? '.cpp' : '.c');
   const f = std.open(probe, 'w');
   f.puts('#include "' + real + '"\n' + types.map((t, i) => 'enum { __probe' + i + ' = sizeof(' + t + ') };\n').join(''));
   f.close();
 
-  const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', '-fsyntax-only', ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
+  const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', '-fsyntax-only', ...langArgs(opts, source), ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
   const p = std.popen(parts.map(shquote).join(' ') + ' 2>/dev/null', 'r');
   const out = p.readAsString();
 
@@ -433,7 +496,7 @@ function runLayoutDump(opts, source, ast) {
 }
 
 function runClangAstDump(opts, source) {
-  const parts = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only'];
+  const parts = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only', ...langArgs(opts, source)];
 
   for(const inc of opts.includes) parts.push('-I' + inc);
   for(const def of opts.defines) parts.push('-D' + def);
@@ -452,7 +515,7 @@ function runClangAstDump(opts, source) {
     error = null;
 
   try {
-    ast = new AstCondenser(new JsonParser({ read: (buf, len) => f.read(buf, 0, len) }, source)).root();
+    ast = new AstCondenser(new JsonParser((buf, len) => f.read(buf, 0, len), source)).root();
   } catch(e) {
     error = e;
   }
@@ -471,6 +534,7 @@ function runClangAstDump(opts, source) {
 
   if(opts.cache) {
     mkdirs(opts.cacheDir);
+    
     const out = std.open(cache, 'w');
     if(out) {
       out.puts(JSON.stringify({ files: astFiles(ast), ast }));
@@ -497,7 +561,15 @@ function normalizeType(s) {
  * ParmVarDecl children, not from re-parsing this string.
  */
 function splitFunctionType(qualType) {
-  const s = qualType.trim();
+  // A method's type carries trailing qualifiers: "double () const noexcept".
+  let s = qualType.trim().replace(/\s*\b(noexcept|throw)\s*\([^()]*\)$/, '');
+  let qualifiers = '';
+
+  for(let m; (m = /\s*(\b(const|volatile|noexcept)|&&?)$/.exec(s)); ) {
+    qualifiers = m[0] + qualifiers;
+    s = s.slice(0, m.index);
+  }
+
   if(!s.endsWith(')')) return null;
 
   let depth = 0;
@@ -505,7 +577,7 @@ function splitFunctionType(qualType) {
     if(s[i] === ')') depth++;
     else if(s[i] === '(') {
       depth--;
-      if(depth === 0) return { returnType: s.slice(0, i).trim() };
+      if(depth === 0) return { returnType: s.slice(0, i).trim(), isConst: /\bconst\b/.test(qualifiers) };
     }
   }
   return null;
@@ -598,6 +670,8 @@ function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
   if(/\(\s*\*\s*\)\s*\(/.test(t)) return { cf: 'function', def: 'callback', supported: true };
   if(/\[[^\]]*\]/.test(t)) return { supported: false, reason: 'array types are not supported' };
 
+  if(/&&?$/.test(t)) return { cf: 'pointer', def: 'pointer', supported: true };
+
   const ptrMatch = t.match(/^(.*?)\s*(\*+)$/);
   if(ptrMatch) {
     const base = normalizeType(ptrMatch[1]);
@@ -615,6 +689,9 @@ function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
   if(known) return { cf: known.cf, def: known.def, supported: true };
 
   if(enumIndex && Object.prototype.hasOwnProperty.call(enumIndex.typedefToEnumId, t)) return { cf: 'i32', def: 'sint32', supported: true, enumId: enumIndex.typedefToEnumId[t] };
+
+  // C++ spells enum types without the "enum" keyword, by qualified name.
+  if(enumIndex && Object.prototype.hasOwnProperty.call(enumIndex.tagToId, t)) return { cf: 'i32', def: 'sint32', supported: true, enumId: enumIndex.tagToId[t] };
 
   // Depth-guarded in case a typedef ever resolves back to its own name (seen
   // with clang's `typedef enum { ... } Name;` idiom, where the anonymous
@@ -683,19 +760,49 @@ function collectEnumIndex(root) {
   const tagToId = {};
   const typedefToEnumId = {};
 
-  for(const node of root.inner || []) {
+  walkDecls(root.inner, (node, scope) => {
     if(node.kind === 'EnumDecl' && node.inner) {
       enumsById[node.id] = { name: node.name || null, constants: enumConstants(node) };
-      if(node.name) tagToId[node.name] = node.id;
+      if(node.name) tagToId[scope + node.name] = node.id;
     } else if(node.kind === 'TypedefDecl' && node.inner) {
       const elaborated = node.inner.find(c => c.kind === 'ElaboratedType');
       const owned = elaborated && elaborated.ownedTagDecl;
 
-      if(owned && owned.kind === 'EnumDecl') typedefToEnumId[node.name] = owned.id;
+      if(owned && owned.kind === 'EnumDecl') typedefToEnumId[scope + node.name] = owned.id;
     }
-  }
+  });
 
   return { enumsById, tagToId, typedefToEnumId };
+}
+
+/* Calls fn(node, scope) for every declaration under `nodes`, `scope` being
+ * its qualified-name prefix ("ns::Class::"). Descends into namespaces, extern
+ * "C" blocks and the public part of C++ classes: `access` is the access
+ * level in force at the start of `nodes` (undefined: public, as in a
+ * namespace).
+ */
+function walkDecls(nodes, fn, scope = '', access) {
+  for(const node of nodes || []) {
+    if(node.kind === 'AccessSpecDecl') {
+      access = node.access;
+      continue;
+    }
+    if(access && access !== 'public') continue;
+
+    fn(node, scope);
+
+    if(node.kind === 'LinkageSpecDecl') walkDecls(node.inner, fn, scope);
+    else if(node.kind === 'NamespaceDecl' && node.name) walkDecls(node.inner, fn, scope + node.name + '::');
+    else if(node.kind === 'CXXRecordDecl' && node.name && !node.isImplicit) walkDecls(node.inner, fn, scope + node.name + '::', node.tagUsed === 'class' ? 'private' : 'public');
+  }
+}
+
+const CLASS_MEMBER_KINDS = new Set(['CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
+
+/* In C++ mode every struct is a CXXRecordDecl; one that declares no
+ * methods and has no bases is still just data, i.e. an IR `structs` entry. */
+function isPlainRecord(node) {
+  return !(node.bases && node.bases.length) && !(node.inner || []).some(c => !c.isImplicit && CLASS_MEMBER_KINDS.has(c.kind));
 }
 
 /* Walks the translation unit's top-level declarations, tracking the
@@ -730,42 +837,71 @@ function collectIR(root, isSourceFile, idPrefix) {
     if(node.loc && node.loc.file !== undefined) currentFile = node.loc.file;
 
     if(!isSourceFile(currentFile)) continue;
-    if(node.isImplicit) continue;
 
-    if(node.kind === 'EnumDecl' && node.inner) addEnum(node.id);
-    else if(node.kind === 'RecordDecl') collectStruct(node);
-    else if(node.kind === 'VarDecl') collectVariable(node);
-    else if(node.kind === 'FunctionDecl') collectFunction(node);
+    collectDecl(node, '');
   }
 
-  function collectStruct(node) {
+  /* `scope` is the qualified-name prefix of the namespace/class `node` is in. */
+  function collectDecl(node, scope) {
+    if(node.isImplicit) return;
+
+    switch (node.kind) {
+      case 'EnumDecl':
+        if(node.inner) addEnum(node.id);
+        break;
+      case 'RecordDecl':
+        collectStruct(node, scope);
+        break;
+      case 'CXXRecordDecl':
+        if(isPlainRecord(node)) collectStruct(node, scope);
+        else collectClass(node, scope);
+        break;
+      case 'VarDecl':
+        collectVariable(node);
+        break;
+      case 'FunctionDecl':
+        collectFunction(node, scope);
+        break;
+      case 'LinkageSpecDecl':
+        for(const child of node.inner || []) collectDecl(child, scope);
+        break;
+      case 'NamespaceDecl':
+        if(node.name) for(const child of node.inner || []) collectDecl(child, scope + node.name + '::');
+        break;
+    }
+  }
+
+  function structField(node, bitOffset) {
+    const qualType = (node.type && (node.type.desugaredQualType || node.type.qualType)) || '';
+    const m = mapCType(qualType, typedefs, enumIndex);
+    const field = { name: node.name || '', type: typeName(m, node.type.qualType), cType: node.type.qualType };
+
+    if(node.isBitfield) field.bits = Number(((node.inner || []).find(x => 'value' in x) || {}).value);
+    if(bitOffset !== undefined) {
+      if(node.isBitfield) field.bitOffset = bitOffset;
+      else field.offset = bitOffset / 8;
+    }
+    addEnum(m.enumId);
+    return field;
+  }
+
+  function collectStruct(node, scope) {
     if(!node.completeDefinition) return;
 
     const aliases = recordTypedefs[node.id] || [];
-    const name = node.name || aliases[0];
+    const name = node.name ? scope + node.name : aliases[0];
     if(!name || seen.has('struct ' + name)) return;
     seen.add('struct ' + name);
 
     const fields = [];
-    const layout = (root.layouts || {})[node.name ? (node.tagUsed || 'struct') + ' ' + node.name : aliases[0]];
+    const layout = (root.layouts || {})[node.name ? (node.tagUsed || 'struct') + ' ' + name : aliases[0]];
     let packed = false;
 
     for(const child of node.inner || []) {
       if(child.kind === 'PackedAttr') packed = true;
       if(child.kind !== 'FieldDecl') continue;
 
-      const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || '';
-      const m = mapCType(qualType, typedefs, enumIndex);
-      const field = { name: child.name || '', type: typeName(m, child.type.qualType), cType: child.type.qualType };
-      const bitOffset = layout && layout.offsets[fields.length];
-
-      if(child.isBitfield) field.bits = Number(((child.inner || []).find(x => 'value' in x) || {}).value);
-      if(bitOffset !== undefined) {
-        if(child.isBitfield) field.bitOffset = bitOffset;
-        else field.offset = bitOffset / 8;
-      }
-      fields.push(field);
-      addEnum(m.enumId);
+      fields.push(structField(child, layout && layout.offsets[fields.length]));
     }
 
     const s = { name, kind: node.tagUsed || 'struct', fields };
@@ -775,49 +911,54 @@ function collectIR(root, isSourceFile, idPrefix) {
     ir.structs.push(s);
   }
 
-  function collectVariable(node) {
-    if(seen.has('var ' + node.name)) return;
-
+  function variableField(node) {
     const qualType = (node.type && (node.type.desugaredQualType || node.type.qualType)) || '';
     const isConst = isConstType(qualType);
     const value = node.inner && node.inner.length ? constValue(node.inner[0]) : undefined;
-
-    // A static variable is only worth exporting as a compile-time constant.
-    if(node.storageClass === 'static' && (!isConst || value === undefined)) return;
-
-    seen.add('var ' + node.name);
     const m = mapCType(qualType, typedefs, enumIndex);
     const field = { name: node.name, type: typeName(m, node.type.qualType), cType: node.type.qualType };
 
     if(isConst) field.const = true;
     if(value !== undefined) field.value = value;
+    return { field, m, isConst, value };
+  }
+
+  function collectVariable(node) {
+    if(seen.has('var ' + node.name)) return;
+
+    const { field, m, isConst, value } = variableField(node);
+
+    // A static variable is only worth exporting as a compile-time constant.
+    if(node.storageClass === 'static' && (!isConst || value === undefined)) return;
+
+    seen.add('var ' + node.name);
     ir.fields.push(field);
     addEnum(m.enumId);
   }
 
-  function collectFunction(node) {
-    if(node.storageClass === 'static') return;
-    if(seen.has(node.name)) return;
-
+  /* Maps a function/method/constructor node's signature and returns
+   * { isConst, ...the IR call description } (see describeCall), or null after
+   * recording why in `skipped` under `label`.
+   */
+  function callable(node, label) {
     if(node.variadic) {
-      ir.skipped.push({ name: node.name, reason: 'variadic functions are not supported' });
-      return;
+      ir.skipped.push({ name: label, reason: 'variadic functions are not supported' });
+      return null;
     }
 
     const split = splitFunctionType(node.type.qualType);
     if(!split) {
-      ir.skipped.push({ name: node.name, reason: 'could not parse function type "' + node.type.qualType + '"' });
-      return;
+      ir.skipped.push({ name: label, reason: 'could not parse function type "' + node.type.qualType + '"' });
+      return null;
     }
 
     const retMap = mapCType(split.returnType, typedefs, enumIndex);
     if(!retMap.supported) {
-      ir.skipped.push({ name: node.name, reason: 'return type: ' + retMap.reason });
-      return;
+      ir.skipped.push({ name: label, reason: 'return type: ' + retMap.reason });
+      return null;
     }
 
     const params = [];
-    let badParam = null;
 
     for(const child of node.inner || []) {
       if(child.kind !== 'ParmVarDecl') continue;
@@ -826,32 +967,141 @@ function collectIR(root, isSourceFile, idPrefix) {
       const pm = mapCType(qualType, typedefs, enumIndex);
 
       if(!pm.supported) {
-        badParam = 'parameter ' + (child.name || '#' + params.length) + ' (' + qualType + '): ' + pm.reason;
-        break;
+        ir.skipped.push({ name: label, reason: 'parameter ' + (child.name || '#' + params.length) + ' (' + qualType + '): ' + pm.reason });
+        return null;
       }
 
       params.push({ name: child.name || 'a' + params.length, type: pm });
     }
 
-    if(badParam) {
-      ir.skipped.push({ name: node.name, reason: badParam });
-      return;
-    }
-
-    seen.add(node.name);
-
     const used = [retMap, ...params.map(p => p.type)].map(m => m.enumId).filter(id => id !== undefined);
     for(const id of used) addEnum(id);
 
-    ir.methods.push({
-      name: node.name,
-      kind: 'function',
+    return {
+      isConst: split.isConst,
       arity: params.length,
       params: params.map(p => p.name + ': ' + p.type.cf),
       returnType: retMap.cf,
       defTypes: { returnType: retMap.def, params: params.map(p => p.type.def) },
       enums: [...new Set(used)].map(id => idPrefix + id),
-    });
+    };
+  }
+
+  function collectFunction(node, scope) {
+    if(node.storageClass === 'static') return;
+    if(seen.has(node.name)) return;
+
+    if(node.mangledName && node.mangledName !== node.name) {
+      ir.skipped.push({ name: scope + node.name, reason: 'C++ functions are not supported (only extern "C" ones and class methods)' });
+      return;
+    }
+
+    const call = callable(node, node.name);
+    if(!call) return;
+
+    seen.add(node.name);
+
+    const { isConst, ...description } = call;
+    ir.methods.push({ name: node.name, kind: 'function', ...description });
+  }
+
+  /* A C++ class: its public fields, constructors, methods and (single)
+   * destructor, each with the `mangledName` clang gives it, which is what
+   * dlsym() needs. Private/protected members are only counted for field
+   * offsets. A nested class or enum is collected on its own, qualified.
+   */
+  function collectClass(node, scope) {
+    if(!node.completeDefinition || !node.name) return;
+
+    const name = scope + node.name;
+    if(seen.has('class ' + name)) return;
+    seen.add('class ' + name);
+
+    const tag = node.tagUsed || 'class';
+    const layout = (root.layouts || {})[tag + ' ' + name];
+    const info = node.definitionData || {};
+    const cls = { name, kind: tag, bases: [], fields: [], constructors: [], methods: [] };
+    let access = tag === 'class' ? 'private' : 'public';
+    let fieldIndex = 0;
+
+    if(layout) ((cls.size = layout.size), (cls.align = layout.align));
+    if(info.isAbstract) cls.abstract = true;
+    if(info.isPolymorphic) cls.polymorphic = true;
+
+    for(const base of node.bases || []) {
+      const entry = { name: base.type.desugaredQualType || base.type.qualType, access: base.access };
+
+      if(base.isVirtual) entry.virtual = true;
+      cls.bases.push(entry);
+    }
+
+    for(const child of node.inner || []) {
+      if(child.kind === 'AccessSpecDecl') {
+        access = child.access;
+        continue;
+      }
+
+      if(child.kind === 'FieldDecl') {
+        const index = fieldIndex++;
+        if(access === 'public') cls.fields.push(structField(child, layout && layout.offsets[index]));
+        continue;
+      }
+
+      if(child.isImplicit || child.explicitlyDeleted || access !== 'public') continue;
+
+      const label = name + '::' + child.name;
+
+      switch (child.kind) {
+        case 'CXXRecordDecl':
+        case 'EnumDecl':
+          collectDecl(child, name + '::');
+          break;
+        case 'VarDecl': {
+          const { field, m } = variableField(child);
+
+          cls.fields.push({ ...field, static: true, mangledName: child.mangledName });
+          addEnum(m.enumId);
+          break;
+        }
+        case 'CXXDestructorDecl':
+          cls.destructor = { mangledName: child.mangledName };
+          if(child.virtual) cls.destructor.virtual = true;
+          break;
+        case 'CXXConstructorDecl':
+        case 'CXXMethodDecl': {
+          if(child.name.startsWith('operator')) {
+            ir.skipped.push({ name: label, reason: 'operators are not supported' });
+            break;
+          }
+
+          // An abstract class is never a complete object: only the base-object
+          // constructor (C2) is emitted, no C1 to dlsym().
+          if(child.kind === 'CXXConstructorDecl' && info.isAbstract) break;
+
+          const call = callable(child, label);
+          if(!call) break;
+
+          const { isConst, ...description } = call;
+          const entry = { name: child.name, kind: child.kind === 'CXXConstructorDecl' ? 'constructor' : 'function', mangledName: child.mangledName };
+
+          if(entry.kind === 'function') {
+            entry.static = child.storageClass === 'static';
+            if(isConst) entry.const = true;
+            if(child.virtual) entry.virtual = true;
+            if(child.pure) entry.pure = true;
+          } else {
+            delete description.returnType;
+            delete description.defTypes.returnType;
+          }
+
+          Object.assign(entry, description);
+          (entry.kind === 'constructor' ? cls.constructors : cls.methods).push(entry);
+          break;
+        }
+      }
+    }
+
+    ir.classes.push(cls);
   }
 
   return ir;
@@ -872,10 +1122,20 @@ function collectIR(root, isSourceFile, idPrefix) {
  *             come from clang's record layouts (see runLayoutDump())
  *   skipped   { name, reason } for declarations that could not be bound
  * `source` records how the IR was produced, for the generated file's header.
- * Reserved for later: `classes` (C++, see TODO.md).
+ *   classes   C++ classes (and structs with methods or bases), describeClass-
+ *             like: { name (qualified, "ns::Class"), kind:"class"|"struct",
+ *             size, align, abstract?, polymorphic?, bases:[{ name, access,
+ *             virtual? }], fields (as `structs`, plus static:true and
+ *             mangledName for static members), constructors, methods,
+ *             destructor?:{ mangledName, virtual? } }. Only public members.
+ *             A method is a `methods`-style entry plus `mangledName` (the
+ *             dlsym() name), `static`, `const?`, `virtual?`, `pure?`; its
+ *             `params` do not list `this`. A constructor is the same with
+ *             kind:"constructor" and the complete-object (C1) mangledName;
+ *             an abstract class has none.
  */
 function newIR() {
-  return { name: 'bindings', type: 'object', version: 1, methods: [], fields: [], getters: [], setters: [], enums: [], structs: [], skipped: [], prototypeChain: [] };
+  return { name: 'bindings', type: 'object', version: 1, methods: [], fields: [], getters: [], setters: [], enums: [], structs: [], classes: [], skipped: [], prototypeChain: [] };
 }
 
 /* Merges `from` into `into`, keeping the first declaration of a name (a
@@ -896,6 +1156,7 @@ function mergeIR(into, from) {
   add(into.fields, from.fields, 'name');
   add(into.enums, from.enums, 'id');
   add(into.structs, from.structs, 'name');
+  add(into.classes, from.classes, 'name');
   add(into.skipped, from.skipped, 'name');
   return into;
 }
@@ -1005,7 +1266,7 @@ function safeIdent(name) {
 }
 
 function header(opts) {
-  const argv = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only', ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), '<source>'];
+  const argv = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only', ...langArgs(opts, opts.sources.find(s => isCxx(opts, s)) || ''), ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), '<source>'];
 
   return (
     '/* Auto-generated by ' +
@@ -1021,6 +1282,8 @@ function header(opts) {
     (opts.library ? ' --library=' + opts.library : '') +
     (opts.ffiType ? ' --ffitype' : '') +
     (opts.structs ? ' --structs' : '') +
+    (opts.cxx ? ' --c++' : '') +
+    (opts.std ? ' --std=' + opts.std : '') +
     (opts.followIncludes ? ' --follow-includes' : '') +
     opts.excludes.map(n => ' --exclude=' + n).join('') +
     ' ' +
@@ -1044,10 +1307,12 @@ function skippedComment(skipped) {
  * order of first use (an enum only declared, never used, is not emitted). */
 function bindable(ir, opts) {
   const functions = ir.methods.filter(m => m.kind === 'function' && !opts.excludes.includes(m.name));
+  const classes = (ir.classes || []).filter(c => !opts.excludes.includes(c.name));
   const enumsById = new Map(ir.enums.map(e => [e.id, e]));
-  const enums = [...new Set(functions.flatMap(fn => fn.enums))].map(id => enumsById.get(id)).filter(Boolean);
+  const used = [...functions, ...classes.flatMap(c => [...c.constructors, ...c.methods])].flatMap(fn => fn.enums);
+  const enums = [...new Set(used)].map(id => enumsById.get(id)).filter(Boolean);
 
-  return { functions, enums };
+  return { functions, classes, enums };
 }
 
 /* Emits `export const NAME = value;` for every constant variable whose value
@@ -1203,7 +1468,7 @@ function structsCode(ir, opts) {
       fields[f.name || '__anon' + i] = e;
     });
 
-    const ident = safeIdent(s.kind + '_' + s.name);
+    const ident = safeIdent((s.kind + '_' + s.name).replace(/::/g, '_'));
     out += 'export const ' + ident + ' = __struct(' + s.size + ', ' + s.align + ', ' + JSON.stringify(fields) + ');\n';
     for(const alias of s.typedefs || []) out += 'export const ' + safeIdent(alias) + ' = ' + ident + ';\n';
   }
@@ -1214,15 +1479,209 @@ function structsCode(ir, opts) {
   return out;
 }
 
+/* Runtime support for the generated C++ classes, emitted verbatim after
+ * VIEW_HELPERS. A class's `__info` is { size, ctors, dtor, zeroInit }; ctors
+ * and methods are overload lists of { n: arity, t: param types, f: lazily
+ * bound function }, picked by arity and then by argument type. Functions are
+ * bound on first call because an inline member often has no exported symbol.
+ */
+const CLASS_HELPERS = `
+const __ATTACH = Symbol("attach");
+
+function __lazy(f) {
+  let v;
+  return () => (v === undefined ? (v = f()) : v);
+}
+
+function __accepts(t, v) {
+  switch(t) {
+    case "bool": return typeof v === "boolean" || typeof v === "number";
+    case "i8": case "u8": case "i16": case "u16": case "i32": case "u32": case "i64": case "u64": case "i64_fast": case "u64_fast":
+      return typeof v === "bigint" || (typeof v === "number" && Number.isInteger(v));
+    case "f32": case "f64": return typeof v === "number";
+    case "cstring": return v === null || typeof v === "string";
+    case "pointer": case "ptr": case "function": return v === null || ["object", "function", "number", "bigint"].includes(typeof v);
+  }
+  return true;
+}
+
+function __invoke(list, self, args) {
+  if(self === null) throw new Error("object was deleted");
+
+  const same = list.filter(e => e.n === args.length);
+  const m = same.length === 1 ? same[0] : same.find(e => e.t.every((t, i) => __accepts(t, args[i])));
+  if(!m) throw new TypeError("no overload takes " + args.length + " argument(s) like these");
+
+  const a = args.map(v => (v instanceof __CxxObject ? v.ptr : v));
+  return self === undefined ? m.f()(...a) : m.f()(self, ...a);
+}
+
+function __fields(cls, size, fields) {
+  const dv = o => new DataView(o.__buf || toBuffer(o.__ptr, size, false));
+
+  for(const name in fields) {
+    const f = fields[name];
+    Object.defineProperty(cls.prototype, name, { enumerable: true, get() { return __read(dv(this), f.type, f.offset); }, set(v) { __write(dv(this), f.type, f.offset, v); } });
+  }
+}
+
+class __CxxObject {
+  constructor(...args) {
+    const info = new.target.__info;
+
+    if(args[0] === __ATTACH) {
+      this.__ptr = args[1];
+      return;
+    }
+    if(!info.ctors && !info.zeroInit) throw new TypeError(new.target.name + " cannot be constructed");
+
+    this.__buf = new ArrayBuffer(info.size);
+    this.__ptr = __ptr(this.__buf, 0);
+    if(info.ctors) __invoke(info.ctors, this.__ptr, args);
+  }
+
+  get ptr() { return this.__ptr; }
+
+  static from(p) { return new this(__ATTACH, p); }
+
+  delete() {
+    if(this.__ptr === null) return;
+
+    const dtor = this.constructor.__info.dtor;
+    if(dtor) dtor()(this.__ptr);
+    this.__buf = this.__ptr = null;
+  }
+}
+`;
+
+/* Members the generated class defines itself, so a C++ member of the same
+ * name is exported with a leading underscore. */
+const CLASS_RESERVED_MEMBERS = new Set(['constructor', 'ptr', 'from', 'delete']);
+
+/* One CFunction()/__bind() expression for a constructor, method or
+ * destructor symbol; `withThis` prepends the implicit `this` pointer. */
+function classFn(symbol, entry, withThis, opts) {
+  const cf = [...(withThis ? ['pointer'] : []), ...paramTypes(entry)];
+  const def = [...(withThis ? ['pointer'] : []), ...entry.defTypes.params];
+  const sym = JSON.stringify(symbol);
+
+  if(opts.api === 'define') return '__bind(' + sym + ', ' + JSON.stringify(entry.defTypes.returnType || 'void') + def.map(t => ', ' + JSON.stringify(t)).join('') + ')';
+
+  return 'CFunction({ ptr: __sym(' + sym + '), args: [' + cf.map(t => cfType(t, opts)).join(', ') + '], returns: ' + cfType(entry.returnType || 'void', opts) + ' })';
+}
+
+/* `const NAME = [ { n, t, f }, ... ];`, one element per overload. */
+function overloadList(name, entries, withThis, opts) {
+  return 'const ' + name + ' = [\n' + entries.map(e => '  { n: ' + e.arity + ', t: ' + JSON.stringify(paramTypes(e)) + ', f: __lazy(() => ' + classFn(e.mangledName, e, withThis, opts) + ') },\n').join('') + '];\n';
+}
+
+/* With every class listed after the class it extends. A class extends its
+ * first base only when that base is bound too and sits at offset 0 (a
+ * polymorphic class puts its vptr there, so a non-polymorphic base does
+ * not); other bases are left out, as the `this` adjustment for them is not
+ * supported.
+ */
+function orderClasses(classes) {
+  const byName = new Map(classes.map(c => [c.name, c]));
+  const baseOf = c => {
+    const b = c.bases[0] && c.bases[0].access === 'public' && !c.bases[0].virtual && byName.get(c.bases[0].name);
+    return b && !(c.polymorphic && !b.polymorphic) ? b : null;
+  };
+  const sorted = [];
+  const visit = c => {
+    if(sorted.includes(c)) return;
+    const b = baseOf(c);
+    if(b) visit(b);
+    sorted.push(c);
+  };
+
+  classes.forEach(visit);
+  return { sorted, baseOf };
+}
+
+/* The C++ classes of the IR as JS classes extending each other like their C++
+ * counterparts (single inheritance). `new Class(...)` allocates `size` bytes
+ * and runs the complete-object constructor; `.delete()` runs the destructor
+ * and drops the storage; `Class.from(ptr)` wraps an existing object without
+ * owning it. Virtual methods are bound to the class's own symbol, i.e. called
+ * non-virtually.
+ *
+ * `helpers` says VIEW_HELPERS (and for --api=define, __sym) are already in
+ * the output.
+ */
+function classesCode(classes, opts, helpers) {
+  if(!classes.length) return '';
+
+  let out = '';
+
+  if(!helpers) {
+    out += VIEW_HELPERS;
+    if(opts.api === 'define') out += DEFINE_SYM.replace('__LIB__', opts.library ? '__lib' : 'RTLD_DEFAULT');
+  }
+
+  out += CLASS_HELPERS + '\n// C++ classes\n';
+
+  const { sorted, baseOf } = orderClasses(classes);
+
+  for(const c of sorted) {
+    const id = safeIdent(c.name.replace(/::/g, '_'));
+    const prefix = '__' + id + '_';
+    const base = baseOf(c);
+    const member = n => (CLASS_RESERVED_MEMBERS.has(n) ? '_' + n : n);
+    const methods = c.methods.filter(m => !m.pure);
+    const names = kind => [...new Set(methods.filter(m => !!m.static === (kind === 's')).map(m => m.name))];
+    const fields = {};
+    let body = '';
+
+    out += '\n';
+    if(c.abstract) out += '// ' + c.name + ' is abstract: its pure virtual methods have no symbol and are left to subclasses.\n';
+    if(c.bases.length > (base ? 1 : 0)) out += '// ' + c.name + ': not extending ' + c.bases.slice(base ? 1 : 0).map(b => b.name).join(', ') + ' (only a single public, non-virtual base at offset 0 is supported).\n';
+
+    if(c.constructors.length) out += overloadList(prefix + 'ctor', c.constructors, true, opts);
+
+    for(const kind of ['m', 's']) {
+      for(const name of names(kind)) {
+        out += overloadList(prefix + kind + '_' + name, methods.filter(m => m.name === name && !!m.static === (kind === 's')), kind === 'm', opts);
+        body += '  ' + (kind === 's' ? 'static ' : '') + member(name) + '(...args) { return __invoke(' + prefix + kind + '_' + name + ', ' + (kind === 's' ? 'undefined' : 'this.__ptr') + ', args); }\n';
+      }
+    }
+
+    out += 'export class ' + id + ' extends ' + (base ? safeIdent(base.name.replace(/::/g, '_')) : '__CxxObject') + ' {\n' + body + '}\n';
+
+    const dtor = c.destructor ? '__lazy(() => ' + classFn(c.destructor.mangledName, { params: [], defTypes: { params: [] } }, true, opts) + ')' : 'null';
+    const zeroInit = !c.constructors.length && !c.abstract && !c.polymorphic;
+    out += id + '.__info = { size: ' + c.size + ', ctors: ' + (c.constructors.length ? prefix + 'ctor' : 'null') + ', dtor: ' + dtor + (zeroInit ? ', zeroInit: true' : '') + ' };\n';
+
+    for(const f of c.fields) {
+      if(f.static) {
+        if(f.const && f.value !== undefined) out += 'Object.defineProperty(' + id + ', ' + JSON.stringify(f.name) + ', { value: ' + JSON.stringify(f.value) + ', enumerable: true });\n';
+        else {
+          const v = prefix + 'v_' + f.name;
+
+          out += 'const ' + v + ' = __lazy(() => __variable(' + JSON.stringify(f.mangledName) + ', ' + JSON.stringify(f.type) + '));\n';
+          out += 'Object.defineProperty(' + id + ', ' + JSON.stringify(f.name) + ', { enumerable: true, get: () => ' + v + '().value, set: x => { ' + v + '().value = x; } });\n';
+        }
+      } else if(f.offset !== undefined && f.bits === undefined && f.type !== 'void' && FFI_TYPE_NAMES.has(f.type)) {
+        fields[f.name] = { type: f.type, offset: f.offset };
+      }
+    }
+
+    if(Object.keys(fields).length) out += '__fields(' + id + ', ' + c.size + ', ' + JSON.stringify(fields) + ');\n';
+  }
+
+  return out;
+}
+
 function generateCFunction(ir, opts) {
-  const { functions, enums } = bindable(ir, opts);
+  const { functions, classes, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
+  const views = opts.structs || classes.length > 0;
   const imports = [
     'CFunction',
     opts.ffiType ? 'FFIType' : null,
-    opts.structs ? 'toBuffer' : null,
-    opts.structs ? 'ptr as __ptr' : null,
-    opts.structs ? 'toString as __cstr' : null,
+    views ? 'toBuffer' : null,
+    views ? 'ptr as __ptr' : null,
+    views ? 'toString as __cstr' : null,
     'dlsym',
     opts.library ? 'dlopen' : null,
     opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
@@ -1236,7 +1695,8 @@ function generateCFunction(ir, opts) {
   out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
-  out += structsCode(ir, opts);
+  const structs = structsCode(ir, opts);
+  out += structs + classesCode(classes, opts, structs.includes('function __struct('));
   out += '\n';
 
   for(const fn of functions) {
@@ -1251,15 +1711,16 @@ function generateCFunction(ir, opts) {
 }
 
 function generateDefine(ir, opts) {
-  const { functions, enums } = bindable(ir, opts);
+  const { functions, classes, enums } = bindable(ir, opts);
   const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
+  const views = opts.structs || classes.length > 0;
   const imports = [
     'dlsym',
     'define',
     'call',
-    opts.structs ? 'toBuffer' : null,
-    opts.structs ? 'ptr as __ptr' : null,
-    opts.structs ? 'toString as __cstr' : null,
+    views ? 'toBuffer' : null,
+    views ? 'ptr as __ptr' : null,
+    views ? 'toString as __cstr' : null,
     opts.library ? 'dlopen' : null,
     opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
   ].filter(Boolean);
@@ -1281,7 +1742,8 @@ function generateDefine(ir, opts) {
     '}\n';
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
-  out += structsCode(ir, opts);
+  const structs = structsCode(ir, opts);
+  out += structs + classesCode(classes, opts, structs.includes('function __struct('));
   out += '\n';
 
   for(const fn of functions) {
@@ -1320,7 +1782,7 @@ function main() {
     opts.sources = ir.source.files;
   } else {
     ir = newIR();
-    ir.source = { files: opts.sources, includes: opts.includes, defines: opts.defines, followIncludes: opts.followIncludes };
+    ir.source = { files: opts.sources, includes: opts.includes, defines: opts.defines, followIncludes: opts.followIncludes, cxx: opts.cxx, std: opts.std };
 
     opts.sources.forEach((source, i) => {
       let root;
@@ -1335,7 +1797,7 @@ function main() {
       const isSourceFile = f => f === source || (opts.followIncludes && dir !== '' && f !== null && f.startsWith(dir));
       const found = collectIR(root, isSourceFile, i + ':');
 
-      if(!found.methods.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
+      if(!found.methods.length && !found.classes.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
       mergeIR(ir, found);
     });
   }
@@ -1348,7 +1810,7 @@ function main() {
     f.puts(out);
     f.close();
   } else {
-    std.out.puts(out);
+    std.puts(out);
   }
 
   if(ir.skipped.length)

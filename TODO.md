@@ -176,38 +176,44 @@ Bitfield, array and nested-struct members only have a layout entry. Add
 accessors for them, and then struct-by-value arguments/returns (needs libffi
 struct types built from the layout).
 
-### Next: C++ classes and methods
+### Done: C++ classes and methods
 
-The IR gets a `classes` list shaped like `describeClass()` output
-(`constructorParams`, `prototypeChain`, `staticChain`, with `methods`/`fields`
-entries as for functions). Work items:
+`--c++` / `--std=` (or a `.cc/.cpp/.cxx/.hh/.hpp/.hxx` source) run clang as
+C++; the IR gets `classes` (see `newIR()` in `tools/gen-bindings.js` for the
+shape) with each public constructor, method, field and the destructor,
+carrying clang's `mangledName`, plus bases, size/align and field offsets.
+Namespaces and `extern "C"` blocks are descended, and enum-typed parameters
+resolve by qualified name; `T&` maps to `pointer`; a struct with no methods or
+bases stays in `structs` (qualified name).
 
-1. Run `clang++` (`-x c++`, `-std=` option) and keep `CXXRecordDecl`,
-   `CXXMethodDecl`, `CXXConstructorDecl`, `CXXDestructorDecl`, `NamespaceDecl`,
-   `FieldDecl` in `nodePolicy()` (drop template bodies, `CXXMethodDecl` bodies,
-   `AccessSpecDecl` except to track `public:`; only public members are bound).
-2. Symbol names: read `mangledName` from the JSON (clang emits it for
-   functions/methods/ctors/dtors/vars in C++ mode; an `extern "C"` function
-   has `mangledName == name`). `dlsym` takes the mangled name. Constructors
-   and destructors have two ABI variants (`C1`/`C2`, `D0`/`D1`/`D2`): use the
-   complete-object ones (`C1`, `D1`); the deleting destructor (`D0`) frees.
-3. `this` pointer: an instance method is a `CFunction` whose first arg is
-   `pointer`; IR marks it `static: false` and `params` does not list `this`,
-   the generator prepends it. Static methods and namespace functions stay plain
-   functions. `const` methods only differ in the mangled name.
-4. Object lifetime: allocate `sizeof(T)` (needs the record layout, see above)
-   and call the complete constructor on it; free after the destructor. Classes
-   with virtual methods need the vtable pointer set by the constructor, so
-   never construct by memcpy.
-5. Overloads: the IR keeps every overload as its own entry (distinguished by
-   `mangledName`); the generated JS dispatches by `arguments.length` first,
-   type only when arity is ambiguous. References (`T&`) map to `pointer`;
-   by-value class parameters stay unsupported (like struct-by-value).
-6. Inheritance: `bases` on each class, used to flatten inherited methods
-   (the `this` adjustment for multiple inheritance needs the base offset, so
-   only single non-virtual inheritance in the first version).
-7. Out of scope: templates (only explicit instantiations), exceptions across
-   the FFI boundary, virtual inheritance.
+Each class is emitted (`classesCode()`) as `export class ns_Name`: `new`
+allocates `size` bytes and runs the complete constructor (`C1`), `.delete()`
+runs the destructor (`D1`), `Class.from(ptr)` wraps without owning, public
+fields are accessors, static members are class properties. Overloads dispatch
+by arity, then argument type; a wrapped object passed as an argument becomes
+its pointer. Symbols bind on first call, as inline members often have none.
+A class extends its first public, non-virtual base when that sits at offset 0.
+`tests/test-gen-bindings-cxx.js` checks every IR `mangledName` against
+`nm -D` of a compiled fixture, then runs the generated module against it.
 
-Verify with a small C++ header + `.so` under `tests/`, checking mangled names
-against `nm -D`.
+Constructors of an abstract class are omitted: the compiler emits only the
+base-object constructor (`C2`) for it, so there is no `C1` to `dlsym()`. A
+pure virtual method has no symbol either.
+
+### Next: C++ gaps
+
+1. Virtual methods are bound to the declaring class's own symbol, so they
+   are called non-virtually: a base-class method called on a subclass
+   instance ignores the override. Real dispatch needs the vtable slot index
+   (declaration order, the destructor taking two slots) in the IR.
+2. Multiple and virtual inheritance: the `this` adjustment needs base offsets
+   (`BaseOffsets` in the record layout dump, not captured yet). Extra bases
+   are only noted in a comment.
+3. Free functions with C++ linkage (`geo::free_fn`) are only listed in
+   `skipped`; binding them needs namespace-qualified exports and overload
+   dispatch like methods.
+4. A class without declared constructors is zero-filled on `new` (only when
+   not polymorphic); its implicit constructor has no symbol.
+5. No finalizer: an owned object is only destroyed by `.delete()`.
+6. Out of scope: templates (only explicit instantiations), exceptions across
+   the FFI boundary, by-value class parameters and returns, operators.

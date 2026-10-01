@@ -33,3 +33,12 @@
   a large BigInt (2n**70n) prints fine. found printing ptr() results.
 
     console.log(5n);
+
+- tinytest-eq-no-deep-compare (tests/tinytest.js:73): eq/assertEquals
+  compares with loose inequality, so two equal arrays or objects always
+  fail, and the message prints both as the same string (for example
+  "a,b" != "a,b"), which hides the cause (found writing
+  tests/test-gen-bindings-cxx.js).
+
+    import { tests, eq } from './tinytest.js';
+    await tests({ 'equal arrays'() { eq(['a', 'b'], ['a', 'b']); } });
