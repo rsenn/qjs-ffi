@@ -168,3 +168,13 @@ install(DIRECTORY tools/ DESTINATION "${CMAKE_INSTALL_DATADIR}/qjs-ffi/tools" FI
 install(CODE "set(QJS_FFI_BINDIR \"${CMAKE_INSTALL_BINDIR}\")
 set(QJS_FFI_DATADIR \"${CMAKE_INSTALL_DATADIR}\")")
 install(SCRIPT cmake/install-tool-wrappers.cmake)
+
+include(CTest)
+
+#file(GLOB TESTS tests/*.js)
+#foreach(TEST ${TESTS})
+#  basename(NAME "${TEST}")
+#  add_test(NAME "${NAME}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" COMMAND sh "${TEST}")
+#endforeach()
+
+add_test(NAME "tests/run-all.sh" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" COMMAND sh "tests/run-all.sh")
