@@ -276,6 +276,11 @@ subclass: `new Shape(3, 2.0)` allocates the object and runs its constructor,
 `s.ptr` is its address. Constants with a known value are plain exports,
 whether or not `--structs` is given.
 
+`tools/describe-module.sh <module.js> [export...]` lists what a generated module
+or one from lib/ exports, with the C types when it was generated with
+`--describe`; `--json` prints the raw results. It uses describeClass() and
+describeObject(), kept in tools/describe/ as copies of qjs-modules' lib/.
+
 The tools are in tools/ (gen-bindings.js, gen-structs.js, and the modules of
 the former in tools/gen-bindings/). Installed, `qjs-ffi-genbindings` and
 `qjs-ffi-genstructs` in bin/ start them from `share/qjs-ffi/tools`.
