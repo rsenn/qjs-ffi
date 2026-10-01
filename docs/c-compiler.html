@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cc(): compile and run C from JavaScript — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html" class="here">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="cc-compile-and-run-c-from-javascript"><a class="anchor" href="#cc-compile-and-run-c-from-javascript" aria-hidden="true">#</a>cc(): compile and run C from JavaScript</h1>
+<p><code>cc()</code> compiles C source in memory with <a href="https://bellard.org/tcc/" target="_blank" rel="noopener">TinyCC</a>
+(libtcc) and returns the functions you ask for as plain, directly-callable
+JavaScript functions. It follows <a href="https://bun.com/docs/runtime/c-compiler" target="_blank" rel="noopener">bun:ffi's
+<code>cc()</code></a>, minus the N-API parts.</p>
+<p>It is only available when the <code>ffi</code> module was built with <code>-DENABLE_TCC=ON</code>
+(see <a href="#building">Building</a>); otherwise <code>ffi</code> does not export <code>cc</code> at all.</p>
+<h2 id="usage"><a class="anchor" href="#usage" aria-hidden="true">#</a>Usage</h2>
+<p>JavaScript:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">cc</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> {
+  <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hello</span> },
+} <span class="t-op">=</span> <span class="t-fn">cc</span>({
+  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-str">"hello.c"</span>,
+  <span class="t-id">symbols</span><span class="t-op">:</span> {
+    <span class="t-id">hello</span><span class="t-op">:</span> {
+      <span class="t-id">args</span><span class="t-op">:</span> [],
+      <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"int"</span>,
+    },
+  },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">"What is the answer to the universe?"</span>, <span class="t-fn">hello</span>());</code></pre></div>
+<p>C source:</p>
+<div class="codeblock" data-lang="c"><pre><code class="language-c"><span class="t-cm">/* hello.c */</span>
+<span class="t-type">int</span> <span class="t-fn">hello</span>() {
+  <span class="t-kw">return</span> <span class="t-num">42</span>;
+}</code></pre></div>
+<p>Running it prints:</p>
+<div class="codeblock"><pre><code>What is the answer to the universe? 42</code></pre></div>
+<p><code>cc()</code> compiles the code straight into memory, links it with the running
+process (so <code>libc</code> and everything already loaded is available to the C code)
+and wraps each requested function in a <a href="c-function.html"><code>CFunction</code></a>, so a
+call goes through libffi with the signature you declared.</p>
+<h2 id="reference"><a class="anchor" href="#reference" aria-hidden="true">#</a>Reference</h2>
+<p><code>cc(options)</code> takes a single options object and returns <code>{ symbols }</code>.</p>
+<h3 id="source"><a class="anchor" href="#source" aria-hidden="true">#</a><code>source</code></h3>
+<p>Where the C code comes from:</p>
+<div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Source = string | ArrayBuffer | TypedArray | DataView;</code></pre></div>
+<ul>
+<li>A <strong>string</strong> is the path of a C file to compile. A relative path is
+resolved against the current working directory.</li>
+<li>Anything else is taken to be a <strong>view</strong> holding the C source <em>text</em> (UTF-8
+bytes), which is copied and compiled as it is. A <code>Uint8Array</code> or
+<code>DataView</code> over a part of a buffer compiles just that part. Use this to
+compile code that is embedded in, or generated by, the script:</li>
+</ul>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">code</span> <span class="t-op">=</span> <span class="t-id">std</span>.<span class="t-fn">loadFile</span>(<span class="t-str">"hello.c"</span>);   <span class="t-cm">// or a template literal, etc.</span>
+<span class="t-kw">const</span> <span class="t-id">bytes</span> <span class="t-op">=</span> <span class="t-type">Uint8Array</span>.<span class="t-kw">from</span>(<span class="t-id">code</span>, (<span class="t-id">c</span>) <span class="t-op">=&gt;</span> <span class="t-id">c</span>.<span class="t-fn">charCodeAt</span>(<span class="t-num">0</span>));
+
+<span class="t-fn">cc</span>({ <span class="t-id">source</span><span class="t-op">:</span> <span class="t-id">bytes</span>, <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hello</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> } } });</code></pre></div>
+<p>A missing <code>source</code>, or one that is neither a string nor a view, throws a
+<code>TypeError</code>.</p>
+<h3 id="symbols"><a class="anchor" href="#symbols" aria-hidden="true">#</a><code>symbols</code></h3>
+<p>The functions to expose to JavaScript, by their name in the C source:</p>
+<div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Symbols = {
+  [name: string]: {
+    args: FFIType[];
+    returns: FFIType;
+    abi?: string;
+  };
+};</code></pre></div>
+<p>This is the same spec as <a href="c-function.html"><code>CFunction</code></a> and <code>dlopen()</code> take
+(minus <code>ptr</code>, which <code>cc()</code> fills in with the compiled function's address), so
+the <a href="types.html">type table</a>, <a href="types.html#structs-by-value">structs by
+value</a> and <a href="types.html#abi">ABI names</a>
+documented there apply unchanged. Every name must exist in the compiled code,
+or <code>cc()</code> throws a <code>TypeError</code> (<code>cc: symbol not found: &lt;name&gt;</code>).</p>
+<p>Only functions can be exposed. Bun's docs prose says "functions and
+variables", but its <code>symbols</code> is typed <code>Record&lt;string, FFIFunction&gt;</code> and its
+implementation requires <code>args</code> and wraps every entry as a call, so it exposes
+no variables either; exposing them here is planned (see <code>TODO.md</code>, 5.4).</p>
+<h3 id="library"><a class="anchor" href="#library" aria-hidden="true">#</a><code>library</code></h3>
+<div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Library = string | string[];
+
+cc({ source: "hello.c", library: ["sqlite3"], symbols: { /* ... */ } });</code></pre></div>
+<p>Libraries to link the C code against, as for <code>-l</code> (<code>"sqlite3"</code> finds
+<code>libsqlite3.so</code>). TinyCC searches its default library paths; add <code>-L&lt;dir&gt;</code> to
+<a href="#flags"><code>flags</code></a> for others.</p>
+<h3 id="flags"><a class="anchor" href="#flags" aria-hidden="true">#</a><code>flags</code></h3>
+<div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Flags = string | string[];</code></pre></div>
+<p>Options handed to TinyCC, such as <code>-I&lt;dir&gt;</code> for include directories, <code>-D</code> for
+preprocessor definitions, <code>-L&lt;dir&gt;</code> for library directories or <code>-W...</code> for
+warnings. A string may hold several options separated by spaces (`"-DA=1
+-DB=2"`); an array holds one option, or one group, per element.</p>
+<h3 id="define"><a class="anchor" href="#define" aria-hidden="true">#</a><code>define</code></h3>
+<div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Defines = Record&lt;string, string&gt;;
+
+cc({ source: "hello.c", define: { NDEBUG: "1" }, symbols: { /* ... */ } });</code></pre></div>
+<p>Preprocessor definitions, equivalent to <code>-DNAME=value</code> in <code>flags</code>. Values
+are strings.</p>
+<h3 id="return-value"><a class="anchor" href="#return-value" aria-hidden="true">#</a>Return value</h3>
+<div class="codeblock" data-lang="ts"><pre><code class="language-ts">{ symbols: { [name: string]: Function } }</code></pre></div>
+<p>One function per entry of <code>symbols</code>, in the same order.</p>
+<h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
+<p><code>cc()</code> shares the <a href="types.html">type table</a>: <code>"i8"</code> ...
+<code>"u64"</code>, <code>"i64_fast"</code>, <code>"u64_fast"</code>, <code>"f32"</code>, <code>"f64"</code>, <code>"bool"</code>, <code>"pointer"</code>
+(<code>"ptr"</code>, <code>"function"</code>, and any name ending in <code>*</code>), <code>"cstring"</code> and, for
+structs passed or returned by value, an array of member types. Bun's C-style
+aliases work too: <code>"int"</code>, <code>"int32_t"</code>, <code>"uint8_t"</code>, <code>"float"</code>, <code>"double"</code>,
+<code>"isize"</code>, <code>"usize"</code>, <code>"char"</code>, <code>"buffer"</code>, <code>"fn"</code>, <code>"callback"</code> ...</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">cc</span>({
+  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-id">bytes</span>, <span class="t-cm">// double hyp(double a, double b) { return sqrt(a*a + b*b); }</span>
+  <span class="t-id">library</span><span class="t-op">:</span> <span class="t-str">"m"</span>,
+  <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hyp</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> } },
+});
+
+<span class="t-id">symbols</span>.<span class="t-fn">hyp</span>(<span class="t-num">3</span>, <span class="t-num">4</span>); <span class="t-cm">// 5</span></code></pre></div>
+<p>Strings are passed with <code>"cstring"</code>, and are valid only for the duration of the
+call. There is no N-API: Bun's <code>napi_env</code> and <code>napi_value</code> types, which let C
+create and receive JavaScript values directly, do not exist here.</p>
+<h2 id="errors"><a class="anchor" href="#errors" aria-hidden="true">#</a>Errors</h2>
+<div class="tablewrap"><table><thead><tr><th>Situation</th><th>Thrown</th></tr></thead><tbody><tr><td><code>options</code> not an object, <code>symbols</code> missing, <code>source</code> missing or of a wrong type</td><td><code>TypeError</code></td></tr><tr><td>C does not compile (syntax error, unresolved reference, unreadable file, bad option)</td><td><code>InternalError</code>, the message carrying TinyCC's diagnostics (first 1 KiB)</td></tr><tr><td>a name in <code>symbols</code> not defined by the code</td><td><code>TypeError</code></td></tr></tbody></table></div>
+<h2 id="lifetime"><a class="anchor" href="#lifetime" aria-hidden="true">#</a>Lifetime</h2>
+<p>The compiled code is never freed -- like Bun, <code>cc()</code> has no <code>close()</code>. The
+returned functions stay valid for as long as the process runs, and compiling
+the same code twice produces two independent copies.</p>
+<h2 id="differences-from-bun"><a class="anchor" href="#differences-from-bun" aria-hidden="true">#</a>Differences from Bun</h2>
+<ul>
+<li><code>source</code> is a file name or a view of source text; Bun's <code>URL</code> and <code>BunFile</code>
+values, and <code>import ... with { type: "file" }</code>, have no equivalent here.</li>
+<li>A relative <code>source</code> path is resolved against the working directory, not
+against the calling module.</li>
+<li>No <code>napi_env</code> / <code>napi_value</code>.</li>
+<li>Bun's <code>--no-ffi-cc</code> switch (and its <code>ERR_FFI_CC_DISABLED</code> error) does not
+exist; leave <code>ENABLE_TCC</code> off to have no <code>cc()</code>.</li>
+</ul>
+<h2 id="building"><a class="anchor" href="#building" aria-hidden="true">#</a>Building</h2>
+<p><code>cc()</code> is an opt-in build feature:</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">cmake</span> <span class="t-op">-S</span> . <span class="t-op">-B</span> <span class="t-id">build</span> <span class="t-op">-DENABLE_TCC</span>=<span class="t-id">ON</span>
+<span class="t-id">cmake</span> <span class="t-op">--build</span> <span class="t-id">build</span></code></pre></div>
+<p><a href="https://github.com/rsenn/qjs-ffi/blob/main/cmake/BuildLibTCC.cmake" target="_blank" rel="noopener"><code>cmake/BuildLibTCC.cmake</code></a> clones a pinned
+revision of <a href="https://github.com/TinyCC/tinycc" target="_blank" rel="noopener">upstream TinyCC</a> into
+<code>third_party/tinycc</code> (needs <code>git</code> and network access the first time), builds
+<code>libtcc.a</code> and <code>libtcc1.a</code> from it with the module's own C compiler, and links
+<code>libtcc.a</code> into the <code>ffi</code> module (and into <code>quickjs-ffi.a</code> when
+<code>BUILD_STATIC_MODULES</code> is on).</p>
+<p>TinyCC's own runtime files (its <code>libtcc1.a</code> and headers such as <code>stddef.h</code> and
+<code>stdarg.h</code>) are looked up in the build tree's <code>libtcc-*/install/lib/tcc</code>; that
+path is compiled into the module, so a built module should be used from where
+it was built.</p>
+<h2 id="see-also"><a class="anchor" href="#see-also" aria-hidden="true">#</a>See also</h2>
+<ul>
+<li><a href="types.html">Types and ABI</a> -- the type names and struct-by-value rules</li>
+<li><a href="c-function.html"><code>CFunction</code></a> -- the call wrapper behind each returned function</li>
+<li><a href="https://github.com/rsenn/qjs-ffi/blob/main/tests/test-cc.js" target="_blank" rel="noopener"><code>tests/test-cc.js</code></a></li>
+<li><a href="https://bun.com/docs/runtime/c-compiler" target="_blank" rel="noopener">bun:ffi C compiler docs</a></li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/c-compiler.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#reference">Reference</a></li><li class="lvl3"><a href="#source">source</a></li><li class="lvl3"><a href="#symbols">symbols</a></li><li class="lvl3"><a href="#library">library</a></li><li class="lvl3"><a href="#flags">flags</a></li><li class="lvl3"><a href="#define">define</a></li><li class="lvl3"><a href="#return-value">Return value</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#errors">Errors</a></li><li class="lvl2"><a href="#lifetime">Lifetime</a></li><li class="lvl2"><a href="#differences-from-bun">Differences from Bun</a></li><li class="lvl2"><a href="#building">Building</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

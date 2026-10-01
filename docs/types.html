@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Types and ABI — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html" class="here">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="types-and-abi"><a class="anchor" href="#types-and-abi" aria-hidden="true">#</a>Types and ABI</h1>
+<p>The names a signature is written with, matching <a href="https://bun.com/docs/runtime/ffi#ffitype" target="_blank" rel="noopener">bun:ffi's
+<code>FFIType</code></a>. They are the same for
+<a href="dlopen.html"><code>dlopen()</code></a>, <a href="dlopen.html#linksymbols"><code>linkSymbols()</code></a>,
+<a href="c-function.html"><code>CFunction</code></a>, <a href="c-compiler.html"><code>cc()</code></a> and
+<a href="js-callback.html"><code>JSCallback</code></a> (which takes no struct types).</p>
+<div class="tablewrap"><table><thead><tr><th>Name</th><th>C type</th><th>JS value</th></tr></thead><tbody><tr><td><code>"void"</code></td><td><code>void</code></td><td><code>undefined</code> (only valid as <code>returns</code>)</td></tr><tr><td><code>"bool"</code></td><td><code>_Bool</code> / <code>uint8_t</code></td><td><code>boolean</code></td></tr><tr><td><code>"i8"</code>, <code>"u8"</code></td><td><code>int8_t</code>, <code>uint8_t</code></td><td><code>number</code></td></tr><tr><td><code>"i16"</code>, <code>"u16"</code></td><td><code>int16_t</code>, <code>uint16_t</code></td><td><code>number</code></td></tr><tr><td><code>"i32"</code></td><td><code>int32_t</code></td><td><code>number</code></td></tr><tr><td><code>"u32"</code></td><td><code>uint32_t</code></td><td><code>number</code></td></tr><tr><td><code>"i64"</code>, <code>"u64"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>bigint</code> -- exact, no precision loss</td></tr><tr><td><code>"i64_fast"</code>, <code>"u64_fast"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>number</code> -- fast to convert, but lossy above 2^53</td></tr><tr><td><code>"f32"</code></td><td><code>float</code></td><td><code>number</code></td></tr><tr><td><code>"f64"</code></td><td><code>double</code></td><td><code>number</code></td></tr><tr><td><code>"pointer"</code> / <code>"ptr"</code> / <code>"function"</code></td><td><code>void *</code></td><td><code>null</code> for a NULL pointer; otherwise <code>number</code> if the address fits in 32 bits, <code>bigint</code> otherwise</td></tr><tr><td>C-style aliases</td><td>as the short name</td><td><code>"int8_t"</code>/<code>"int16_t"</code>/<code>"int32_t"</code>/<code>"int"</code> = <code>i8</code>/<code>i16</code>/<code>i32</code>/<code>i32</code>; <code>"int64_t"</code>/<code>"isize"</code> = <code>i64</code>; <code>"uint8_t"</code>/<code>"uint16_t"</code>/<code>"uint32_t"</code> = <code>u8</code>/<code>u16</code>/<code>u32</code>; <code>"uint64_t"</code>/<code>"usize"</code> = <code>u64</code>; <code>"float"</code> = <code>f32</code>; <code>"double"</code> = <code>f64</code>; <code>"char"</code> = <code>i8</code>; <code>"buffer"</code>/<code>"fn"</code>/<code>"callback"</code> = <code>pointer</code> (bun:ffi's names)</td></tr><tr><td><code>"&lt;type&gt; *"</code></td><td><code>&lt;type&gt; *</code></td><td>same as <code>"pointer"</code>, for any <code>&lt;type&gt;</code> (<code>"int *"</code>, <code>"struct node **"</code>, <code>"void*"</code>): every name ending in <code>*</code> is a pointer and what precedes it is documentation. <code>"char *"</code> is therefore a plain pointer; use <code>"cstring"</code> for a string</td></tr><tr><td><code>"cstring"</code></td><td><code>char *</code></td><td><code>string</code> (return) / <code>string</code> (argument, copied via <code>JS_ToCString</code>) -- decoded/encoded as a NUL-terminated C string</td></tr><tr><td><code>[ &lt;type&gt;, ... ]</code></td><td>a struct passed or returned by value</td><td>an <code>ArrayBuffer</code> of the struct's bytes, see <a href="#structs-by-value">Structs by value</a></td></tr></tbody></table></div>
+<p>An unrecognized type name in <code>args</code> silently falls back to <code>"i32"</code>; an
+unrecognized <code>returns</code> falls back to <code>"void"</code>. This matches <code>JSCallback</code>'s
+behavior and is a known rough edge -- prefer sticking to the table above.</p>
+<p><code>"cstring"</code> arguments are converted with <code>JS_ToCString()</code> for the duration
+of the call and freed immediately afterward; the native function must not
+retain the pointer past the call returning.</p>
+<h2 id="structs-by-value"><a class="anchor" href="#structs-by-value" aria-hidden="true">#</a>Structs by value</h2>
+<p>A type given as an array is a struct passed (in <code>args</code>) or returned (as
+<code>returns</code>) by value. The array lists the struct's members in memory order, each
+a type name from the table or, for a nested struct, an array; an array member is
+listed once per element, and a bitfield by the integers covering its bytes:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-cm">// struct vec3 { float x, y, z; };  vec3 vec3_add(vec3 a, vec3 b);</span>
+<span class="t-kw">const</span> <span class="t-type">VEC3</span> <span class="t-op">=</span> [<span class="t-str">'f32'</span>, <span class="t-str">'f32'</span>, <span class="t-str">'f32'</span>];
+<span class="t-kw">const</span> <span class="t-id">add</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span>, <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-type">VEC3</span>, <span class="t-type">VEC3</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-type">VEC3</span> });
+
+<span class="t-kw">const</span> <span class="t-id">r</span> <span class="t-op">=</span> <span class="t-fn">add</span>(<span class="t-id">a</span>, <span class="t-id">b</span>); <span class="t-cm">// an ArrayBuffer of 12 bytes: new Float32Array(r)</span></code></pre></div>
+<p>libffi works out the size, the alignment and which registers the struct travels
+in from that list alone, so it has to reproduce the real layout member by
+member: a list that does not is accepted and the call then silently reads or
+writes the wrong bytes. <code>tools/gen-bindings.js</code> checks this against the
+compiler's layout and only binds a function when it holds.</p>
+<ul>
+<li>An argument is an <code>ArrayBuffer</code> or a view of one (so a generated struct
+class works as it is), at least as big as the struct, else <code>TypeError</code>. Its
+bytes are copied for the call.</li>
+<li>The result is a new <code>ArrayBuffer</code> holding a copy of the returned bytes.</li>
+<li>An empty array, a nesting more than 8 deep, or a member that is not a type
+name or an array throws when the <code>CFunction</code> is made.</li>
+<li><code>JSCallback</code> does not take struct types and throws a <code>TypeError</code>.</li>
+</ul>
+<h2 id="ffitype"><a class="anchor" href="#ffitype" aria-hidden="true">#</a>FFIType</h2>
+<p><code>FFIType</code> holds the type names as constants, so <code>FFIType.i32</code> can be used
+where <code>"i32"</code> is written:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-type">FFIType</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, {
+  <span class="t-id">abs</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-type">FFIType</span>.<span class="t-prop">i32</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-type">FFIType</span>.<span class="t-prop">i32</span> },
+});</code></pre></div>
+<p>Unlike bun:ffi, where <code>FFIType</code> members are numbers, each member here is the
+string of its own name (<code>FFIType.i32 === "i32"</code>). It lists every short name and
+every C-style alias of the table above.</p>
+<h2 id="abi"><a class="anchor" href="#abi" aria-hidden="true">#</a>ABI</h2>
+<div class="tablewrap"><table><thead><tr><th>Name</th><th>Notes</th></tr></thead><tbody><tr><td><code>"default"</code></td><td>Platform default. Used when <code>abi</code> is omitted.</td></tr><tr><td><code>"sysv"</code></td><td>Only available where libffi defines <code>FFI_SYSV</code>.</td></tr><tr><td><code>"unix64"</code></td><td>Only available where libffi defines <code>FFI_UNIX64</code>.</td></tr><tr><td><code>"stdcall"</code></td><td>Windows only (<code>FFI_STDCALL</code>).</td></tr><tr><td><code>"win64"</code></td><td>Windows only (<code>FFI_WIN64</code>).</td></tr></tbody></table></div>
+<p>An unrecognized or platform-unavailable ABI name falls back to
+<code>"default"</code>.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/types.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#structs-by-value">Structs by value</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl2"><a href="#abi">ABI</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

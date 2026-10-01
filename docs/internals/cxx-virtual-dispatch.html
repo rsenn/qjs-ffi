@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan: virtual method dispatch through the vtable — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="stylesheet" href="../../assets/theme.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../../">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/ffi.html">Overview</a>
+    <a href="../../docs/types.html">Types</a>
+    <a href="../../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="../dlopen.html">Libraries and symbols</a></li><li><a href="../types.html">Types and ABI</a></li><li><a href="../c-function.html">CFunction</a></li><li><a href="../js-callback.html">JSCallback</a></li><li><a href="../pointers.html">Pointers and memory</a></li><li><a href="../c-compiler.html">C compiler</a></li><li><a href="../misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="../gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="../legacy.html">Legacy API</a></li><li><a href="cxx-virtual-dispatch.html" class="here">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="plan-virtual-method-dispatch-through-the-vtable"><a class="anchor" href="#plan-virtual-method-dispatch-through-the-vtable" aria-hidden="true">#</a>Plan: virtual method dispatch through the vtable</h1>
+<p>Status: <strong>plan, nothing implemented.</strong> Scope: the C++ classes that
+<code>tools/gen-bindings.js</code> emits (see <code>classesCode()</code> and
+<a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md" target="_blank" rel="noopener">TODO.md</a>, "C++ gaps" item 1).</p>
+<h2 id="1-problem"><a class="anchor" href="#1-problem" aria-hidden="true">#</a>1. Problem</h2>
+<p>A generated method binds the <strong>declaring class's own symbol</strong>, so every call
+is a non-virtual (<code>Class::method()</code>-qualified) call:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">geo_Shape</span>(<span class="t-num">3</span>, <span class="t-num">2.0</span>);
+<span class="t-id">geo_Base</span>.<span class="t-kw">from</span>(<span class="t-id">s</span>.<span class="t-prop">ptr</span>).<span class="t-fn">area</span>();   <span class="t-cm">// calls Base::area, not Shape::area</span></code></pre></div>
+<p>C++ would call <code>Shape::area</code> here. Any wrapper whose static type is a base
+class (<code>from()</code> on a pointer returned by a factory, or an inherited method)
+runs the wrong code, and <code>.delete()</code> through a base wrapper runs the wrong
+destructor.</p>
+<p>Two more consequences of binding symbols:</p>
+<ul>
+<li>a <strong>pure virtual</strong> method has no symbol, so it is not bound at all today;</li>
+<li>a virtual method that is inline or never instantiated has no exported
+symbol, so the call fails with "symbol not found".</li>
+</ul>
+<p>Dispatching through the vtable fixes all three.</p>
+<h2 id="2-abi-facts-itanium-x86-64-linux"><a class="anchor" href="#2-abi-facts-itanium-x86-64-linux" aria-hidden="true">#</a>2. ABI facts (Itanium, x86-64 Linux)</h2>
+<p>Checked against <code>tests/cxx/shapes.{hpp,cpp}</code> compiled with <code>clang++ -std=c++17</code> (a small C++ program that <code>dlsym</code>s the symbols and reads the
+vptr), not recalled from the spec:</p>
+<div class="tablewrap"><table><thead><tr><th>Fact</th><th>Evidence</th></tr></thead><tbody><tr><td>The vptr is the first 8 bytes of a polymorphic object (offset 0)</td><td><code>*(void***)&amp;shape</code> is the vptr</td></tr><tr><td><code>vptr == &amp;_ZTV&lt;class&gt; + 16</code> (skips offset-to-top and RTTI)</td><td>printed <code>vptr - _ZTV = 16</code></td></tr><tr><td><code>vptr[n]</code> is the n-th virtual slot; the declaration-order rule puts a destructor in <strong>two</strong> consecutive slots, <code>[complete]</code> then <code>[deleting]</code></td><td><code>Shape</code>: <code>vptr[0]</code> = <code>D1</code>, <code>vptr[1]</code> = <code>D0</code>, <code>vptr[2]</code> = <code>area</code></td></tr><tr><td>A slot holds the <strong>final overrider's</strong> function</td><td><code>vptr[2]</code> of a <code>Shape</code> is <code>Shape::area</code>, and calling it on the object returned <code>6</code></td></tr><tr><td>A pure virtual's slot holds <code>__cxa_pure_virtual</code></td><td><code>Base</code>'s <code>vptr[2]</code> equals <code>dlsym("__cxa_pure_virtual")</code></td></tr><tr><td>A subclass's slots start with the base's, so a base-class index is valid for every subclass</td><td><code>PC : C : B : A</code>: <code>f</code>, <code>g(int)</code>, <code>g(double)</code> keep their indices</td></tr></tbody></table></div>
+<p>clang's JSON AST does <strong>not</strong> reliably say which methods are virtual: the
+overrider <code>Shape::area</code> carries only an <code>OverrideAttr</code> child and no
+<code>"virtual": true</code> key (that is why the IR currently has no <code>virtual</code> on it).
+An override written without <code>virtual</code>/<code>override</code> has no marker at all (not
+checked: the probe below makes it moot).</p>
+<h2 id="3-where-the-slot-index-comes-from"><a class="anchor" href="#3-where-the-slot-index-comes-from" aria-hidden="true">#</a>3. Where the slot index comes from</h2>
+<p>Two options; <strong>recommended: the clang probe.</strong></p>
+<div class="tablewrap"><table><thead><tr><th></th><th>A. Compute from the AST</th><th>B. Ask clang (probe)</th></tr></thead><tbody><tr><td>Source of truth</td><td>our reimplementation of the Itanium layout rules</td><td>clang's own <code>-fdump-vtable-layouts</code></td></tr><tr><td>Needs override matching (name + params + const + covariant returns)</td><td>yes</td><td>no, clang already resolved it</td></tr><tr><td>Handles overrides without <code>virtual</code>/<code>override</code></td><td>only via that matching</td><td>yes</td></tr><tr><td>Extra clang run</td><td>no</td><td>yes, only when a polymorphic class exists</td></tr><tr><td>Breaks on</td><td>typedef/qualified-type spelling mismatches</td><td><code>final</code> classes (cannot be derived from)</td></tr></tbody></table></div>
+<h3 id="31-the-probe"><a class="anchor" href="#31-the-probe" aria-hidden="true">#</a>3.1 The probe</h3>
+<p>For every complete class with <code>definitionData.isPolymorphic</code> (already kept by
+<code>AstCondenser</code>), append to a probe translation unit:</p>
+<div class="codeblock" data-lang="cpp"><pre><code class="language-cpp"><span class="t-pre">#include</span> <span class="t-str">"/abs/path/to/source.hpp"</span>
+<span class="t-kw">struct</span> <span class="t-id">__gb_probe0</span> <span class="t-op">:</span> <span class="t-id">ns</span><span class="t-op">::</span><span class="t-id">Class</span> { <span class="t-id">virtual</span> <span class="t-type">void</span> <span class="t-fn">__gb_key</span>(); };
+<span class="t-type">void</span> <span class="t-id">__gb_probe0</span><span class="t-op">::</span><span class="t-fn">__gb_key</span>() {}</code></pre></div>
+<p>and compile it with <code>clang++ -Xclang -fdump-vtable-layouts -c -o /dev/null</code>
+(same <code>-I</code>/<code>-D</code>/<code>-x c++</code>/<code>-std=</code> as the AST run, see <code>langArgs()</code>).</p>
+<ul>
+<li><p>The out-of-line <code>__gb_key</code> is the <strong>key function</strong>, so clang emits the
+vtable and dumps it. Verified for a concrete class, an abstract class and an
+abstract class with a non-virtual protected destructor. A <code>delete p</code> probe
+was tried first and is <strong>not</strong> enough: with a non-virtual destructor no
+vtable is needed and nothing is dumped. <code>sizeof</code> alone dumps nothing either.</p></li>
+<li><p>The dump goes to <strong>stdout</strong>, like <code>-fdump-record-layouts-simple</code>, so
+<code>runLayoutDump()</code>'s <code>popen</code> handling carries over.</p></li>
+<li><p>The "Vtable for '__gb_probe0'" block lists every slot, including inherited
+ones, as <code>&lt;row&gt; | &lt;return type&gt; &lt;Qualifier::name&gt;(&lt;params&gt;)[ const]</code>. The
+index is <strong>row − 2</strong> (rows 0 and 1 are offset-to-top and RTTI):</p>
+<div class="codeblock"><pre><code>2 | void C::f()          -&gt; vptr[0]
+3 | int A::g(int)        -&gt; vptr[1]
+4 | void B::g(double)    -&gt; vptr[2]
+5 | PC::~PC() [complete] -&gt; vptr[3]
+7 | void B::h()          -&gt; vptr[5]</code></pre></div>
+<p>(output of the probe on a 3-level hierarchy; only the rows naming <code>C::</code>,
+the class being probed, are the probed class's own, the rest document the
+bases).</p></li>
+<li><p>Pure slots are tagged <code>[pure]</code>.</p></li>
+<li><p>A <code>final</code> class cannot be probed (<code>base 'F' is marked 'final'</code>). Its own
+methods need no vtable anyway (nothing can override them), so they keep
+binding their own symbol; only slots inherited from a base need the base's
+index, which comes from the base's probe.</p></li>
+</ul>
+<p>The result is stored next to <code>layouts</code> as <code>ast.vtables</code>
+(<code>{ "ns::Class": [{ index, text, pure }, ...] }</code>) and cached with the AST;
+bump <code>AST_CACHE_VERSION</code>.</p>
+<h3 id="32-matching-rows-to-ir-methods"><a class="anchor" href="#32-matching-rows-to-ir-methods" aria-hidden="true">#</a>3.2 Matching rows to IR methods</h3>
+<p>A row names the final overrider as text; the IR has structured entries. For
+each class, a row belongs to an IR method when the qualifier equals the class
+and:</p>
+<ol>
+<li>name and parameter count match and the method has the same <code>const</code>;</li>
+<li>if that is still ambiguous (overloads), compare the normalized parameter
+list against <code>mapCType</code>'s input (<code>normalizeType()</code>; clang prints fully
+qualified types, the AST may spell them short, so also try the
+<code>desugaredQualType</code>).</li>
+</ol>
+<p>A virtual method that cannot be matched keeps the static binding and gets an
+entry in <code>ir.skipped</code>-style warnings, never a wrong slot.</p>
+<h3 id="33-ir-changes"><a class="anchor" href="#33-ir-changes" aria-hidden="true">#</a>3.3 IR changes</h3>
+<ul>
+<li>method: <code>virtual: true</code> (set from the probe, replacing <code>child.virtual</code>) and
+<code>vtableIndex: n</code> (<code>vptr[n]</code>); <code>pure</code> stays.</li>
+<li>class: <code>destructor.vtableIndex</code> (the <code>[complete]</code> slot) when the destructor
+is virtual.</li>
+<li>A class that is polymorphic but whose probe failed: no indices, everything
+stays statically bound (today's behavior), noted in the generated file.</li>
+</ul>
+<h2 id="4-generated-js"><a class="anchor" href="#4-generated-js" aria-hidden="true">#</a>4. Generated JS</h2>
+<p>A virtual overload entry carries the slot instead of a lazy function:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">__geo_Base_m_area</span> <span class="t-op">=</span> [
+  { <span class="t-id">n</span><span class="t-op">:</span> <span class="t-num">0</span>, <span class="t-id">t</span><span class="t-op">:</span> [], <span class="t-id">v</span><span class="t-op">:</span> <span class="t-num">2</span>, <span class="t-id">f</span><span class="t-op">:</span> <span class="t-fn">__virtual</span>(<span class="t-num">2</span>, <span class="t-id">target</span> <span class="t-op">=&gt;</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-id">target</span>, <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> })) },
+];</code></pre></div>
+<p><code>__virtual(index, make)</code> returns <code>(self, ...args)</code>:</p>
+<ol>
+<li>read the vptr: <code>BigInt(read u64 at self)</code>;</li>
+<li>read the target: <code>read u64 at vptr + 8 * index</code>;</li>
+<li>look <code>target</code> up in a per-method <code>Map</code>; on a miss, <code>make(target)</code> builds the
+<code>CFunction</code> once;</li>
+<li>call it with <code>self, ...args</code>.</li>
+</ol>
+<p>Notes:</p>
+<ul>
+<li><strong>Cost.</strong> Two small <code>toBuffer</code> views per call and a cached <code>CFunction</code> per
+distinct overrider. Acceptable first; see 4.1 for the native fast path.</li>
+<li><strong><code>--api=define</code>.</strong> <code>define()</code> registers by name, so <code>make(target)</code> uses a
+synthetic unique name (<code>mangledName + "@" + target</code>).</li>
+<li><strong>No symbol needed.</strong> A virtual method is never <code>dlsym</code>ed, so pure, inline
+and uninstantiated virtuals all work; the <code>filter(m =&gt; !m.pure)</code> in
+<code>classesCode()</code> goes away, and an abstract class's JS methods become
+callable on instances of its subclasses.</li>
+<li><strong>Destructor.</strong> <code>.delete()</code> calls <code>vptr[destructor.vtableIndex]</code> when the
+destructor is virtual, so <code>Base.from(derivedPtr).delete()</code> runs the derived
+destructor. A non-virtual destructor keeps the direct <code>D1</code> call (a
+<code>[deleting]</code> slot, <code>vptr[index + 1]</code>, would also free the memory, which an
+owned <code>ArrayBuffer</code> must not do: never use it).</li>
+<li><strong>Single inheritance.</strong> Slots of a primary base share <code>this</code>, so no
+adjustment is needed. A secondary base's slots point at <code>this</code>-adjusting
+thunks and need the subobject pointer: part of multiple inheritance, still
+out of scope.</li>
+<li><strong>Objects without a vptr.</strong> <code>new</code> already refuses to zero-fill a polymorphic
+class. <code>from(ptr)</code> on memory that is not a live object reads a garbage
+vptr; document it, do not guard it.</li>
+<li><strong>Explicitly qualified calls</strong> (<code>Base::f()</code> from a subclass) are the old
+behavior. Not needed now; if wanted later, expose it as
+<code>Class.prototype.f.nonVirtual</code> rather than as the default.</li>
+</ul>
+<h3 id="41-optional-native-fast-path"><a class="anchor" href="#41-optional-native-fast-path" aria-hidden="true">#</a>4.1 Optional native fast path</h3>
+<p><code>CFunction({ vtableIndex: 2, args: ["pointer", ...], returns })</code> in
+<code>ffi.c</code>: reads <code>this-&gt;vptr[index]</code> on every call and reuses one prepared
+<code>cif</code>. Removes the per-call views and the cache. Only worth it if a benchmark
+shows the JS path matters; it is a change to the C module, so it needs its own
+review.</p>
+<h2 id="5-work-items"><a class="anchor" href="#5-work-items" aria-hidden="true">#</a>5. Work items</h2>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Step</th><th>Verify</th></tr></thead><tbody><tr><td>1</td><td><code>runVtableDump()</code>: build the probe TU, run clang, parse <code>Vtable for</code> blocks into <code>ast.vtables</code>; bump <code>AST_CACHE_VERSION</code></td><td>dump of <code>tests/cxx/shapes.hpp</code> gives <code>geo::Shape</code> <code>area</code> = 2 and both destructor slots</td></tr><tr><td>2</td><td>Match rows to methods (3.2); set <code>virtual</code>/<code>vtableIndex</code>/<code>destructor.vtableIndex</code> in <code>collectClass()</code></td><td>IR test: indices equal <code>vptr[n]</code> found by the C++ program of section 2, and <code>Shape::area</code> is now <code>virtual: true</code></td></tr><tr><td>3</td><td><code>__virtual()</code> helper, <code>v:</code>/dispatch in <code>overloadList()</code>, drop the <code>!m.pure</code> filter, virtual <code>.delete()</code></td><td>tests of section 6</td></tr><tr><td>4</td><td><code>--api=define</code> path with synthetic names</td><td>same tests with <code>--api=define</code></td></tr><tr><td>5</td><td>Update <code>TODO.md</code> ("C++ gaps" item 1) and the <code>classesCode()</code> doc comment</td><td>read-through</td></tr></tbody></table></div>
+<h2 id="6-tests"><a class="anchor" href="#6-tests" aria-hidden="true">#</a>6. Tests</h2>
+<p>New fixture <code>tests/cxx/virtuals.{hpp,cpp}</code> (leave <code>shapes.*</code> alone: its sizes
+and offsets are asserted):</p>
+<div class="codeblock" data-lang="cpp"><pre><code class="language-cpp"><span class="t-kw">struct</span> <span class="t-id">Animal</span> {
+  <span class="t-id">virtual</span> <span class="t-op">~</span><span class="t-fn">Animal</span>();                       <span class="t-cm">// bumps a live counter</span>
+  <span class="t-id">virtual</span> <span class="t-type">int</span> <span class="t-fn">legs</span>() <span class="t-kw">const</span>;                <span class="t-cm">// 4</span>
+  <span class="t-id">virtual</span> <span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-fn">name</span>() <span class="t-kw">const</span> <span class="t-op">=</span> <span class="t-num">0</span>;    <span class="t-cm">// pure</span>
+  <span class="t-id">virtual</span> <span class="t-type">int</span> <span class="t-fn">add</span>(<span class="t-type">int</span>);  <span class="t-id">virtual</span> <span class="t-type">int</span> <span class="t-fn">add</span>(<span class="t-type">double</span>);   <span class="t-cm">// overloads</span>
+  <span class="t-type">int</span> <span class="t-fn">fixed</span>() <span class="t-kw">const</span>;                       <span class="t-cm">// non-virtual</span>
+  <span class="t-kw">inline</span> <span class="t-id">virtual</span> <span class="t-type">int</span> <span class="t-fn">inline_only</span>() <span class="t-kw">const</span> { <span class="t-kw">return</span> <span class="t-num">1</span>; }   <span class="t-cm">// no exported symbol</span>
+};
+<span class="t-kw">struct</span> <span class="t-id">Dog</span> <span class="t-op">:</span> <span class="t-id">Animal</span> { <span class="t-type">int</span> <span class="t-fn">legs</span>() <span class="t-kw">const</span> <span class="t-id">override</span>; <span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-fn">name</span>() <span class="t-kw">const</span> <span class="t-id">override</span>; ... };
+<span class="t-kw">struct</span> <span class="t-id">Bird</span> <span class="t-op">:</span> <span class="t-id">Animal</span> { <span class="t-type">int</span> <span class="t-fn">legs</span>() <span class="t-kw">const</span> <span class="t-id">override</span> <span class="t-cm">/* 2 */</span>; ... };
+<span class="t-kw">struct</span> <span class="t-id">Puppy</span> <span class="t-op">:</span> <span class="t-id">Dog</span> { <span class="t-kw">const</span> <span class="t-type">char</span> <span class="t-op">*</span><span class="t-fn">name</span>() <span class="t-kw">const</span>; <span class="t-cm">/* override without keyword */</span> };
+<span class="t-kw">extern</span> <span class="t-str">"C"</span> <span class="t-id">Animal</span> <span class="t-op">*</span><span class="t-fn">make_dog</span>(); <span class="t-kw">extern</span> <span class="t-str">"C"</span> <span class="t-id">Animal</span> <span class="t-op">*</span><span class="t-fn">make_puppy</span>(); <span class="t-kw">extern</span> <span class="t-str">"C"</span> <span class="t-type">int</span> <span class="t-fn">live</span>();</code></pre></div>
+<div class="tablewrap"><table><thead><tr><th>Test</th><th>Asserts</th></tr></thead><tbody><tr><td>override through a base wrapper</td><td><code>Animal.from(make_dog()).legs() === 4</code>, <code>Bird</code> gives <code>2</code></td></tr><tr><td>three levels, override without keyword</td><td><code>Animal.from(make_puppy()).name() === "puppy"</code></td></tr><tr><td>pure method on an abstract class</td><td><code>Animal.from(p).name()</code> works</td></tr><tr><td>non-virtual stays static</td><td><code>fixed()</code> returns the base's value for every subclass</td></tr><tr><td>overloaded virtuals</td><td><code>add(1)</code> and <code>add(1.5)</code> reach the right slots</td></tr><tr><td>inline virtual</td><td><code>inline_only()</code> works although <code>nm -D</code> does not list it</td></tr><tr><td>virtual destructor</td><td>deleting through <code>Animal.from(make_dog())</code> makes <code>live()</code> drop</td></tr><tr><td>indices match the compiler</td><td>IR <code>vtableIndex</code>es equal clang's <code>-fdump-vtable-layouts</code> of <code>virtuals.cpp</code></td></tr></tbody></table></div>
+<p>Run each new test at least 5 times, per
+<code>.claude/rules/check-tests-for-flakiness.md</code>.</p>
+<h2 id="7-open-questions"><a class="anchor" href="#7-open-questions" aria-hidden="true">#</a>7. Open questions</h2>
+<ul>
+<li>Is a second <code>clang</code> run acceptable for every C++ source with polymorphic
+classes? The cache makes it a one-off per source; a single probe TU holds
+all classes.</li>
+<li>Is the per-call JS cost acceptable, or should 4.1 be part of the first
+version?</li>
+<li>Should unmatched virtual methods be a hard error instead of a warning plus
+static binding?</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/internals/cxx-virtual-dispatch.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#1-problem">1. Problem</a></li><li class="lvl2"><a href="#2-abi-facts-itanium-x86-64-linux">2. ABI facts (Itanium, x86-64 Linux)</a></li><li class="lvl2"><a href="#3-where-the-slot-index-comes-from">3. Where the slot index comes from</a></li><li class="lvl3"><a href="#31-the-probe">3.1 The probe</a></li><li class="lvl3"><a href="#32-matching-rows-to-ir-methods">3.2 Matching rows to IR methods</a></li><li class="lvl3"><a href="#33-ir-changes">3.3 IR changes</a></li><li class="lvl2"><a href="#4-generated-js">4. Generated JS</a></li><li class="lvl3"><a href="#41-optional-native-fast-path">4.1 Optional native fast path</a></li><li class="lvl2"><a href="#5-work-items">5. Work items</a></li><li class="lvl2"><a href="#6-tests">6. Tests</a></li><li class="lvl2"><a href="#7-open-questions">7. Open questions</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

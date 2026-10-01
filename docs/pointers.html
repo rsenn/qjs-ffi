@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointers and memory — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html" class="here">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="pointers-and-memory"><a class="anchor" href="#pointers-and-memory" aria-hidden="true">#</a>Pointers and memory</h1>
+<p>Native memory is addressed by numbers. This page covers the functions that
+turn buffers into addresses and addresses into buffers, values or strings.</p>
+<ul>
+<li><a href="#pointer-values">Pointer values</a></li>
+<li><a href="#ptr"><code>ptr()</code></a> and <a href="#topointer"><code>toPointer()</code></a>: address of a buffer</li>
+<li><a href="#toarraybuffer"><code>toArrayBuffer()</code>, <code>toBuffer()</code></a>: an <code>ArrayBuffer</code> over memory</li>
+<li><a href="#read"><code>read</code></a>: read a value from an address</li>
+<li><a href="#cstring"><code>CString</code></a> and <a href="#tostring"><code>toString()</code></a>: C strings</li>
+<li><a href="#pointersize"><code>pointerSize</code></a></li>
+</ul>
+<h2 id="pointer-values"><a class="anchor" href="#pointer-values" aria-hidden="true">#</a>Pointer values</h2>
+<p>Everywhere a pointer is returned (<code>dlsym()</code>, a <code>pointer</code>-typed result,
+<code>ptr()</code>, <code>JSCallback.ptr</code>) it is</p>
+<ul>
+<li><code>null</code> for NULL,</li>
+<li>a <code>number</code> if the address fits in a signed 32-bit integer,</li>
+<li>a <code>bigint</code> otherwise.</li>
+</ul>
+<p>Everywhere a pointer is taken, a <code>number</code>, a <code>bigint</code>, <code>null</code> (NULL) or an
+<code>ArrayBuffer</code> or view (its address) is accepted, so a typed array or a
+<a href="gen-bindings.html">generated struct class</a> can be passed to a <code>pointer</code>
+parameter as it is. A string is never read as an address, except by the
+legacy functions (see <a href="#topointer"><code>toPointer()</code></a>).</p>
+<h2 id="ptr"><a class="anchor" href="#ptr" aria-hidden="true">#</a><code>ptr()</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>]);</code></pre></div>
+<p>The address of an <code>ArrayBuffer</code> or typed array, plus the offset of the view
+(<code>new Uint8Array(buf, 8)</code> is at <code>ptr(buf) + 8</code>) plus <code>byteOffset</code>, which may
+be negative. A number is returned as it is. Anything else throws a
+<code>TypeError</code>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">ptr</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">bytes</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-num">32</span>);
+<span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">bytes</span>);
+<span class="t-kw">const</span> <span class="t-id">mid</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">bytes</span>, <span class="t-num">16</span>); <span class="t-cm">// 16 bytes further</span></code></pre></div>
+<p>The address is only good while the buffer is alive and not resized or
+detached.</p>
+<h2 id="topointer"><a class="anchor" href="#topointer" aria-hidden="true">#</a><code>toPointer()</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toPointer</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>]); <span class="t-cm">// "0x55d0c8a4e2a0"</span></code></pre></div>
+<p>Like <code>ptr()</code>, but returns the address as a hexadecimal string, <code>"0"</code> for NULL.
+Meant for display. Do not pass the string back as a pointer to the functions
+here: a string is read as content by <code>toArrayBuffer()</code>, and as a number only by
+the legacy <code>define()</code>/<code>call()</code>.</p>
+<h2 id="toarraybuffer"><a class="anchor" href="#toarraybuffer" aria-hidden="true">#</a><code>toArrayBuffer()</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">ab</span> <span class="t-op">=</span> <span class="t-fn">toArrayBuffer</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>[, <span class="t-id">deallocatorContext</span>], <span class="t-id">jsTypedArrayBytesDeallocator</span>]]);</code></pre></div>
+<p>Makes an <code>ArrayBuffer</code> over the memory at <code>ptr + byteOffset</code>, as bun:ffi's
+<code>toArrayBuffer()</code>. <code>toBuffer()</code> is the same function (QuickJS has no Node
+<code>Buffer</code>, so it also returns an <code>ArrayBuffer</code>).</p>
+<div class="tablewrap"><table><thead><tr><th>Argument</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>An address (<code>number</code> or <code>bigint</code>). NULL throws a <code>TypeError</code>.</td></tr><tr><td><code>byteOffset</code></td><td>Bytes to skip first. Defaults to 0.</td></tr><tr><td><code>byteLength</code></td><td>Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Negative is a <code>RangeError</code>.</td></tr><tr><td><code>deallocatorContext</code></td><td>An address passed to the deallocator. <code>null</code> or omitted for NULL.</td></tr><tr><td><code>jsTypedArrayBytesDeallocator</code></td><td>The address of a native function <code>void (*)(void *bytes, void *context)</code>, called when the buffer is freed.</td></tr></tbody></table></div>
+<p>The buffer is a view, not a copy: writes to it change the native memory, and
+the memory must stay valid for as long as the buffer is used. Without a
+deallocator the memory is never freed. <code>.slice(0)</code> makes a copy:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">toArrayBuffer</span>, <span class="t-id">ptr</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">src</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>([<span class="t-num">1</span>, <span class="t-num">2</span>, <span class="t-num">3</span>, <span class="t-num">4</span>, <span class="t-num">5</span>]);
+<span class="t-kw">const</span> <span class="t-id">view</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-fn">toArrayBuffer</span>(<span class="t-fn">ptr</span>(<span class="t-id">src</span>), <span class="t-num">1</span>, <span class="t-num">3</span>)); <span class="t-cm">// [2, 3, 4]</span>
+<span class="t-id">src</span>[<span class="t-num">2</span>] <span class="t-op">=</span> <span class="t-num">99</span>;
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">view</span>[<span class="t-num">1</span>]); <span class="t-cm">// 99: the same memory</span>
+
+<span class="t-kw">const</span> <span class="t-id">copy</span> <span class="t-op">=</span> <span class="t-fn">toArrayBuffer</span>(<span class="t-fn">ptr</span>(<span class="t-id">src</span>), <span class="t-num">0</span>, <span class="t-num">5</span>).<span class="t-fn">slice</span>(<span class="t-num">0</span>); <span class="t-cm">// not affected by later writes</span></code></pre></div>
+<h3 id="freeing-the-memory-with-the-buffer"><a class="anchor" href="#freeing-the-memory-with-the-buffer" aria-hidden="true">#</a>Freeing the memory with the buffer</h3>
+<p><code>jsTypedArrayBytesDeallocator</code> is the address of a <em>native</em> function, not a
+JavaScript one. With a context it is the fifth argument; without, the fourth:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">toArrayBuffer</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">malloc</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"malloc"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"u64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"pointer"</span> });
+<span class="t-kw">const</span> <span class="t-id">free</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"free"</span>);
+
+<span class="t-kw">let</span> <span class="t-id">ab</span> <span class="t-op">=</span> <span class="t-fn">toArrayBuffer</span>(<span class="t-fn">malloc</span>(<span class="t-num">1024n</span>), <span class="t-num">0</span>, <span class="t-num">1024</span>, <span class="t-id">free</span>); <span class="t-cm">// free(bytes, &lt;ignored&gt;)</span>
+<span class="t-id">ab</span> <span class="t-op">=</span> <span class="t-atom">null</span>; <span class="t-cm">// when the buffer is collected: free() runs</span></code></pre></div>
+<p>The deallocator runs on the JavaScript thread, while QuickJS is finalizing the
+buffer: it must not call back into JavaScript, so a <a href="js-callback.html"><code>JSCallback</code></a>
+is rejected (<code>TypeError</code>), as is anything that is not an address.</p>
+<h3 id="from-an-arraybuffer-or-a-string"><a class="anchor" href="#from-an-arraybuffer-or-a-string" aria-hidden="true">#</a>From an <code>ArrayBuffer</code> or a string</h3>
+<p>The older form <code>toArrayBuffer(source[, size[, copy]])</code> still works for a source
+that is an <code>ArrayBuffer</code> (or view) or a string. A string is taken as content
+and is copied, as an <code>ArrayBuffer</code> is unless <code>copy</code> is <code>false</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toArrayBuffer</span>(<span class="t-str">"hello"</span>); <span class="t-cm">// an ArrayBuffer holding 5 bytes</span>
+<span class="t-fn">toArrayBuffer</span>(<span class="t-id">buffer</span>, <span class="t-num">4</span>, <span class="t-atom">false</span>); <span class="t-cm">// the first 4 bytes of `buffer`, not copied</span></code></pre></div>
+<p>A boolean among the later arguments of the pointer form is a <code>TypeError</code>: the
+copy flag exists only here.</p>
+<h2 id="read"><a class="anchor" href="#read" aria-hidden="true">#</a><code>read</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">read</span>.<span class="t-fn">u8</span>(<span class="t-id">ptr</span>, <span class="t-id">byteOffset</span>);</code></pre></div>
+<p>Reads a value directly from an address, without making a <code>DataView</code> or an
+<code>ArrayBuffer</code>. <code>ptr</code> is an address, or an <code>ArrayBuffer</code> or view. The offset
+defaults to 0, may be negative, and the read need not be aligned. NULL throws a
+<code>TypeError</code>.</p>
+<div class="tablewrap"><table><thead><tr><th>Function</th><th>Reads</th><th>Returns</th></tr></thead><tbody><tr><td><code>read.i8</code> / <code>read.u8</code></td><td>1 byte, signed / unsigned</td><td><code>number</code></td></tr><tr><td><code>read.i16</code> / <code>read.u16</code></td><td>2 bytes</td><td><code>number</code></td></tr><tr><td><code>read.i32</code> / <code>read.u32</code></td><td>4 bytes</td><td><code>number</code></td></tr><tr><td><code>read.i64</code> / <code>read.u64</code></td><td>8 bytes</td><td><code>bigint</code></td></tr><tr><td><code>read.f32</code> / <code>read.f64</code></td><td><code>float</code> / <code>double</code></td><td><code>number</code></td></tr><tr><td><code id="read-read-ptr">read.ptr</code><a class="member-anchor" href="#read-read-ptr" aria-hidden="true">#</a></td><td>a pointer</td><td><a href="#pointer-values">pointer value</a></td></tr></tbody></table></div>
+<p>All reads are little-endian. Reading past the memory, or from a bad address,
+crashes the process.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">read</span>, <span class="t-id">ptr</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">mem</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>([<span class="t-num">1</span>, <span class="t-num">0xff</span>, <span class="t-num">2</span>, <span class="t-num">0x80</span>, <span class="t-num">0x78</span>, <span class="t-num">0x56</span>, <span class="t-num">0x34</span>, <span class="t-num">0x12</span>]);
+
+<span class="t-id">read</span>.<span class="t-fn">u8</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">1</span>); <span class="t-cm">// 255</span>
+<span class="t-id">read</span>.<span class="t-fn">i8</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">1</span>); <span class="t-cm">// -1</span>
+<span class="t-id">read</span>.<span class="t-fn">u32</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">4</span>); <span class="t-cm">// 0x12345678</span></code></pre></div>
+<h2 id="cstring"><a class="anchor" href="#cstring" aria-hidden="true">#</a><code>CString</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>]]);</code></pre></div>
+<p>A C string at <code>ptr + byteOffset</code>. Without <code>byteLength</code> it ends at the first NUL
+byte. It decodes when asked, so it follows the memory it is made on; call
+<code>toString()</code> for a JavaScript string that stays valid after the memory is
+freed.</p>
+<div class="tablewrap"><table><thead><tr><th>Member</th><th>Description</th></tr></thead><tbody><tr><td><code id="cstring-s-ptr">s.ptr</code><a class="member-anchor" href="#cstring-s-ptr" aria-hidden="true">#</a></td><td>The address of the first byte.</td></tr><tr><td><code id="cstring-s-length">s.length</code><a class="member-anchor" href="#cstring-s-length" aria-hidden="true">#</a></td><td>The length in bytes (the length to the NUL, if none was given).</td></tr><tr><td><code id="cstring-s-tostring">s.toString()</code><a class="member-anchor" href="#cstring-s-tostring" aria-hidden="true">#</a></td><td>The text, decoded as UTF-8. NULL gives <code>null</code>.</td></tr></tbody></table></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">CString</span>, <span class="t-id">ptr</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">bytes</span> <span class="t-op">=</span> <span class="t-type">Uint8Array</span>.<span class="t-kw">from</span>(<span class="t-str">"hello\0world"</span>, <span class="t-id">c</span> <span class="t-op">=&gt;</span> <span class="t-id">c</span>.<span class="t-fn">charCodeAt</span>(<span class="t-num">0</span>));
+<span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>));
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">s</span>.<span class="t-fn">toString</span>(), <span class="t-id">s</span>.<span class="t-prop">length</span>); <span class="t-cm">// hello 5</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>), <span class="t-num">6</span>, <span class="t-num">5</span>).<span class="t-fn">toString</span>()); <span class="t-cm">// world</span></code></pre></div>
+<p><code>CString</code> must be called with <code>new</code>. To get a string from a function that
+returns <code>char *</code>, declare the return type <code>"cstring"</code> and it arrives decoded.</p>
+<h2 id="tostring"><a class="anchor" href="#tostring" aria-hidden="true">#</a><code>toString()</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toString</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>]]);
+<span class="t-fn">toString</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteLength</span>]);</code></pre></div>
+<p>Decodes bytes as UTF-8 into a string. A buffer argument takes the offset and
+length of the bytes to use, the whole buffer by default. An address reads
+<code>byteLength</code> bytes, or up to the first NUL byte when omitted. NULL gives <code>null</code>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toString</span>(<span class="t-id">bytes</span>.<span class="t-prop">buffer</span>, <span class="t-num">6</span>, <span class="t-num">5</span>); <span class="t-cm">// "world"</span>
+<span class="t-fn">toString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>)); <span class="t-cm">// "hello"</span>
+<span class="t-fn">toString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>), <span class="t-num">3</span>); <span class="t-cm">// "hel"</span></code></pre></div>
+<h2 id="pointersize"><a class="anchor" href="#pointersize" aria-hidden="true">#</a><code>pointerSize</code></h2>
+<p>The size of a pointer in bytes: <code>8</code> on 64-bit targets. Use it to lay out
+structures of pointers and to step over arrays of them.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">read</span>.<span class="t-fn">ptr</span>(<span class="t-id">p</span>, <span class="t-id">i</span> <span class="t-op">*</span> <span class="t-id">pointerSize</span>);</code></pre></div></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/pointers.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#pointer-values">Pointer values</a></li><li class="lvl2"><a href="#ptr">ptr()</a></li><li class="lvl2"><a href="#topointer">toPointer()</a></li><li class="lvl2"><a href="#toarraybuffer">toArrayBuffer()</a></li><li class="lvl3"><a href="#freeing-the-memory-with-the-buffer">Freeing the memory with the buffer</a></li><li class="lvl3"><a href="#from-an-arraybuffer-or-a-string">From an ArrayBuffer or a string</a></li><li class="lvl2"><a href="#read">read</a></li><li class="lvl2"><a href="#cstring">CString</a></li><li class="lvl2"><a href="#tostring">toString()</a></li><li class="lvl2"><a href="#pointersize">pointerSize</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

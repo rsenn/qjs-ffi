@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foreign function interface — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html" class="here">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="foreign-function-interface"><a class="anchor" href="#foreign-function-interface" aria-hidden="true">#</a>Foreign function interface</h1>
+<p><code>ffi</code> is a QuickJS module that loads shared libraries, calls their C
+functions, hands JavaScript functions back to C as function pointers, and reads
+native memory. Its API follows <a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi</a>: a
+symbol table passed to <code>dlopen()</code> gives directly callable functions, with no
+name lookup at call time, and 64-bit integers are <code>BigInt</code>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span>, <span class="t-id">close</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libm.so.6"</span>, {
+  <span class="t-id">pow</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
+  <span class="t-id">sqrt</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">pow</span>(<span class="t-num">2</span>, <span class="t-num">10</span>)); <span class="t-cm">// 1024</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">sqrt</span>(<span class="t-num">144</span>)); <span class="t-cm">// 12</span>
+<span class="t-fn">close</span>();</code></pre></div>
+<p>Everything is imported from <code>"ffi"</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-id">dlclose</span>, <span class="t-id">dlerror</span>, <span class="t-id">errno</span>,
+         <span class="t-id">linkSymbols</span>, <span class="t-type">CFunction</span>, <span class="t-type">JSCallback</span>, <span class="t-id">cc</span>,
+         <span class="t-id">ptr</span>, <span class="t-id">toBuffer</span>, <span class="t-id">toArrayBuffer</span>, <span class="t-id">toPointer</span>, <span class="t-id">toString</span>, <span class="t-id">read</span>, <span class="t-type">CString</span>,
+         <span class="t-type">FFIType</span>, <span class="t-id">suffix</span>, <span class="t-id">pointerSize</span>, <span class="t-type">JSContext</span>, <span class="t-id">debug</span>,
+         <span class="t-id">define</span>, <span class="t-id">call</span>,
+         <span class="t-type">RTLD_LAZY</span>, <span class="t-type">RTLD_NOW</span>, <span class="t-type">RTLD_GLOBAL</span>, <span class="t-type">RTLD_LOCAL</span>,
+         <span class="t-type">RTLD_NODELETE</span>, <span class="t-type">RTLD_NOLOAD</span>, <span class="t-type">RTLD_DEEPBIND</span>,
+         <span class="t-type">RTLD_DEFAULT</span>, <span class="t-type">RTLD_NEXT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;</code></pre></div>
+<p><code>cc</code> exists only in a build with <code>ENABLE_TCC</code>, and the <code>RTLD_*</code> constants only
+where the platform defines them. Run scripts with <code>qjsm</code>, see
+<a href="../getting-started.html#installation">Installation</a>.</p>
+<h2 id="contents"><a class="anchor" href="#contents" aria-hidden="true">#</a>Contents</h2>
+<div class="tablewrap"><table><thead><tr><th>Page</th><th>What it covers</th></tr></thead><tbody><tr><td><a href="dlopen.html">Libraries and symbols</a></td><td><code>dlopen()</code>, <code>linkSymbols()</code>, <code>dlsym()</code>, <code>dlclose()</code>, <code>dlerror()</code>, <code>errno()</code>, <code>suffix</code>, <code>RTLD_*</code></td></tr><tr><td><a href="types.html">Types and ABI</a></td><td><code>FFIType</code>, the type names, structs by value, ABI names</td></tr><tr><td><a href="c-function.html">CFunction</a></td><td>a function pointer as a callable function</td></tr><tr><td><a href="js-callback.html">JSCallback</a></td><td>a JavaScript function as a function pointer</td></tr><tr><td><a href="pointers.html">Pointers and memory</a></td><td><code>ptr()</code>, <code>toArrayBuffer()</code>, <code>read</code>, <code>CString</code>, <code>toString()</code>, <code>toPointer()</code>, <code>pointerSize</code></td></tr><tr><td><a href="c-compiler.html">C compiler</a></td><td><code>cc()</code>: compile and run C from JavaScript</td></tr><tr><td><a href="misc.html">Miscellaneous</a></td><td><code>JSContext()</code>, <code>debug()</code></td></tr><tr><td><a href="gen-bindings.html">Generating bindings</a></td><td><code>tools/gen-bindings.js</code>, a binding generator for C and C++ headers</td></tr><tr><td><a href="legacy.html">Legacy API</a></td><td><code>define()</code> and <code>call()</code></td></tr></tbody></table></div>
+<h2 id="usage"><a class="anchor" href="#usage" aria-hidden="true">#</a>Usage</h2>
+<p><code>dlopen(path, symbols)</code> opens a library and returns <code>{ symbols, close }</code>.
+Each entry of the symbol table becomes a function:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-type">FFIType</span>, <span class="t-id">suffix</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">path</span> <span class="t-op">=</span> <span class="t-str">`libsqlite3.${suffix}`</span>;
+<span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">sqlite3_libversion</span> } } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-id">path</span>, {
+  <span class="t-id">sqlite3_libversion</span><span class="t-op">:</span> {
+    <span class="t-id">args</span><span class="t-op">:</span> [],
+    <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-type">FFIType</span>.<span class="t-prop">cstring</span>,
+  },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">`SQLite 3 version: ${sqlite3_libversion()}`</span>);</code></pre></div>
+<p><code>path</code> may be <code>null</code> to search the symbols already loaded into the process
+(libc, and whatever the interpreter links). A missing library or symbol throws
+a <code>TypeError</code>. See <a href="dlopen.html">Libraries and symbols</a>.</p>
+<h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
+<p>A signature is <code>{ args: [...], returns }</code>, written with the names of
+<a href="types.html">Types and ABI</a>: the sized integers <code>i8</code>..<code>u64</code>, <code>f32</code>, <code>f64</code>, <code>bool</code>,
+<code>pointer</code>, <code>cstring</code>, <code>void</code> (return only) and C-style aliases such as <code>int</code> and
+<code>double</code>. A struct passed or returned by value is an array of member types.</p>
+<div class="tablewrap"><table><thead><tr><th>Type</th><th>C type</th><th>JavaScript</th></tr></thead><tbody><tr><td><code>i8</code>..<code>i32</code>, <code>u8</code>..<code>u32</code></td><td><code>int8_t</code>..<code>uint32_t</code></td><td><code>number</code></td></tr><tr><td><code>i64</code>, <code>u64</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>bigint</code></td></tr><tr><td><code>i64_fast</code>, <code>u64_fast</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>number</code>, lossy above 2^53</td></tr><tr><td><code>f32</code>, <code>f64</code></td><td><code>float</code>, <code>double</code></td><td><code>number</code></td></tr><tr><td><code>bool</code></td><td><code>bool</code></td><td><code>boolean</code></td></tr><tr><td><code>pointer</code>, <code>ptr</code>, <code>function</code></td><td><code>void *</code></td><td><code>null</code>, <code>number</code> or <code>bigint</code></td></tr><tr><td><code>cstring</code></td><td><code>char *</code></td><td><code>string</code></td></tr></tbody></table></div>
+<h2 id="function-pointers"><a class="anchor" href="#function-pointers" aria-hidden="true">#</a>Function pointers</h2>
+<p><code>CFunction()</code> wraps a pointer you already have, for example from <code>dlsym()</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">strdup</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"strdup"</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"cstring"</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"cstring"</span>,
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">"hello"</span>));</code></pre></div>
+<p><code>linkSymbols()</code> is <code>dlopen()</code> without opening a library: every entry is
+resolved from its own <code>ptr</code>, or else with <code>dlsym(RTLD_DEFAULT, name)</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">linkSymbols</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">gnu_get_libc_version</span> } } <span class="t-op">=</span> <span class="t-fn">linkSymbols</span>({
+  <span class="t-id">gnu_get_libc_version</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"cstring"</span> },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">gnu_get_libc_version</span>());</code></pre></div>
+<p>See <a href="c-function.html">CFunction</a> and <a href="dlopen.html#linksymbols">Libraries and symbols</a>.</p>
+<h2 id="callbacks"><a class="anchor" href="#callbacks" aria-hidden="true">#</a>Callbacks</h2>
+<p><code>JSCallback</code> turns a JavaScript function into a native function pointer, which
+<code>.ptr</code> gives, to pass to C:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSCallback</span>, <span class="t-type">CFunction</span>, <span class="t-id">dlsym</span>, <span class="t-id">read</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">compare</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>((<span class="t-id">a</span>, <span class="t-id">b</span>) <span class="t-op">=&gt;</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">a</span>) <span class="t-op">-</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">b</span>), {
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"pointer"</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span>,
+});
+
+<span class="t-kw">const</span> <span class="t-id">qsort</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"qsort"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"void"</span> });
+
+<span class="t-kw">const</span> <span class="t-id">numbers</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Int32Array</span>([<span class="t-num">5</span>, <span class="t-num">3</span>, <span class="t-num">9</span>, <span class="t-num">1</span>]);
+<span class="t-fn">qsort</span>(<span class="t-id">numbers</span>, <span class="t-id">numbers</span>.<span class="t-prop">length</span>, <span class="t-num">4n</span>, <span class="t-id">compare</span>.<span class="t-prop">ptr</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">numbers</span>); <span class="t-cm">// 1, 3, 5, 9</span>
+
+<span class="t-id">compare</span>.<span class="t-fn">close</span>();</code></pre></div>
+<p>Call <code>close()</code> when the callback is no longer needed. See
+<a href="js-callback.html">JSCallback</a> for the details, including exceptions thrown by
+the function.</p>
+<h2 id="strings"><a class="anchor" href="#strings" aria-hidden="true">#</a>Strings</h2>
+<p><code>cstring</code> converts at the boundary: a JavaScript string argument is encoded as
+a NUL-terminated UTF-8 string for the duration of the call, and a <code>cstring</code>
+result is decoded into a new JavaScript string. For a <code>char *</code> that you hold as
+an address, <code>new CString(ptr)</code> decodes it, and <code>toString(ptr, length)</code> decodes
+an exact number of bytes. A <code>char *</code> type spelled that way is a plain pointer.
+See <a href="pointers.html#cstring">Pointers and memory</a>.</p>
+<h2 id="pointers"><a class="anchor" href="#pointers" aria-hidden="true">#</a>Pointers</h2>
+<p>A pointer is <code>null</code>, a <code>number</code> when it fits in a signed 32-bit integer, and a
+<code>bigint</code> otherwise. <code>ptr()</code> takes the address of an <code>ArrayBuffer</code> or typed
+array, <code>toArrayBuffer()</code> makes an <code>ArrayBuffer</code> over memory at an address, and
+<code>read</code> reads a value straight from an address:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">ptr</span>, <span class="t-id">read</span>, <span class="t-id">toArrayBuffer</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">bytes</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>([<span class="t-num">1</span>, <span class="t-num">2</span>, <span class="t-num">3</span>, <span class="t-num">4</span>]);
+<span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">bytes</span>);
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">read</span>.<span class="t-fn">u8</span>(<span class="t-id">p</span>, <span class="t-num">2</span>)); <span class="t-cm">// 3</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">read</span>.<span class="t-fn">u32</span>(<span class="t-id">p</span>, <span class="t-num">0</span>)); <span class="t-cm">// 67305985 (0x04030201)</span>
+
+<span class="t-kw">const</span> <span class="t-id">view</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-fn">toArrayBuffer</span>(<span class="t-id">p</span>, <span class="t-num">1</span>, <span class="t-num">2</span>)); <span class="t-cm">// [2, 3], aliasing `bytes`</span></code></pre></div>
+<p>See <a href="pointers.html">Pointers and memory</a>.</p>
+<h2 id="compiling-c"><a class="anchor" href="#compiling-c" aria-hidden="true">#</a>Compiling C</h2>
+<p><code>cc()</code> compiles C source in memory with TinyCC and returns its functions, with
+the same signatures:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">cc</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hello</span> } } <span class="t-op">=</span> <span class="t-fn">cc</span>({
+  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-str">"hello.c"</span>,
+  <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hello</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"int"</span> } },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">hello</span>()); <span class="t-cm">// 42</span></code></pre></div>
+<p>It needs a build with <code>-DENABLE_TCC=ON</code>. See <a href="c-compiler.html">C compiler</a>.</p>
+<h2 id="memory-management"><a class="anchor" href="#memory-management" aria-hidden="true">#</a>Memory management</h2>
+<p><code>ffi</code> does not manage native memory: whatever C allocates, you free, and a
+pointer outlives nothing. In particular</p>
+<ul>
+<li><code>toArrayBuffer()</code> makes a view over the memory, not a copy. Keep the memory
+alive while the buffer is used, <code>.slice(0)</code> the buffer to copy it, or pass a
+native deallocator to be called when the buffer is garbage collected, see
+<a href="pointers.html#toarraybuffer">Pointers and memory</a>.</li>
+<li>A <code>JSCallback</code> pointer is valid until <code>close()</code>.</li>
+<li>After <code>dlopen()</code>'s <code>close()</code> the library's functions and data are gone.</li>
+<li>A pointer derived from a <code>cstring</code> argument is valid only for that call.</li>
+</ul>
+<h2 id="notes"><a class="anchor" href="#notes" aria-hidden="true">#</a>Notes</h2>
+<ul>
+<li>64-bit values: <code>i64</code>/<code>u64</code> are exact <code>bigint</code>s. An argument may be a
+<code>number</code> or a <code>bigint</code>.</li>
+<li>Structs by value are supported, with the member types spelled out. Varargs
+are not.</li>
+<li>Little-endian targets only. Linux x86_64 is the main target; mingw64 cross
+builds compile but are untested.</li>
+<li><code>qjsm</code>, not <code>qjs</code>, runs the scripts and tests of this project.</li>
+</ul>
+<h2 id="differences-from-bunffi"><a class="anchor" href="#differences-from-bunffi" aria-hidden="true">#</a>Differences from bun:ffi</h2>
+<p>This module follows bun:ffi but is not a drop-in replacement yet. The open
+items are tracked in <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies" target="_blank" rel="noopener">TODO.md</a>:</p>
+<ul>
+<li>Pointers from <code>ptr()</code>, <code>JSCallback.ptr</code> and <code>malloc()</code> are <code>bigint</code> above
+2^31, where bun gives a <code>number</code>.</li>
+<li><code>FFIType</code> members are strings, not numbers.</li>
+<li><code>CString</code> needs <code>new</code>, and is an object with <code>.ptr</code> and <code>.length</code>.</li>
+<li><code>new CFunction(...)</code> is not supported, call <code>CFunction(...)</code>; there is no
+<code>CFunction().close()</code>.</li>
+<li><code>toBuffer()</code> returns an <code>ArrayBuffer</code> (QuickJS has no <code>Buffer</code>).</li>
+<li>Not implemented: the <code>buffer_length</code> type, <code>JSCallback</code>'s <code>threadsafe</code>
+option, passing a <code>JSCallback</code> object (instead of its <code>.ptr</code>) as an
+argument, and variables in <code>cc()</code> symbols (bun has none either).</li>
+<li><code>dlopen()</code> failures are a <code>TypeError</code>, not an <code>Error</code> with
+<code>code: "ERR_DLOPEN_FAILED"</code>.</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/ffi.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#contents">Contents</a></li><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#function-pointers">Function pointers</a></li><li class="lvl2"><a href="#callbacks">Callbacks</a></li><li class="lvl2"><a href="#strings">Strings</a></li><li class="lvl2"><a href="#pointers">Pointers</a></li><li class="lvl2"><a href="#compiling-c">Compiling C</a></li><li class="lvl2"><a href="#memory-management">Memory management</a></li><li class="lvl2"><a href="#notes">Notes</a></li><li class="lvl2"><a href="#differences-from-bunffi">Differences from bun:ffi</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

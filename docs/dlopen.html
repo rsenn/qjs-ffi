@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libraries and symbols — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html" class="here">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="libraries-and-symbols"><a class="anchor" href="#libraries-and-symbols" aria-hidden="true">#</a>Libraries and symbols</h1>
+<p>Opening shared libraries and finding symbols in them. These are the functions
+behind everything else in <code>ffi</code>: <a href="c-function.html"><code>CFunction</code></a> and
+<a href="js-callback.html"><code>JSCallback</code></a> work on the addresses they return.</p>
+<ul>
+<li><a href="#dlopenpath-symbols"><code>dlopen(path, symbols)</code></a></li>
+<li><a href="#linksymbols"><code>linkSymbols(symbols)</code></a></li>
+<li><a href="#raw-libdl"><code>dlopen(path, flags)</code>, <code>dlsym()</code>, <code>dlclose()</code>, <code>dlerror()</code></a></li>
+<li><a href="#errno"><code>errno()</code></a></li>
+<li><a href="#suffix"><code>suffix</code></a> and the <a href="#rtld-constants">RTLD constants</a></li>
+</ul>
+<h2 id="dlopenpath-symbols"><a class="anchor" href="#dlopenpath-symbols" aria-hidden="true">#</a><code>dlopen(path, symbols)</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span>, <span class="t-id">close</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-id">path</span>, <span class="t-id">symbolSpecs</span>);</code></pre></div>
+<p>Opens the library with <code>RTLD_NOW</code>, looks up every key of <code>symbolSpecs</code> and
+wraps it as a <a href="c-function.html"><code>CFunction</code></a>. The result is</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code id="dlopenpath-symbols-symbols">symbols</code><a class="member-anchor" href="#dlopenpath-symbols-symbols" aria-hidden="true">#</a></td><td>An object with one function per key of <code>symbolSpecs</code>.</td></tr><tr><td><code id="dlopenpath-symbols-close">close()</code><a class="member-anchor" href="#dlopenpath-symbols-close" aria-hidden="true">#</a></td><td><code>dlclose()</code>s the library and returns its result (<code>0</code>). Calling it again does nothing and returns <code>0</code>.</td></tr></tbody></table></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">lib</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libm.so.6"</span>, {
+  <span class="t-id">pow</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">lib</span>.<span class="t-prop">symbols</span>.<span class="t-fn">pow</span>(<span class="t-num">2</span>, <span class="t-num">10</span>)); <span class="t-cm">// 1024</span>
+<span class="t-id">lib</span>.<span class="t-fn">close</span>();</code></pre></div>
+<p><code>path</code> is a library name or file name, as <code>dlopen(3)</code> takes it, or <code>null</code> for
+the symbols that are already loaded into the process:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">abs</span> } } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, { <span class="t-id">abs</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i32"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> } });</code></pre></div>
+<p>Each spec is <code>{ args, returns, abi }</code>, exactly as for
+<a href="c-function.html"><code>CFunction</code></a> without <code>ptr</code>; the names are in
+<a href="types.html">Types and ABI</a>. A library that cannot be opened, or a symbol that is
+not in it, throws a <code>TypeError</code> carrying the <code>dlerror()</code> text. Nothing stays
+open then.</p>
+<h2 id="linksymbols"><a class="anchor" href="#linksymbols" aria-hidden="true">#</a><code>linkSymbols</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">linkSymbols</span>(<span class="t-id">symbolSpecs</span>);</code></pre></div>
+<p>Like <code>dlopen()</code>, without opening a library, and without <code>close()</code>. A spec is
+resolved from its own <code>ptr</code> if it has one (a number or <code>bigint</code>; a NULL <code>ptr</code>
+is a <code>TypeError</code>), and otherwise with <code>dlsym(RTLD_DEFAULT, name)</code>. It makes
+functions from pointers you got elsewhere in one call:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">linkSymbols</span>, <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">linkSymbols</span>({
+  <span class="t-id">myabs</span><span class="t-op">:</span> { <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"abs"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i32"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> },
+  <span class="t-id">strlen</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"cstring"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"u64"</span> }, <span class="t-cm">// found with dlsym(RTLD_DEFAULT, "strlen")</span>
+});
+
+<span class="t-id">symbols</span>.<span class="t-fn">myabs</span>(<span class="t-op">-</span><span class="t-num">7</span>); <span class="t-cm">// 7</span>
+<span class="t-id">symbols</span>.<span class="t-fn">strlen</span>(<span class="t-str">"hello"</span>); <span class="t-cm">// 5n</span></code></pre></div>
+<p>A symbol that is not found throws a <code>TypeError</code>. Only available where the
+platform defines <code>RTLD_DEFAULT</code>.</p>
+<h2 id="raw-libdl"><a class="anchor" href="#raw-libdl" aria-hidden="true">#</a>Raw libdl</h2>
+<p><code>dlopen()</code> takes a second argument of two kinds, told apart by its type: an
+object is the symbol table above, a number is the <code>flags</code> of the raw call.
+<code>dlsym()</code>, <code>dlclose()</code> and <code>dlerror()</code> are thin wrappers over libdl, described
+in the <strong>dlopen(3)</strong> manual page.</p>
+<h3 id="dlopenpath-flags"><a class="anchor" href="#dlopenpath-flags" aria-hidden="true">#</a><code>dlopen(path, flags)</code></h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">handle</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libz.so.1"</span>, <span class="t-type">RTLD_NOW</span> <span class="t-op">|</span> <span class="t-type">RTLD_GLOBAL</span>);</code></pre></div>
+<p>Returns the library handle as a pointer (a <code>number</code> or a <code>bigint</code>), or <code>null</code>
+if it cannot be opened; <code>dlerror()</code> then tells why. <code>path</code> may be <code>null</code> for
+the main program.</p>
+<h3 id="dlsymhandle-name"><a class="anchor" href="#dlsymhandle-name" aria-hidden="true">#</a><code>dlsym(handle, name)</code></h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">fp</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-id">handle</span>, <span class="t-str">"compress"</span>);</code></pre></div>
+<p>Returns the address of the symbol, or <code>null</code> if it is not found. <code>handle</code> is a
+library handle, or <code>RTLD_DEFAULT</code> or <code>RTLD_NEXT</code>. Pass the result to
+<a href="c-function.html"><code>CFunction</code></a> or as a <code>ptr</code>.</p>
+<h3 id="dlclosehandle"><a class="anchor" href="#dlclosehandle" aria-hidden="true">#</a><code>dlclose(handle)</code></h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">dlclose</span>(<span class="t-id">handle</span>); <span class="t-cm">// 0</span></code></pre></div>
+<p>Closes the library and returns <code>dlclose(3)</code>'s result (<code>0</code> on success). A
+<code>null</code> handle is a <code>TypeError</code>.</p>
+<h3 id="dlerror"><a class="anchor" href="#dlerror" aria-hidden="true">#</a><code>dlerror()</code></h3>
+<p>Returns the text of the last libdl error as a string and clears it, or <code>null</code>
+if there is none.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">h</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libnope.so"</span>, <span class="t-type">RTLD_NOW</span>); <span class="t-cm">// null</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">dlerror</span>()); <span class="t-cm">// "libnope.so: cannot open shared object file: ..."</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">dlerror</span>()); <span class="t-cm">// null</span></code></pre></div>
+<h2 id="errno"><a class="anchor" href="#errno" aria-hidden="true">#</a><code>errno()</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">errno</span>(); <span class="t-cm">// the C library's current errno</span></code></pre></div>
+<p>A function, not a property: call it right after the failing C call, before
+anything else that may set it.</p>
+<h2 id="suffix"><a class="anchor" href="#suffix" aria-hidden="true">#</a><code>suffix</code></h2>
+<p>The file name extension of shared libraries on the platform: <code>"so"</code> on
+Linux and <code>"dll"</code> on Windows. Use it to build a file name:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">path</span> <span class="t-op">=</span> <span class="t-str">`libsqlite3.${suffix}`</span>;</code></pre></div>
+<h2 id="rtld-constants"><a class="anchor" href="#rtld-constants" aria-hidden="true">#</a>RTLD constants</h2>
+<p>The <code>flags</code> of <code>dlopen(path, flags)</code> and the pseudo-handles of <code>dlsym()</code>.
+<code>RTLD_LAZY</code>, <code>RTLD_NOW</code>, <code>RTLD_GLOBAL</code>, <code>RTLD_LOCAL</code>, <code>RTLD_NODELETE</code>,
+<code>RTLD_NOLOAD</code> and <code>RTLD_DEEPBIND</code> are numbers to combine with <code>|</code>.
+<code>RTLD_DEFAULT</code> (<code>0</code>) and <code>RTLD_NEXT</code> (<code>-1</code>) are the handles that search the
+global scope and the libraries loaded after the caller. A constant is only
+exported where the platform's <code>&lt;dlfcn.h&gt;</code> defines it.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/dlopen.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#dlopenpath-symbols">dlopen(path, symbols)</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#raw-libdl">Raw libdl</a></li><li class="lvl3"><a href="#dlopenpath-flags">dlopen(path, flags)</a></li><li class="lvl3"><a href="#dlsymhandle-name">dlsym(handle, name)</a></li><li class="lvl3"><a href="#dlclosehandle">dlclose(handle)</a></li><li class="lvl3"><a href="#dlerror">dlerror()</a></li><li class="lvl2"><a href="#errno">errno()</a></li><li class="lvl2"><a href="#suffix">suffix</a></li><li class="lvl2"><a href="#rtld-constants">RTLD constants</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

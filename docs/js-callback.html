@@ -15,14 +15,15 @@
   <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
   <nav class="topnav">
     <a href="../getting-started.html">Get started</a>
-    <a href="../docs/c-function.html">CFunction</a>
-    <a href="../docs/js-callback.html">JSCallback</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
     <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
   </nav>
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html" class="here">JSCallback</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html" class="here">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="jscallback"><a class="anchor" href="#jscallback" aria-hidden="true">#</a>JSCallback</h1>
 <p><code>JSCallback</code> wraps a JavaScript function as a native function pointer
@@ -63,8 +64,9 @@ native code afterward. Safe to call more than once.</li>
 identifying the trampoline address.</li>
 </ul>
 <h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
-<p>Same vocabulary as <a href="c-function.html#types"><code>CFunction</code></a>, matching
-<a href="https://bun.com/docs/runtime/ffi#ffitype" target="_blank" rel="noopener">bun:ffi's <code>FFIType</code></a>:</p>
+<p>Same vocabulary as in <a href="types.html">Types and ABI</a>, matching
+<a href="https://bun.com/docs/runtime/ffi#ffitype" target="_blank" rel="noopener">bun:ffi's <code>FFIType</code></a>, without struct
+types:</p>
 <div class="tablewrap"><table><thead><tr><th>Name</th><th>C type</th><th>JS value</th></tr></thead><tbody><tr><td><code>"void"</code></td><td><code>void</code></td><td><code>undefined</code> (only valid as <code>returns</code>)</td></tr><tr><td><code>"bool"</code></td><td><code>_Bool</code> / <code>uint8_t</code></td><td><code>boolean</code></td></tr><tr><td><code>"i8"</code>, <code>"u8"</code></td><td><code>int8_t</code>, <code>uint8_t</code></td><td><code>number</code></td></tr><tr><td><code>"i16"</code>, <code>"u16"</code></td><td><code>int16_t</code>, <code>uint16_t</code></td><td><code>number</code></td></tr><tr><td><code>"i32"</code></td><td><code>int32_t</code></td><td><code>number</code></td></tr><tr><td><code>"u32"</code></td><td><code>uint32_t</code></td><td><code>number</code></td></tr><tr><td><code>"i64"</code>, <code>"u64"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>bigint</code> -- exact, no precision loss</td></tr><tr><td><code>"i64_fast"</code>, <code>"u64_fast"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>number</code> -- fast to convert, but lossy above 2^53</td></tr><tr><td><code>"f32"</code></td><td><code>float</code></td><td><code>number</code></td></tr><tr><td><code>"f64"</code></td><td><code>double</code></td><td><code>number</code></td></tr><tr><td><code>"pointer"</code> / <code>"ptr"</code> / <code>"function"</code></td><td><code>void *</code></td><td><code>null</code> for a NULL pointer; otherwise <code>number</code> if the address fits in 32 bits, <code>bigint</code> otherwise</td></tr><tr><td><code>"cstring"</code></td><td><code>char *</code></td><td><code>string</code> -- the argument value is decoded from the incoming C string; returning <code>"cstring"</code> from <code>fn</code> is not automatically re-encoded to a native pointer (the return conversion writes the string's JS pointer representation, not a fresh C allocation) -- prefer numeric/<code>"pointer"</code> returns unless you know what you're doing</td></tr></tbody></table></div>
 <p>An unrecognized type name in <code>args</code> silently falls back to <code>"i32"</code>; an
 unrecognized <code>returns</code> falls back to <code>"void"</code>.</p>

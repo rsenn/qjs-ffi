@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generating bindings — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html" class="here">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="generating-bindings"><a class="anchor" href="#generating-bindings" aria-hidden="true">#</a>Generating bindings</h1>
+<p><code>tools/gen-bindings.js</code> reads C headers with clang and writes a JavaScript module
+with one CFunction per function, plus an export for every enum used:</p>
+<div class="codeblock"><pre><code>$ qjsm tools/gen-bindings.js --library=libcairo.so.2 /usr/include/cairo/cairo.h -o lib/cairo.js</code></pre></div>
+<p>Useful options are <code>--follow-includes</code> to also bind the headers included by
+the source, <code>--exclude=&lt;name&gt;</code> to skip a function, <code>-I</code> and <code>-D</code> for clang, and
+<code>--api=define</code> to target the legacy API. Ready made bindings are in lib/.</p>
+<p>With <code>--structs</code> the module also exports a class for every struct and union
+(and each typedef name) and an accessor for every extern variable. The classes
+extend <code>ArrayBuffer</code>, so an instance can be passed to a pointer parameter as it
+is. Structs are mostly handled through their address:</p>
+<div class="codeblock"><pre><code>    const m = new cairo.cairo_matrix_t();          // zero-filled, JS-owned memory
+    cairo.cairo_matrix_init(m, 1, 0, 0, 1, 10, 20);
+    console.log(m.x0, m.y0);                       // 10 20
+    cairo.cairo_matrix_t.at(pointer)               // the same fields over native memory
+    cairo.some_variable.value                      // extern variable (.ptr is its address)</code></pre></div>
+<p>A struct passed or returned by value (<code>vec3 f(vec3 a)</code>) is bound too: the struct
+class is accepted as the argument, and a call returns an instance of it. This
+needs <code>--api=cfunction</code> and an <code>ffi</code> module with struct support (see
+<a href="types.html#structs-by-value">Types and ABI</a>). A function stays skipped, with the reason in the output, when
+the struct is a union, a C++ class, or its layout cannot be reproduced for libffi
+(a packed struct, say).</p>
+<p>The members are accessors that read with <a href="pointers.html#read"><code>read</code></a> and write
+through a <code>DataView</code>; see the header of tools/gen-structs.js for how each kind
+of member is read and written. A generated module needs an <code>ffi</code> that has <code>read</code>.
+<code>Name.size</code>, <code>Name.align</code> and <code>Name.fields</code> (type and byte offset of each)
+describe the layout. <code>tools/gen-structs.js</code> produces the same classes from an
+IR (<code>--emit-ir</code>) on its own, and a C header with the layout checked by
+<code>_Static_assert</code>s.</p>
+<p>C++ classes are the same kind of class, extending a common <code>ArrayBuffer</code>
+subclass: <code>new Shape(3, 2.0)</code> allocates the object and runs its constructor,
+<code>s.delete()</code> runs the destructor (with <code>--finalize</code>, collecting an object that
+was not deleted runs it too, on a later turn of the event loop), <code>Shape.at(ptr)</code> wraps an existing object, and
+<code>s.ptr</code> is its address. Constants with a known value are plain exports,
+whether or not <code>--structs</code> is given.</p>
+<p><code>tools/describe-module.sh &lt;module.js&gt; [export...]</code> lists what a generated module
+or one from lib/ exports, with the C types when it was generated with
+<code>--describe</code>; <code>--json</code> prints the raw results. It uses describeClass() and
+describeObject(), kept in tools/describe/ as copies of qjs-modules' lib/.</p>
+<p>The tools are in tools/ (gen-bindings.js, gen-structs.js, and the modules of
+the former in tools/gen-bindings/). Installed, <code>qjs-ffi-genbindings</code> and
+<code>qjs-ffi-genstructs</code> in bin/ start them from <code>share/qjs-ffi/tools</code>.</p>
+<p>The generator runs in two phases joined by a JSON description of the C API
+(functions, enums, structs, constants). <code>--emit-ir=api.json</code> stops after the
+first phase and <code>--from-ir=api.json</code> generates the JavaScript without running
+clang. The condensed clang AST is cached in <code>.tmp/gen-bindings/</code>, so a repeat
+run takes a fraction of a second; <code>--no-cache</code> disables that.</p>
+<div class="codeblock"><pre><code>    import * as cairo from "./lib/cairo.js";
+
+    const surface = cairo.cairo_image_surface_create(cairo.CAIRO_FORMAT_ARGB32, 320, 240);</code></pre></div>
+<p>See examples/cairo.js and tests/test-cairo.js, which draws to PNG and SVG. The
+plan for C++ virtual methods is in
+<a href="internals/cxx-virtual-dispatch.html">virtual dispatch</a>.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/gen-bindings.md">Edit this page on GitHub →</a></p>
+</main>
+
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>
