@@ -222,6 +222,8 @@ yet supported. "void" is only useful as a return type.
 *   "i64_fast", "u64_fast" (Number, lossy above 2^53)
 *   "f32", "f64"
 *   "pointer", "ptr", "function" (null for NULL, else Number or BigInt)
+*   any name ending in "*", e.g. "int *", "struct node **" or "void*": a pointer,
+    exactly like "pointer"; what precedes the "*" only documents the type
 *   "cstring" (JavaScript string, converted for the duration of the call)
 
 An unrecognized parameter type falls back to "i32", an unrecognized return type
@@ -321,7 +323,7 @@ function has been defined. n = call(name, params...) calls it.
 Legacy types are the libffi names ("sint8", "uint32", "double", "pointer",
 ...), C-like aliases ("int", "long", "size_t", "unsigned char", "char *",
 "void *") and the semantic types "string" (JavaScript string) and "buffer"
-(ArrayBuffer).
+(ArrayBuffer). Any other name ending in "*" is a pointer as well ("struct foo *").
 
 ## Limitations ##
 

@@ -716,11 +716,20 @@ const BASE_TYPES = {
   __uintptr_t: { cf: 'u64', def: 'uint64' },
 };
 
+/* The "T *" spelling the ffi module reads as a pointer type: the stars of
+ * `t` (a normalized pointer type) joined, one space before them. */
+function pointerName(t) {
+  const m = /^(.*?)((?:\s*\*)+)$/.exec(t);
+
+  return m[1].trim() + ' ' + m[2].replace(/\s+/g, '');
+}
+
 /* Maps one C type string (a return type or a single parameter's type) to
  * { cf, def, supported, reason, enumId }: `cf` is the bun-style FFIType
  * name used for CFunction/JSCallback, `def` is the legacy ffi.c type name
- * used for define()/call(). Only scalar and single-level-pointer types are
- * supported -- struct/union-by-value, arrays and varargs need libffi
+ * used for define()/call(); a pointer or reference is spelled "T *" in
+ * both (any name ending in '*' is a pointer to the ffi module). Only scalar
+ * and pointer types are supported -- struct/union-by-value, arrays and varargs need libffi
  * struct/array support this module doesn't have (see TODO.md).
  *
  * `typedefs` (name -> underlying type string, from collectTypedefs()) is
@@ -740,14 +749,18 @@ function mapCType(qualTypeRaw, typedefs, enumIndex, depth) {
   if(/\(\s*\*\s*\)\s*\(/.test(t)) return { cf: 'function', def: 'callback', supported: true };
   if(/\[[^\]]*\]/.test(t)) return { supported: false, reason: 'array types are not supported' };
 
-  if(/&&?$/.test(t)) return { cf: 'pointer', def: 'pointer', supported: true };
+  if(/&&?$/.test(t)) {
+    const typed = normalizeType(t.replace(/\s*&&?$/, '')) + ' *';
+    return { cf: typed, def: typed, supported: true };
+  }
 
   const ptrMatch = t.match(/^(.*?)\s*(\*+)$/);
   if(ptrMatch) {
     const base = normalizeType(ptrMatch[1]);
     const stars = ptrMatch[2];
     if(stars === '*' && base === 'char') return { cf: 'cstring', def: 'char *', supported: true };
-    return { cf: 'pointer', def: 'pointer', supported: true };
+    const typed = pointerName(t);
+    return { cf: typed, def: typed, supported: true };
   }
 
   const enumMatch = t.match(/^enum\s+(\S+)$/);
@@ -1502,6 +1515,11 @@ function enumConstantsCode(enums) {
  * mapCType() may put in `.cf`. */
 const FFI_TYPE_NAMES = new Set(['void', 'bool', 'i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'i64', 'u64', 'i64_fast', 'u64_fast', 'f32', 'f64', 'pointer', 'ptr', 'function', 'cstring']);
 
+/* A pointer type is spelled "T *", for any T. */
+function isFfiType(name) {
+  return FFI_TYPE_NAMES.has(name) || name.endsWith('*');
+}
+
 function cfType(name, opts) {
   return opts.ffiType && FFI_TYPE_NAMES.has(name) ? 'FFIType.' + name : JSON.stringify(name);
 }
@@ -1511,11 +1529,17 @@ function cfType(name, opts) {
 const VIEW_HELPERS = `
 const __sizes = { bool: 1, i8: 1, u8: 1, i16: 2, u16: 2, i32: 4, u32: 4, i64: 8, u64: 8, i64_fast: 8, u64_fast: 8, f32: 4, f64: 8, pointer: 8, ptr: 8, function: 8, cstring: 8 };
 
+/* A type spelled "T *" is a pointer, whatever T is. */
+function __sz(type) {
+  return __sizes[type.endsWith("*") ? "pointer" : type];
+}
+
 function __ptrOut(v) {
   return v === 0n ? null : v <= 0xffffffffn ? Number(v) : v;
 }
 
 function __read(dv, type, off) {
+  if(type.endsWith("*")) type = "pointer";
   switch(type) {
     case "bool": return dv.getUint8(off) !== 0;
     case "i8": return dv.getInt8(off);
@@ -1536,6 +1560,7 @@ function __read(dv, type, off) {
 }
 
 function __write(dv, type, off, v) {
+  if(type.endsWith("*")) type = "pointer";
   switch(type) {
     case "bool": return dv.setUint8(off, v ? 1 : 0);
     case "i8": return dv.setInt8(off, v);
@@ -1562,7 +1587,7 @@ function __struct(size, align, fields) {
       Object.defineProperty(o, "ptr", { get: () => __ptr(dv.buffer, dv.byteOffset) });
       for(const name in fields) {
         const f = fields[name];
-        if(f.bits !== undefined || !(f.type in __sizes)) continue;
+        if(f.bits !== undefined || __sz(f.type) === undefined) continue;
         Object.defineProperty(o, name, { enumerable: true, get: () => __read(dv, f.type, f.offset), set: v => __write(dv, f.type, f.offset, v) });
       }
       return o;
@@ -1574,8 +1599,8 @@ function __struct(size, align, fields) {
 
 function __variable(name, type) {
   const v = { get ptr() { return __sym(name); } };
-  if(type in __sizes) {
-    const dv = () => new DataView(toBuffer(__sym(name), __sizes[type], false));
+  if(__sz(type) !== undefined) {
+    const dv = () => new DataView(toBuffer(__sym(name), __sz(type), false));
     Object.defineProperty(v, "value", { enumerable: true, get: () => __read(dv(), type, 0), set: x => __write(dv(), type, 0, x) });
   }
   return v;
@@ -1607,7 +1632,7 @@ function structsCode(ir, opts) {
       const e = { type: f.type };
       if(f.offset !== undefined) e.offset = f.offset;
       if(f.bits !== undefined) ((e.bits = f.bits), (e.bitOffset = f.bitOffset));
-      if(!FFI_TYPE_NAMES.has(f.type)) e.cType = f.cType;
+      if(!isFfiType(f.type)) e.cType = f.cType;
       fields[f.name || '__anon' + i] = e;
     });
 
@@ -1637,6 +1662,7 @@ function __lazy(f) {
 }
 
 function __accepts(t, v) {
+  if(t.endsWith("*")) t = "pointer";
   switch(t) {
     case "bool": return typeof v === "boolean" || typeof v === "number";
     case "i8": case "u8": case "i16": case "u16": case "i32": case "u32": case "i64": case "u64": case "i64_fast": case "u64_fast":
@@ -1702,10 +1728,11 @@ class __CxxObject {
 const CLASS_RESERVED_MEMBERS = new Set(['constructor', 'ptr', 'from', 'delete']);
 
 /* One CFunction()/__bind() expression for a constructor, method or
- * destructor symbol; `withThis` prepends the implicit `this` pointer. */
-function classFn(symbol, entry, withThis, opts) {
-  const cf = [...(withThis ? ['pointer'] : []), ...paramTypes(entry)];
-  const def = [...(withThis ? ['pointer'] : []), ...entry.defTypes.params];
+ * destructor symbol; `thisType` ("ns::Class *"), if given, is the type of the
+ * implicit `this` pointer prepended to the parameters. */
+function classFn(symbol, entry, thisType, opts) {
+  const cf = [...(thisType ? [thisType] : []), ...paramTypes(entry)];
+  const def = [...(thisType ? [thisType] : []), ...entry.defTypes.params];
   const sym = JSON.stringify(symbol);
 
   if(opts.api === 'define') return '__bind(' + sym + ', ' + JSON.stringify(entry.defTypes.returnType || 'void') + def.map(t => ', ' + JSON.stringify(t)).join('') + ')';
@@ -1714,8 +1741,8 @@ function classFn(symbol, entry, withThis, opts) {
 }
 
 /* `const NAME = [ { n, t, f }, ... ];`, one element per overload. */
-function overloadList(name, entries, withThis, opts) {
-  return 'const ' + name + ' = [\n' + entries.map(e => '  { n: ' + e.arity + ', t: ' + JSON.stringify(paramTypes(e)) + ', f: __lazy(() => ' + classFn(e.mangledName, e, withThis, opts) + ') },\n').join('') + '];\n';
+function overloadList(name, entries, thisType, opts) {
+  return 'const ' + name + ' = [\n' + entries.map(e => '  { n: ' + e.arity + ', t: ' + JSON.stringify(paramTypes(e)) + ', f: __lazy(() => ' + classFn(e.mangledName, e, thisType, opts) + ') },\n').join('') + '];\n';
 }
 
 /* With every class listed after the class it extends. A class extends its
@@ -1770,6 +1797,7 @@ function classesCode(classes, opts, helpers) {
     const id = safeIdent(c.name.replace(/::/g, '_'));
     const prefix = '__' + id + '_';
     const base = baseOf(c);
+    const thisType = c.name + ' *';
     const member = n => (CLASS_RESERVED_MEMBERS.has(n) ? '_' + n : n);
     const methods = c.methods.filter(m => !m.pure);
     const names = kind => [...new Set(methods.filter(m => !!m.static === (kind === 's')).map(m => m.name))];
@@ -1780,18 +1808,18 @@ function classesCode(classes, opts, helpers) {
     if(c.abstract) out += '// ' + c.name + ' is abstract: its pure virtual methods have no symbol and are left to subclasses.\n';
     if(c.bases.length > (base ? 1 : 0)) out += '// ' + c.name + ': not extending ' + c.bases.slice(base ? 1 : 0).map(b => b.name).join(', ') + ' (only a single public, non-virtual base at offset 0 is supported).\n';
 
-    if(c.constructors.length) out += overloadList(prefix + 'ctor', c.constructors, true, opts);
+    if(c.constructors.length) out += overloadList(prefix + 'ctor', c.constructors, thisType, opts);
 
     for(const kind of ['m', 's']) {
       for(const name of names(kind)) {
-        out += overloadList(prefix + kind + '_' + name, methods.filter(m => m.name === name && !!m.static === (kind === 's')), kind === 'm', opts);
+        out += overloadList(prefix + kind + '_' + name, methods.filter(m => m.name === name && !!m.static === (kind === 's')), kind === 'm' ? thisType : null, opts);
         body += '  ' + (kind === 's' ? 'static ' : '') + member(name) + '(...args) { return __invoke(' + prefix + kind + '_' + name + ', ' + (kind === 's' ? 'undefined' : 'this.__ptr') + ', args); }\n';
       }
     }
 
     out += 'export class ' + id + ' extends ' + (base ? safeIdent(base.name.replace(/::/g, '_')) : '__CxxObject') + ' {\n' + body + '}\n';
 
-    const dtor = c.destructor ? '__lazy(() => ' + classFn(c.destructor.mangledName, { params: [], defTypes: { params: [] } }, true, opts) + ')' : 'null';
+    const dtor = c.destructor ? '__lazy(() => ' + classFn(c.destructor.mangledName, { params: [], defTypes: { params: [] } }, thisType, opts) + ')' : 'null';
     const zeroInit = !c.constructors.length && !c.abstract && !c.polymorphic;
     out += id + '.__info = { size: ' + c.size + ', ctors: ' + (c.constructors.length ? prefix + 'ctor' : 'null') + ', dtor: ' + dtor + (zeroInit ? ', zeroInit: true' : '') + ' };\n';
 
@@ -1804,7 +1832,7 @@ function classesCode(classes, opts, helpers) {
           out += 'const ' + v + ' = __lazy(() => __variable(' + JSON.stringify(f.mangledName) + ', ' + JSON.stringify(f.type) + '));\n';
           out += 'Object.defineProperty(' + id + ', ' + JSON.stringify(f.name) + ', { enumerable: true, get: () => ' + v + '().value, set: x => { ' + v + '().value = x; } });\n';
         }
-      } else if(f.offset !== undefined && f.bits === undefined && f.type !== 'void' && FFI_TYPE_NAMES.has(f.type)) {
+      } else if(f.offset !== undefined && f.bits === undefined && f.type !== 'void' && isFfiType(f.type)) {
         fields[f.name] = { type: f.type, offset: f.offset };
       }
     }

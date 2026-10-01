@@ -212,6 +212,15 @@ the files being collected. `typedef` and `using` aliases are collected into
 `size?`), including those nested in classes. JS output is unchanged: nothing
 emits `typedefs` or field sizes yet.
 
+### Done: typed pointers
+
+The ffi module reads any type name ending in `*` as a pointer (`ffi_is_pointer_name()`
+in `ffi-type.c`, for `CFunction`/`JSCallback` and for the legacy `define()`),
+and `tools/gen-bindings.js` now writes `"<type> *"` where it wrote `"pointer"`
+(a C++ `T&` becomes `"T *"`, a class's `this` `"ns::Class *"`). `char *`
+stays `cstring`. Generated modules need an `ffi` with this change: an older one
+reads `"int *"` as an unknown name and silently falls back to `i32`.
+
 ### Next: C++ gaps
 
 1. Virtual methods are bound to the declaring class's own symbol, so they

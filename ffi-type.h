@@ -61,7 +61,16 @@ enum {
  */
 extern const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT];
 
-/* Looks up a type name; returns NULL (leaving *kind untouched) if unknown. */
+/* Non-zero if `name` ends in '*' (ignoring trailing blanks): "int *",
+ * "struct foo **", "char*". Any such name is a plain pointer, whatever it
+ * points to; the text before the '*' is documentation only.
+ */
+int ffi_is_pointer_name(const char* name);
+
+/* Looks up a type name; a name for which ffi_is_pointer_name() holds is
+ * K_POINTER unless an exact table entry says otherwise. Returns NULL (leaving
+ * *kind untouched) if unknown.
+ */
 ffi_type* ffi_resolve_type(const char* name, int* kind);
 
 /* Native slot -> JSValue per kind: a JSCallback argument, or an ffi_call()

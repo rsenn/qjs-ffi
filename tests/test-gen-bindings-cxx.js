@@ -95,9 +95,9 @@ await tests({
     eq(true, base.polymorphic);
   },
 
-  'constructors keep each overload (none for an abstract class); references map to pointer'() {
+  'constructors keep each overload (none for an abstract class); references become typed pointers'() {
     same(['w: i32', 'h: f64'], shape.constructors[0].params);
-    same(['other: pointer'], shape.constructors[1].params);
+    same(['other: Shape *'], shape.constructors[1].params);
     eq('_ZN3geo5ShapeC1Eid', shape.constructors[0].mangledName);
     eq(undefined, shape.constructors[0].returnType);
     eq(0, base.constructors.length);
@@ -218,7 +218,7 @@ await tests({
     eq(8, byName.point_t.size);
     eq('function', byName.cmp_t.type);
     eq('i32', byName.color_t.type);
-    eq('pointer', byName.point_ptr.type);
+    eq('point_t *', byName.point_ptr.type);
     eq(8, byName.point_ptr.size);
 
     const tail = find(types.structs, 'tail');

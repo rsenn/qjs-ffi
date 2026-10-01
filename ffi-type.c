@@ -19,6 +19,16 @@ static const struct {
 
 #undef T
 
+int
+ffi_is_pointer_name(const char* name) {
+  size_t n = name ? strlen(name) : 0;
+
+  while(n && (name[n - 1] == ' ' || name[n - 1] == '\t'))
+    n--;
+
+  return n && name[n - 1] == '*';
+}
+
 ffi_type*
 ffi_resolve_type(const char* name, int* kind) {
   size_t i;
@@ -29,6 +39,11 @@ ffi_resolve_type(const char* name, int* kind) {
         *kind = type_table[i].kind;
         return type_table[i].type;
       }
+
+  if(ffi_is_pointer_name(name)) {
+    *kind = K_POINTER;
+    return &ffi_type_pointer;
+  }
 
   return NULL;
 }

@@ -67,6 +67,7 @@ Same vocabulary as [`JSCallback`](js-callback.md#types), matching
 | `"f32"`                 | `float`                           | `number`                                                 |
 | `"f64"`                 | `double`                          | `number`                                                 |
 | `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise `number` if the address fits in 32 bits, `bigint` otherwise |
+| `"<type> *"`            | `<type> *`                        | same as `"pointer"`, for any `<type>` (`"int *"`, `"struct node **"`, `"void*"`): every name ending in `*` is a pointer and what precedes it is documentation. `"char *"` is therefore a plain pointer; use `"cstring"` for a string |
 | `"cstring"`             | `char *`                          | `string` (return) / `string` (argument, copied via `JS_ToCString`) -- decoded/encoded as a NUL-terminated C string |
 
 An unrecognized type name in `args` silently falls back to `"i32"`; an

@@ -282,6 +282,9 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
   for(i = 0; i < f->nargs; ++i) {
     s = (char*)args[i];
 
+    if(ffi_is_pointer_name(s))
+      define_ffi_type(s, &ffi_type_pointer);
+
     if((f->args[i] = find_ffi_type(s)) == NULL) {
       warn("define_function: no such type");
       goto error;
@@ -291,6 +294,9 @@ define_function(const char* name, void* fp, const char* abi, const char* rtype, 
   /* Record return type */
 
   ;
+  if(ffi_is_pointer_name(rtype))
+    define_ffi_type(rtype, &ffi_type_pointer);
+
   if(!(f->rtype = find_type(rtype))) {
     warn("define_function: no such return type");
     goto error;
