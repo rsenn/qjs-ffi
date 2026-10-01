@@ -1,43 +1,145 @@
 #!/usr/bin/env qjsm
-/* describe-module.js -- list what a JS binding module exports, using
- * describeClass()/describeObject() (describe/, copied from qjs-modules lib/).
- * The module is one gen-bindings.js wrote or one from lib/; with --describe
- * its functions and classes also carry their C types (Symbol.for('describe'),
- * merged by those two as `signatures`/`constructorSignatures`), which are
- * shown here, otherwise only the parameter names JavaScript knows.
+/* describe-module.js -- list what a module, an object or a class exports or
+ * has, using describeClass()/describeObject() (describe/, copied from
+ * qjs-modules lib/).
+ *
+ * It runs unchanged under QuickJS (qjsm or qjs), Node.js, Bun and Deno, so the
+ * same dump can be made of the same API in each of them and compared; see
+ * describe-module.sh, which starts the runtime of your choice.
  *
  * Usage:
- *   qjsm describe-module.js [--json] <module.js> [export...]
+ *   describe-module.js [--json] [--class] <module> [export...]
+ *   describe-module.js [--json] [--class] --global [name...]
  *
- * Without export names every export is described. --json prints the raw
- * describe results instead of the summary. Importing the module loads the
- * shared libraries it binds, so QUICKJS_MODULE_PATH has to find 'ffi' and the
- * libraries have to be there. See describe-module.sh.
+ * <module> is a file (a path, or anything with a .js, .mjs, .ts, .so or .node
+ * extension) or a specifier the runtime can import: 'node:fs', 'bun:ffi', or
+ * 'ffi' for a QuickJS module on QUICKJS_MODULE_PATH. Without export names every
+ * export is described; a name may be a dotted path ('read.u8', 'default.ptr').
+ *
+ * --global describes properties of globalThis instead of a module's exports
+ * ('Bun', 'process.versions', 'Buffer'); without names, globalThis itself.
+ *
+ * --class describes every function as a class, which is what a native
+ * constructor (Buffer, Map) needs where the source does not start with `class`.
+ * A function whose prototype has members of its own is shown as a class anyway.
+ *
+ * --json prints the raw describe results instead of the summary.
+ *
+ * --probe only tries to load <module>: no output, status 0 if it loads, 1 if
+ * not (describe-module.sh uses it to find the runtimes that have a module).
+ *
+ * With --describe, a generated binding's functions and classes also carry their
+ * C types (Symbol.for('describe')), which are shown; otherwise only the
+ * parameter names JavaScript knows. Importing a binding loads the shared
+ * libraries it binds, so they have to be found (QUICKJS_MODULE_PATH for 'ffi').
  */
-import * as std from 'std';
-import { realpath } from 'os';
 import { describeClass } from './describe/describe-class.js';
 import { describeObject } from './describe/describe-object.js';
 
-function usage() {
-  std.err.puts('Usage: qjsm describe-module.js [--json] <module.js> [export...]\n' + '  --json   print the raw describeClass()/describeObject() results\n');
-}
-
 const SIG = Symbol.for('describe');
 
-const isClass = v => typeof v === 'function' && /^class\s/.test(Function.prototype.toString.call(v));
+/* --- the runtime ----------------------------------------------------------- */
 
-function describeAny(v) {
-  if(isClass(v)) return { kind: 'class', ...describeClass(v) };
+const runtime = typeof Deno !== 'undefined' ? 'deno' : typeof Bun !== 'undefined' ? 'bun' : typeof scriptArgs !== 'undefined' ? 'quickjs' : typeof process !== 'undefined' && process.versions && process.versions.node ? 'node' : 'unknown';
+
+function argv() {
+  switch(runtime) {
+    case 'deno': return Deno.args;
+    case 'quickjs': return scriptArgs.slice(1);
+    default: return process.argv.slice(2);
+  }
+}
+
+/* Where an uncaught problem ends up, and with which status: exit() only for a
+ * failure, so that output still being written is not cut off. */
+async function exit(code) {
+  switch(runtime) {
+    case 'deno': Deno.exit(code); break;
+    case 'quickjs': (await import('std')).exit(code); break;
+    default: process.exitCode = code;
+  }
+}
+
+/* qjs has no console.error. */
+async function eprint(text) {
+  if(typeof console.error === 'function') console.error(text);
+  else (await import('std')).err.puts(text + '\n');
+}
+
+async function fail(message) {
+  await eprint('describe-module.js: ' + message);
+  return exit(1);
+}
+
+async function cwd() {
+  switch(runtime) {
+    case 'deno': return Deno.cwd();
+    case 'quickjs': return (await import('os')).getcwd()[0];
+    default: return process.cwd();
+  }
+}
+
+const isPath = s => /^\.{0,2}\//.test(s) || (/\.(m?js|cjs|m?ts|so|dll|node)$/.test(s) && !/^[a-z][a-z0-9+.-]*:/i.test(s));
+
+/* Loads the module `target`. A path is made absolute first (a relative
+ * specifier would be taken relative to this script). A native addon that
+ * `import` refuses is loaded the way `require` would. */
+async function load(target) {
+  if(!isPath(target)) return import(target);
+
+  const dir = await cwd();
+  const path = target.startsWith('/') ? target : dir.replace(/\/$/, '') + '/' + target.replace(/^\.\//, '');
+
+  if(runtime === 'quickjs') {
+    const [real, err] = (await import('os')).realpath(path);
+    if(err) throw new Error('cannot find ' + target);
+    return import(real);
+  }
+
+  try {
+    return await import('file://' + path);
+  } catch(e) {
+    if(!/\.(so|node)$/.test(path) || !process.dlopen) throw e;
+
+    const m = { exports: {} };
+    process.dlopen(m, path);
+    return m.exports;
+  }
+}
+
+/* --- describing ------------------------------------------------------------ */
+
+/* A class by its source, or a function whose prototype holds members: a
+ * native constructor and an old-style `function Foo() {}` with methods on
+ * Foo.prototype are classes too. */
+function isClass(v) {
+  if(typeof v !== 'function') return false;
+  if(/^class[\s{]/.test(Function.prototype.toString.call(v))) return true;
+
+  const p = v.prototype;
+  return p !== null && typeof p === 'object' && Object.getOwnPropertyNames(p).length > 1;
+}
+
+function describeAny(v, asClass) {
+  if(typeof v === 'function' && (asClass || isClass(v))) return { kind: 'class', ...describeClass(v) };
   if(typeof v === 'function') return { kind: 'function', ...describeObject(v), arity: v.length, native: /\[native code\]/.test(Function.prototype.toString.call(v)), signatures: v[SIG] };
   if(v !== null && typeof v === 'object') return { kind: 'object', ...describeObject(v) };
 
   return { kind: 'value', type: v === null ? 'null' : typeof v, value: v };
 }
 
-function short(v) {
-  const s = typeof v === 'bigint' ? v + 'n' : typeof v === 'string' ? JSON.stringify(v) : typeof v === 'object' && v !== null ? JSON.stringify(v, (k, x) => (typeof x === 'bigint' ? x + 'n' : x)) : String(v);
+const replacer = (k, x) => (typeof x === 'bigint' ? x + 'n' : x);
 
+function short(v) {
+  let s;
+
+  try {
+    s = typeof v === 'bigint' ? v + 'n' : typeof v === 'string' ? JSON.stringify(v) : typeof v === 'object' && v !== null ? JSON.stringify(v, replacer) : String(v);
+  } catch(e) {
+    s = '[' + (v && v.constructor && v.constructor.name) + ']';
+  }
+
+  if(s === undefined) s = String(v);
   return s.length > 60 ? s.slice(0, 57) + '...' : s;
 }
 
@@ -84,52 +186,96 @@ function show(name, d) {
   return ['class ' + chain, ...ctors.map(c => '  ' + c), ...statics, ...own, ...inherited];
 }
 
+/* The value at a dotted path: a key of `root` itself wins over a path. */
+function lookup(root, path) {
+  if(Object.prototype.hasOwnProperty.call(root, path) || path in Object(root)) return root[path];
+
+  let v = root;
+
+  for(const key of path.split('.')) {
+    if(v === null || v === undefined) throw new Error('no such export: ' + path);
+    v = v[key];
+  }
+
+  if(v === undefined) throw new Error('no such export: ' + path);
+  return v;
+}
+
+function usage() {
+  return eprint(
+    'Usage: describe-module.js [--json] [--class] <module> [export...]\n' +
+      '       describe-module.js [--json] [--class] --global [name...]\n' +
+      '       describe-module.js --probe <module>   (exit status only)\n' +
+      '  <module>   a file, or a specifier the runtime imports (node:fs, bun:ffi, ffi)\n' +
+      '  export     a name or dotted path to describe; all exports by default\n' +
+      '  --global   describe globalThis properties (Bun, process.versions, Buffer) instead\n' +
+      '  --class    describe every function as a class\n' +
+      '  --json     print the raw describeClass()/describeObject() results\n',
+  );
+}
+
 async function main() {
-  const args = scriptArgs.slice(1);
-  const json = args.includes('--json');
-  const [file, ...names] = args.filter(a => a !== '--json');
+  const flags = new Set();
+  const positional = [];
 
-  if(!file || file === '-h' || file === '--help') {
-    usage();
-    std.exit(file ? 0 : 1);
+  for(const a of argv()) {
+    if(/^--(json|class|global|probe)$/.test(a)) flags.add(a.slice(2));
+    else if(a === '-h' || a === '--help') flags.add('help');
+    else if(a.startsWith('--')) return fail('unknown option: ' + a);
+    else positional.push(a);
   }
 
-  const [path, err] = realpath(file);
+  const global = flags.has('global');
+  const [target, ...names] = global ? [undefined, ...positional] : positional;
 
-  if(err) {
-    std.err.puts('describe-module.js: cannot find ' + file + '\n');
-    std.exit(1);
+  if(flags.has('help') || (!global && !target)) {
+    await usage();
+    return exit(flags.has('help') ? 0 : 1);
   }
 
-  let mod;
+  let root, label, all;
 
-  try {
-    mod = await import(path);
-  } catch(e) {
-    std.err.puts('describe-module.js: cannot load ' + file + ': ' + (e && e.message) + '\n');
-    std.exit(1);
+  if(global) {
+    root = globalThis;
+    label = runtime + ' globalThis';
+    all = names.length ? names : ['globalThis'];
+  } else {
+    try {
+      root = await load(target);
+    } catch(e) {
+      return flags.has('probe') ? exit(1) : fail('cannot load ' + target + ': ' + (e && e.message));
+    }
+
+    if(flags.has('probe')) return;
+
+    label = target;
+    all = names.length ? names : Object.keys(root);
   }
 
-  const all = Object.keys(mod);
-  const unknown = names.filter(n => !all.includes(n));
+  const described = {};
 
-  if(unknown.length) {
-    std.err.puts('describe-module.js: no such export: ' + unknown.join(', ') + '\n');
-    std.exit(1);
+  for(const name of all) {
+    let v;
+
+    try {
+      v = lookup(root, name);
+    } catch(e) {
+      return fail(e.message);
+    }
+
+    described[name] = describeAny(v, flags.has('class'));
   }
 
-  const described = Object.fromEntries((names.length ? names : all).map(n => [n, describeAny(mod[n])]));
-
-  if(json) {
-    console.log(JSON.stringify(described, (k, v) => (typeof v === 'bigint' ? v + 'n' : v), 2));
+  if(flags.has('json')) {
+    console.log(JSON.stringify(described, replacer, 2));
     return;
   }
 
   const count = kind => Object.values(described).filter(d => d.kind === kind).length;
 
-  console.log(file + ': ' + Object.keys(described).length + ' exports (' + ['class', 'function', 'object', 'value'].map(k => count(k) + ' ' + k).join(', ') + ')');
+  console.log(label + ' [' + runtime + ']: ' + all.length + ' ' + (global ? 'entries' : 'exports') + ' (' + ['class', 'function', 'object', 'value'].map(k => count(k) + ' ' + k).join(', ') + ')');
 
   for(const [name, d] of Object.entries(described)) for(const l of show(name, d)) console.log(l);
 }
 
-main();
+main().catch(e => fail(e && e.stack ? e.stack : String(e)));
