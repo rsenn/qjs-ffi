@@ -65,8 +65,8 @@ compiler's layout and only binds a function when it holds.
 
 ## FFIType
 
-`FFIType` holds the type names as constants, so `FFIType.i32` can be used
-where `"i32"` is written:
+`FFIType` holds bun:ffi's type constants, so `FFIType.i32` can be used where
+`"i32"` is written, and the other way round:
 
 ```js
 import { dlopen, FFIType } from "ffi";
@@ -76,9 +76,33 @@ const { symbols } = dlopen(null, {
 });
 ```
 
-Unlike bun:ffi, where `FFIType` members are numbers, each member here is the
-string of its own name (`FFIType.i32 === "i32"`). It lists every short name and
-every C-style alias of the table above.
+As in bun:ffi, every member is a number, and a signature takes a name or a
+number: `FFIType.i32` is `5`, and `{ args: [5], returns: 5 }` means the same as
+`{ args: ["i32"], returns: "i32" }`. The numbers are bun's:
+
+| Number | Members |
+| ------ | ------- |
+| 0 | `char` |
+| 1, 2 | `i8` `int8_t`; `u8` `uint8_t` |
+| 3, 4 | `i16` `int16_t`; `u16` `uint16_t` |
+| 5, 6 | `i32` `int32_t` `int` `c_int`; `u32` `uint32_t` `c_uint` |
+| 7, 8 | `i64` `int64_t` `isize`; `u64` `uint64_t` `usize` |
+| 9, 10 | `f64` `double`; `f32` `float` |
+| 11 | `bool` |
+| 12 | `pointer` `ptr` `"void*"` `"char*"` |
+| 13, 14 | `void`; `cstring` |
+| 15, 16 | `i64_fast`; `u64_fast` |
+| 17 | `function` `callback` `fn` |
+| 18, 19 | `napi_env`, `napi_value` |
+| 20 | `buffer` |
+| 21 | `buffer_length` `buffer_bytelength` |
+
+Each of the numbers 0 to 17 is also a key that maps to itself (`FFIType[5] ===
+5`), as in bun, which has 61 members in all.
+
+Not every member can be used in a signature. `napi_env` and `napi_value` only
+mean something in Node-API, and `buffer_length` is not implemented yet: they are
+unknown types, which an argument reads as `i32` and a return as `void`.
 
 ## ABI
 

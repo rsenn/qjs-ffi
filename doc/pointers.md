@@ -143,6 +143,7 @@ defaults to 0, may be negative, and the read need not be aligned. NULL throws a
 | `read.i64` / `read.u64` | 8 bytes | `bigint` |
 | `read.f32` / `read.f64` | `float` / `double` | `number` |
 | `read.ptr` | a pointer | [pointer value](#pointer-values) |
+| `read.intptr` | a pointer-sized signed integer | `number` |
 
 All reads are little-endian. Reading past the memory, or from a bad address,
 crashes the process.

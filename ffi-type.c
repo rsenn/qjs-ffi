@@ -4,21 +4,37 @@
 #include <inttypes.h>
 #include <string.h>
 
-#define T(name, type, kind) JS_PROP_STRING_DEF(name, name, JS_PROP_C_W_E),
+#define T(name, type, kind, id) JS_PROP_INT32_DEF(name, id, JS_PROP_C_W_E),
+#define P(name, id) JS_PROP_INT32_DEF(name, id, JS_PROP_C_W_E),
 
-const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT] = {FFI_TYPE_LIST(T)};
+const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT] = {FFI_TYPE_LIST(T) FFI_TYPE_EXTRA(P) FFI_TYPE_INDEX(P)};
 
 #undef T
+#undef P
 
-#define T(name, type, kind) {name, &type, kind},
+#define T(name, type, kind, id) {name, &type, kind, id},
 
 static const struct {
   const char* name;
   ffi_type* type;
   int kind;
+  int id;
 } type_table[] = {FFI_TYPE_LIST(T)};
 
 #undef T
+
+ffi_type*
+ffi_resolve_type_id(int id, int* kind) {
+  size_t i;
+
+  for(i = 0; i < countof(type_table); i++)
+    if(type_table[i].id == id) {
+      *kind = type_table[i].kind;
+      return type_table[i].type;
+    }
+
+  return NULL;
+}
 
 int
 ffi_is_pointer_name(const char* name) {
@@ -183,6 +199,12 @@ value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, 
 
     *kind = st ? K_STRUCT : -1;
     return st;
+  }
+
+  if(JS_IsNumber(value)) {
+    int32_t id;
+
+    return JS_ToInt32(ctx, &id, value) ? NULL : ffi_resolve_type_id(id, kind);
   }
 
   s = JS_ToCString(ctx, value);

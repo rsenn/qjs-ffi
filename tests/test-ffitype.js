@@ -1,5 +1,17 @@
+import * as std from 'std';
 import { tests, eq, assert } from './tinytest.js';
-import { FFIType, CFunction, JSCallback, dlsym, RTLD_DEFAULT } from 'ffi';
+import * as ffi from 'ffi';
+import { FFIType, CFunction, JSCallback, dlopen, linkSymbols, dlsym, RTLD_DEFAULT } from 'ffi';
+
+const root = scriptArgs[0].replace(/[^/]*$/, '') + '../';
+const tmp = root + '.tmp/';
+
+function sh(cmd) {
+  const p = std.popen(cmd + ' 2>&1', 'r');
+  const out = p.readAsString();
+  p.close();
+  return out;
+}
 
 function libc(name) {
   const p = dlsym(RTLD_DEFAULT, name);
@@ -7,18 +19,90 @@ function libc(name) {
   return p;
 }
 
-const NAMES = [
-  'void', 'bool', 'i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'i64', 'u64',
-  'i64_fast', 'u64_fast', 'f32', 'f64', 'pointer', 'ptr', 'function', 'cstring',
-  // bun:ffi's C-style aliases
-  'int8_t', 'int16_t', 'int32_t', 'int', 'int64_t', 'isize', 'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t',
-  'usize', 'float', 'double', 'char', 'buffer', 'fn', 'callback',
-];
+/* bun:ffi's FFIType: every member is a number. */
+const IDS = {
+  char: 0, i8: 1, int8_t: 1, u8: 2, uint8_t: 2, i16: 3, int16_t: 3, u16: 4, uint16_t: 4,
+  i32: 5, int32_t: 5, int: 5, c_int: 5, u32: 6, uint32_t: 6, c_uint: 6,
+  i64: 7, int64_t: 7, isize: 7, u64: 8, uint64_t: 8, usize: 8,
+  f64: 9, double: 9, f32: 10, float: 10, bool: 11,
+  ptr: 12, pointer: 12, 'void*': 12, 'char*': 12, void: 13, cstring: 14,
+  i64_fast: 15, u64_fast: 16, function: 17, callback: 17, fn: 17,
+  napi_env: 18, napi_value: 19, buffer: 20, buffer_length: 21, buffer_bytelength: 21,
+};
 
 await tests({
-  'FFIType exposes the full name vocabulary, each mapped to itself'() {
-    for(const name of NAMES)
-      eq(name, FFIType[name]);
+  'FFIType maps each name to bun:ffi\'s number'() {
+    for(const [name, id] of Object.entries(IDS))
+      eq(id, FFIType[name]);
+  },
+
+  'FFIType maps the numbers 0 to 17 to themselves'() {
+    for(let i = 0; i <= 17; i++)
+      eq(i, FFIType[i]);
+  },
+
+  'a signature takes the numbers as well as the names'() {
+    const abs = CFunction({ ptr: libc('abs'), args: [5], returns: 5 });
+    const strlen = CFunction({ ptr: libc('strlen'), args: [FFIType.cstring], returns: FFIType.u64 });
+    const labs = CFunction({ ptr: libc('labs'), args: [FFIType.i64], returns: 7 });
+    const sqrt = CFunction({ ptr: libc('sqrt'), args: [9], returns: FFIType.f64 });
+
+    eq(5, abs(-5));
+    eq(5n, strlen('hello'));
+    eq(9n, labs(-9n));
+    eq(3, sqrt(9));
+  },
+
+  'a JSCallback takes the numbers as well'() {
+    const cb = new JSCallback((a, b) => a + b, { args: [FFIType.i32, 5], returns: FFIType.i32 });
+    const call = CFunction({ ptr: cb.ptr, args: [5, 5], returns: 5 });
+
+    eq(7, call(3, 4));
+    cb.close();
+  },
+
+  'dlopen() and linkSymbols() take the numbers too'() {
+    const { symbols } = dlopen(null, { abs: { args: [FFIType.i32], returns: 5 }, fabs: { args: [9], returns: FFIType.f64 } });
+    const linked = linkSymbols({ labs: { args: [7], returns: FFIType.i64 } });
+
+    eq(3, symbols.abs(-3));
+    eq(2.5, symbols.fabs(-2.5));
+    eq(8n, linked.symbols.labs(-8));
+  },
+
+  'cc() takes the numbers too'() {
+    if(typeof ffi.cc != 'function') return; // built without ENABLE_TCC
+
+    const source = Uint8Array.from('int twice(int v) { return 2 * v; }', c => c.charCodeAt(0));
+    const { symbols } = ffi.cc({ source, symbols: { twice: { args: [FFIType.i32], returns: FFIType.i32 } } });
+
+    eq(14, symbols.twice(7));
+  },
+
+  'a number that is no usable type is an unknown type: i32 as an argument, void as a return'() {
+    for(const unknown of [FFIType.napi_env, FFIType.napi_value, FFIType.buffer_length, 99, -1]) {
+      const abs = CFunction({ ptr: libc('abs'), args: [unknown], returns: FFIType.i32 });
+      const nothing = CFunction({ ptr: libc('abs'), args: [FFIType.i32], returns: unknown });
+
+      eq(4, abs(-4));
+      eq(undefined, nothing(-4));
+    }
+  },
+
+  'gen-bindings --ffitype writes FFIType members that bind and call'() {
+    sh('mkdir -p ' + tmp);
+
+    const out = sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--ffitype', '-o', tmp + 'test-ffitype.gen.js', root + 'tests/cxx/libc-subset.h'].join(' '));
+
+    assert(std.loadFile(tmp + 'test-ffitype.gen.js') !== null, 'no module written, output was:\n' + out);
+    assert(/FFIType\.i32/.test(std.loadFile(tmp + 'test-ffitype.gen.js')), 'the module does not use FFIType');
+
+    return import('../.tmp/test-ffitype.gen.js').then(m => {
+      eq(5, m.abs(-5));
+      eq(1.5, m.fabs(-1.5));
+      eq(5n, m.strlen('hello'));
+      eq(9n, m.labs(-9));
+    });
   },
 
   'C-style aliases behave like the short name they stand for'() {
@@ -33,7 +117,7 @@ await tests({
   },
 
   'FFIType has no extra names beyond the documented vocabulary'() {
-    eq(NAMES.length, Object.keys(FFIType).length);
+    eq(Object.keys(IDS).length + 18, Object.keys(FFIType).length);
   },
 
   'FFIType.* is interchangeable with the equivalent string in CFunction'() {

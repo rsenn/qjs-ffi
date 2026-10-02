@@ -240,12 +240,19 @@ js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValu
 }
 
 int
-js_cfunction_init(JSContext* ctx, JSModuleDef* m) {
+js_cfunction_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClassID(&js_cfunction_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cfunction_class_id, &js_cfunction_class);
 
+  JSValue ctor = JS_NewCFunction(ctx, js_cfunction_constructor, "CFunction", 1);
+
+  if(JS_IsObject(defaults))
+    JS_SetPropertyStr(ctx, defaults, "CFunction", JS_DupValue(ctx, ctor));
+
   if(m)
-    JS_SetModuleExport(ctx, m, "CFunction", JS_NewCFunction(ctx, js_cfunction_constructor, "CFunction", 1));
+    JS_SetModuleExport(ctx, m, "CFunction", ctor);
+  else
+    JS_FreeValue(ctx, ctor);
 
   return 0;
 }

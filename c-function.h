@@ -32,6 +32,7 @@ typedef void* js_symbol_resolver(void* handle, const char* name);
  * precedence. `who` prefixes error messages. */
 JSValue js_build_symbols(JSContext*, void* handle, JSValueConst symbol_specs, int linked, const char* who, js_symbol_resolver* resolve);
 
-int js_cfunction_init(JSContext*, JSModuleDef*);
+/* `defaults`, if an object, also gets CFunction (the module's default export). */
+int js_cfunction_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 
 #endif /* defined(QJSFFI_C_FUNCTION_H) */

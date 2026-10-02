@@ -33,7 +33,8 @@ typedef struct JSCallback {
 
 extern JSClassID js_callback_class_id;
 
-int js_callback_init(JSContext*, JSModuleDef*);
+/* `defaults`, if an object, also gets JSCallback (the module's default export). */
+int js_callback_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 
 static inline JSCallback*
 js_callback_data(JSValueConst value) {

@@ -377,15 +377,17 @@ Ordered roughly by how likely bun code is to trip over it.
    code it generates for a binding (`string[]` / `string`). Here a binding is a
    libffi `cif`, so there is no source to show; return the signature as text
    (`int add(int, int)` per symbol), or leave it out and say so.
-8. `read.intptr(ptr, byteOffset)`: bun has it next to `read.ptr` (a pointer
+8. **Done** (`ffi-read.c`, `tests/test-read.js`). `read.intptr(ptr, byteOffset)`: bun has it next to `read.ptr` (a pointer
    read as a signed integer, `bigint`); `ffi-read.c` has no entry for it.
-9. A default export: bun's `import ffi from "bun:ffi"` gets an object with
+9. **Done** (`js_init` in `ffi.c`, `tests/test-default-export.js`). A default export: bun's `import ffi from "bun:ffi"` gets an object with
    `CFunction`, `CString`, `JSCallback`, `dlopen`, `linkSymbols`, `ptr`,
    `read`, `suffix`, `toArrayBuffer`, `toBuffer`, `viewSource`, `FFIType`, `cc`
    (and an internal `native`). The native module has no `default`, so such an
    import fails. Add it in `js_init` (`JS_SetModuleExport(ctx, m, "default",
    ...)` with the object of the other exports).
-10. `JSCallback.prototype[Symbol.dispose]` (and `Symbol.toPrimitive`, which gives
+10. **Done** (`js-callback.c`, `tests/test-js-callback.js`; QuickJS has no
+    `Symbol.dispose`, so the method is under `Symbol.for("Symbol.dispose")`
+    there). `JSCallback.prototype[Symbol.dispose]` (and `Symbol.toPrimitive`, which gives
     the pointer): `using cb = new JSCallback(...)` closes the callback at the end
     of the block in bun; here `close()` has to be called by hand. `Symbol.dispose`
     can be the `close` function.
@@ -415,7 +417,10 @@ Ordered roughly by how likely bun code is to trip over it.
    `bigint`. Anything doing `ptr + 8` throws a mixed-type error. Decision
    needed: return `number` when it fits in 2^53 (what bun does, and 64-bit
    Linux/Windows user-space addresses always do), `bigint` only above.
-5. `FFIType.*` are strings here and numbers in bun (`FFIType.i32 === 5`,
+5. **Done** (`FFI_TYPE_LIST` in `ffi-type.h`, `tests/test-ffitype.js`: 61
+   members, numbers and the reverse mapping, signatures take a name or a
+   number; `napi_*` and `buffer_length` are members but not usable types, see
+   5.1.2). `FFIType.*` were strings here and are numbers in bun (`FFIType.i32 === 5`,
    `buffer_length === 21`); code that compares or indexes by the number
    differs. From a dump of the two modules (`describe-module.sh --json`): bun's
    `FFIType` has 61 members, ours 35, and every one of ours exists in bun's.

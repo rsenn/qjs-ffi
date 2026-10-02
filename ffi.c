@@ -577,11 +577,29 @@ static const JSCFunctionListEntry js_funcs[] = {
 
 static int
 js_init(JSContext* ctx, JSModuleDef* m) {
-  js_callback_init(ctx, m);
-  js_cfunction_init(ctx, m);
-  js_cstring_init(ctx, m);
+  /* bun:ffi's default export is an object holding every export, so `import ffi
+   * from "ffi"` works: the named exports are the same values. */
+  JSValue defaults = JS_NewObject(ctx);
 
-  return JS_SetModuleExportList(ctx, m, js_funcs, countof(js_funcs));
+  js_callback_init(ctx, m, defaults);
+  js_cfunction_init(ctx, m, defaults);
+  js_cstring_init(ctx, m, defaults);
+
+  /* The list instantiates its entries non-enumerable; they are copied so that
+   * `Object.keys(ffi)` lists them, as for the named exports. */
+  JSValue all = JS_NewObject(ctx);
+
+  JS_SetPropertyFunctionList(ctx, all, js_funcs, countof(js_funcs));
+
+  for(size_t i = 0; i < countof(js_funcs); i++) {
+    JSValue v = JS_GetPropertyStr(ctx, all, js_funcs[i].name);
+
+    JS_SetPropertyStr(ctx, defaults, js_funcs[i].name, JS_DupValue(ctx, v));
+    JS_SetModuleExport(ctx, m, js_funcs[i].name, v);
+  }
+
+  JS_FreeValue(ctx, all);
+  return JS_SetModuleExport(ctx, m, "default", defaults);
 }
 
 #ifdef JS_SHARED_LIBRARY
@@ -600,6 +618,7 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
   JS_AddModuleExport(ctx, m, "JSCallback");
   JS_AddModuleExport(ctx, m, "CFunction");
   JS_AddModuleExport(ctx, m, "CString");
+  JS_AddModuleExport(ctx, m, "default");
   JS_AddModuleExportList(ctx, m, js_funcs, countof(js_funcs));
   return m;
 }

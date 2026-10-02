@@ -11,6 +11,7 @@
  * Without byteLength the string ends at the first NUL byte.
  */
 
-int js_cstring_init(JSContext*, JSModuleDef*);
+/* `defaults`, if an object, also gets CString (the module's default export). */
+int js_cstring_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 
 #endif /* defined(QJSFFI_C_STRING_H) */

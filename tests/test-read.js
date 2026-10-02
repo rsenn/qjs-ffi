@@ -52,6 +52,13 @@ await tests({
     eq(null, read.ptr(ptr(new BigUint64Array([0n])), 0));
   },
 
+  'read.intptr reads a pointer-sized signed integer as a Number'() {
+    const cell = new BigInt64Array([-5n, 1234n]);
+    eq(-5, read.intptr(ptr(cell), 0));
+    eq(1234, read.intptr(ptr(cell), 8));
+    eq('number', typeof read.intptr(ptr(cell)));
+  },
+
   'byteOffset defaults to 0 and may be negative; reads need no alignment'() {
     eq(1, read.u8(p));
     eq(0x8002, read.u16(p, 2));

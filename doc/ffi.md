@@ -31,6 +31,9 @@ import { dlopen, dlsym, dlclose, dlerror, errno,
          RTLD_DEFAULT, RTLD_NEXT } from "ffi";
 ```
 
+The module also has a default export, an object holding all of these (the same
+values), as bun:ffi does: `import ffi from "ffi"; ffi.dlopen(...)`.
+
 `cc` exists only in a build with `ENABLE_TCC`, and the `RTLD_*` constants only
 where the platform defines them. Run scripts with `qjsm`, see
 [Installation](../README.md#installation).
@@ -40,7 +43,7 @@ where the platform defines them. Run scripts with `qjsm`, see
 | Page | What it covers |
 | ---- | -------------- |
 | [Libraries and symbols](dlopen.md) | `dlopen()`, `linkSymbols()`, `dlsym()`, `dlclose()`, `dlerror()`, `errno()`, `suffix`, `RTLD_*` |
-| [Types and ABI](types.md) | `FFIType`, the type names, structs by value, ABI names |
+| [Types and ABI](types.md) | `FFIType` and its numbers, the type names, structs by value, ABI names |
 | [CFunction](c-function.md) | a function pointer as a callable function |
 | [JSCallback](js-callback.md) | a JavaScript function as a function pointer |
 | [Pointers and memory](pointers.md) | `ptr()`, `toArrayBuffer()`, `read`, `CString`, `toString()`, `toPointer()`, `pointerSize` |
@@ -77,7 +80,8 @@ a `TypeError`. See [Libraries and symbols](dlopen.md).
 A signature is `{ args: [...], returns }`, written with the names of
 [Types and ABI](types.md): the sized integers `i8`..`u64`, `f32`, `f64`, `bool`,
 `pointer`, `cstring`, `void` (return only) and C-style aliases such as `int` and
-`double`. A struct passed or returned by value is an array of member types.
+`double`, or the matching `FFIType` number (`FFIType.i32`, which is `5`). A struct
+passed or returned by value is an array of member types.
 
 | Type | C type | JavaScript |
 | ---- | ------ | ---------- |
@@ -224,7 +228,6 @@ items are tracked in [TODO.md](../TODO.md#5-meeting-the-bunffi-spec-remaining-di
 
 *   Pointers from `ptr()`, `JSCallback.ptr` and `malloc()` are `bigint` above
     2^31, where bun gives a `number`.
-*   `FFIType` members are strings, not numbers.
 *   `CString` needs `new`, and is an object with `.ptr` and `.length`.
 *   `new CFunction(...)` is not supported, call `CFunction(...)`; there is no
     `CFunction().close()`.

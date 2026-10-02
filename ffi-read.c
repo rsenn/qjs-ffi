@@ -6,6 +6,7 @@
 
 enum {
   READ_PTR,
+  READ_INTPTR,
   READ_I8,
   READ_I16,
   READ_I32,
@@ -39,6 +40,7 @@ js_ffiread(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
 
   switch(magic) {
     case READ_PTR: return js_newptr(ctx, LOAD(void*, p));
+    case READ_INTPTR: return JS_NewInt64(ctx, LOAD(intptr_t, p));
     case READ_I8: return JS_NewInt32(ctx, LOAD(int8_t, p));
     case READ_I16: return JS_NewInt32(ctx, LOAD(int16_t, p));
     case READ_I32: return JS_NewInt32(ctx, LOAD(int32_t, p));
@@ -56,6 +58,7 @@ js_ffiread(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
 
 const JSCFunctionListEntry js_ffiread_funcs[FFI_READ_COUNT] = {
     JS_CFUNC_MAGIC_DEF("ptr", 2, js_ffiread, READ_PTR),
+    JS_CFUNC_MAGIC_DEF("intptr", 2, js_ffiread, READ_INTPTR),
     JS_CFUNC_MAGIC_DEF("i8", 2, js_ffiread, READ_I8),
     JS_CFUNC_MAGIC_DEF("i16", 2, js_ffiread, READ_I16),
     JS_CFUNC_MAGIC_DEF("i32", 2, js_ffiread, READ_I32),

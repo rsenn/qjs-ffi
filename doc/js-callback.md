@@ -34,7 +34,7 @@ cb = new JSCallback(fn, { args, returns })
 | Parameter | Required | Description                                                                 |
 | --------- | -------- | ---------------------------------------------------------------------------- |
 | `fn`      | yes      | The JS function to call back into. Must be callable, or a `TypeError` is thrown. |
-| `args`    | no       | Array of type names (see [Types](#types)) declaring the native parameter list, in order. Omit or use `[]` for a callback that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
+| `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the native parameter list, in order. Omit or use `[]` for a callback that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
 | `returns` | no       | Type name for the value the native return slot expects (see [Types](#types)). Defaults to `"void"`. |
 
 Throws if `ffi_closure_alloc()`/`ffi_prep_cif()`/`ffi_prep_closure_loc()`
@@ -59,6 +59,13 @@ currently-live `JSCallback` instance (useful for debugging/introspection).
   native code afterward. Safe to call more than once.
 - `.toString()` -- returns a string like `"#JSCallback (0x...)(*0x...)"`
   identifying the trampoline address.
+- `[Symbol.toPrimitive]()` -- the function pointer as a number, `0` once closed,
+  so `+cb` is what to pass to C.
+- `[Symbol.dispose]()` -- the same as `.close()`, so `using cb = new
+  JSCallback(...)` closes the callback at the end of the block. QuickJS has no
+  `Symbol.dispose` yet: the method is then installed under the registered symbol
+  `Symbol.for("Symbol.dispose")`, which is what the usual polyfills use, and it is
+  the engine's own `Symbol.dispose` as soon as there is one.
 
 ## Types
 

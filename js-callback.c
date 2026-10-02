@@ -305,7 +305,20 @@ static JSClassDef js_callback_class = {
     .finalizer = js_callback_finalizer,
 };
 
+/* cb[Symbol.toPrimitive]() -- the function pointer as a Number, 0 once closed,
+ * so that `+cb` is what C is to be given. */
+static JSValue
+js_callback_toprimitive(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  JSCallback* cl;
+
+  if(!(cl = JS_GetOpaque2(ctx, this_val, js_callback_class_id)))
+    return JS_EXCEPTION;
+
+  return JS_NewInt64(ctx, (int64_t)(intptr_t)cl->code);
+}
+
 static const JSCFunctionListEntry js_callback_proto_funcs[] = {
+    JS_CFUNC_DEF("[Symbol.toPrimitive]", 1, js_callback_toprimitive),
     JS_CFUNC_DEF("close", 0, js_callback_close),
     JS_CFUNC_DEF("toString", 0, js_callback_tostring),
     JS_CGETSET_MAGIC_DEF("ptr", js_callback_get, 0, PROP_PTR),
@@ -319,19 +332,54 @@ static const JSCFunctionListEntry js_callback_static_funcs[] = {
     JS_CGETSET_MAGIC_DEF("list", js_callback_get, 0, PROP_LIST),
 };
 
+/* proto[Symbol.dispose] = close, for `using`: the engine's Symbol.dispose, or if
+ * it has none (QuickJS does not yet) the registered Symbol.for("Symbol.dispose"),
+ * which is what the usual polyfills install. */
+static void
+js_callback_define_dispose(JSContext* ctx, JSValueConst proto) {
+  JSValue global = JS_GetGlobalObject(ctx);
+  JSValue Symbol = JS_GetPropertyStr(ctx, global, "Symbol");
+  JSValue sym = JS_IsObject(Symbol) ? JS_GetPropertyStr(ctx, Symbol, "dispose") : JS_UNDEFINED;
+
+  if(!JS_IsSymbol(sym) && JS_IsObject(Symbol)) {
+    JSValue key = JS_NewString(ctx, "Symbol.dispose");
+    JSAtom for_ = JS_NewAtom(ctx, "for");
+
+    JS_FreeValue(ctx, sym);
+    sym = JS_Invoke(ctx, Symbol, for_, 1, &key);
+    JS_FreeAtom(ctx, for_);
+    JS_FreeValue(ctx, key);
+  }
+
+  if(JS_IsSymbol(sym)) {
+    JSAtom atom = JS_ValueToAtom(ctx, sym);
+
+    JS_DefinePropertyValue(ctx, proto, atom, JS_GetPropertyStr(ctx, proto, "close"), JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
+    JS_FreeAtom(ctx, atom);
+  }
+
+  JS_FreeValue(ctx, sym);
+  JS_FreeValue(ctx, Symbol);
+  JS_FreeValue(ctx, global);
+}
+
 int
-js_callback_init(JSContext* ctx, JSModuleDef* m) {
+js_callback_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClassID(&js_callback_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_callback_class_id, &js_callback_class);
 
   js_callback_proto = JS_NewObject(ctx);
   JS_SetPropertyFunctionList(ctx, js_callback_proto, js_callback_proto_funcs, countof(js_callback_proto_funcs));
+  js_callback_define_dispose(ctx, js_callback_proto);
   JS_SetClassProto(ctx, js_callback_class_id, js_callback_proto);
 
   JSValue ctor = JS_NewCFunction2(ctx, js_callback_constructor, "JSCallback", 1, JS_CFUNC_constructor, 0);
 
   JS_SetConstructor(ctx, ctor, js_callback_proto);
   JS_SetPropertyFunctionList(ctx, ctor, js_callback_static_funcs, countof(js_callback_static_funcs));
+
+  if(JS_IsObject(defaults))
+    JS_SetPropertyStr(ctx, defaults, "JSCallback", JS_DupValue(ctx, ctor));
 
   if(m)
     JS_SetModuleExport(ctx, m, "JSCallback", ctor);

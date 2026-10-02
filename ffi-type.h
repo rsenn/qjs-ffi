@@ -34,49 +34,72 @@ enum {
  * names, it carries bun:ffi's C-style aliases ("int", "uint8_t", "double" ...).
  */
 #define FFI_TYPE_LIST(X) \
-  X("void", ffi_type_void, K_VOID) \
-  X("bool", ffi_type_uint8, K_BOOL) \
-  X("i8", ffi_type_sint8, K_I8) \
-  X("u8", ffi_type_uint8, K_U8) \
-  X("i16", ffi_type_sint16, K_I16) \
-  X("u16", ffi_type_uint16, K_U16) \
-  X("i32", ffi_type_sint32, K_I32) \
-  X("u32", ffi_type_uint32, K_U32) \
-  X("i64", ffi_type_sint64, K_I64) \
-  X("u64", ffi_type_uint64, K_U64) \
-  X("i64_fast", ffi_type_sint64, K_I64_FAST) \
-  X("u64_fast", ffi_type_uint64, K_U64_FAST) \
-  X("f32", ffi_type_float, K_F32) \
-  X("f64", ffi_type_double, K_F64) \
-  X("pointer", ffi_type_pointer, K_POINTER) \
-  X("ptr", ffi_type_pointer, K_POINTER) \
-  X("function", ffi_type_pointer, K_POINTER) \
-  X("cstring", ffi_type_pointer, K_CSTRING) \
-  X("int8_t", ffi_type_sint8, K_I8) \
-  X("int16_t", ffi_type_sint16, K_I16) \
-  X("int32_t", ffi_type_sint32, K_I32) \
-  X("int", ffi_type_sint32, K_I32) \
-  X("int64_t", ffi_type_sint64, K_I64) \
-  X("isize", ffi_type_sint64, K_I64) \
-  X("uint8_t", ffi_type_uint8, K_U8) \
-  X("uint16_t", ffi_type_uint16, K_U16) \
-  X("uint32_t", ffi_type_uint32, K_U32) \
-  X("uint64_t", ffi_type_uint64, K_U64) \
-  X("usize", ffi_type_uint64, K_U64) \
-  X("float", ffi_type_float, K_F32) \
-  X("double", ffi_type_double, K_F64) \
-  X("char", ffi_type_sint8, K_I8) \
-  X("buffer", ffi_type_pointer, K_POINTER) \
-  X("fn", ffi_type_pointer, K_POINTER) \
-  X("callback", ffi_type_pointer, K_POINTER)
+  X("void", ffi_type_void, K_VOID, 13) \
+  X("bool", ffi_type_uint8, K_BOOL, 11) \
+  X("i8", ffi_type_sint8, K_I8, 1) \
+  X("u8", ffi_type_uint8, K_U8, 2) \
+  X("i16", ffi_type_sint16, K_I16, 3) \
+  X("u16", ffi_type_uint16, K_U16, 4) \
+  X("i32", ffi_type_sint32, K_I32, 5) \
+  X("u32", ffi_type_uint32, K_U32, 6) \
+  X("i64", ffi_type_sint64, K_I64, 7) \
+  X("u64", ffi_type_uint64, K_U64, 8) \
+  X("i64_fast", ffi_type_sint64, K_I64_FAST, 15) \
+  X("u64_fast", ffi_type_uint64, K_U64_FAST, 16) \
+  X("f32", ffi_type_float, K_F32, 10) \
+  X("f64", ffi_type_double, K_F64, 9) \
+  X("pointer", ffi_type_pointer, K_POINTER, 12) \
+  X("ptr", ffi_type_pointer, K_POINTER, 12) \
+  X("function", ffi_type_pointer, K_POINTER, 17) \
+  X("cstring", ffi_type_pointer, K_CSTRING, 14) \
+  X("int8_t", ffi_type_sint8, K_I8, 1) \
+  X("int16_t", ffi_type_sint16, K_I16, 3) \
+  X("int32_t", ffi_type_sint32, K_I32, 5) \
+  X("int", ffi_type_sint32, K_I32, 5) \
+  X("int64_t", ffi_type_sint64, K_I64, 7) \
+  X("isize", ffi_type_sint64, K_I64, 7) \
+  X("uint8_t", ffi_type_uint8, K_U8, 2) \
+  X("uint16_t", ffi_type_uint16, K_U16, 4) \
+  X("uint32_t", ffi_type_uint32, K_U32, 6) \
+  X("uint64_t", ffi_type_uint64, K_U64, 8) \
+  X("usize", ffi_type_uint64, K_U64, 8) \
+  X("float", ffi_type_float, K_F32, 10) \
+  X("double", ffi_type_double, K_F64, 9) \
+  X("char", ffi_type_sint8, K_I8, 0) \
+  X("buffer", ffi_type_pointer, K_POINTER, 20) \
+  X("fn", ffi_type_pointer, K_POINTER, 17) \
+  X("callback", ffi_type_pointer, K_POINTER, 17)
 
-#define FFI_TYPE_COUNT_ONE(name, type, kind) +1
-#define FFI_TYPE_COUNT (0 FFI_TYPE_LIST(FFI_TYPE_COUNT_ONE))
+/* Names bun:ffi has that do not resolve to a type here: aliases of types above
+ * with a name that is not a valid identifier, and the types only the C compiler
+ * of bun or an argument pair can use (napi_env and napi_value have no meaning
+ * outside Node-API; buffer_length is not implemented, see TODO.md). They are
+ * FFIType members so that code using them gets bun's numbers, and in a signature
+ * they are unknown names like any other (an argument becomes "i32"). */
+#define FFI_TYPE_EXTRA(X) \
+  X("c_int", 5) \
+  X("c_uint", 6) \
+  X("char*", 12) \
+  X("void*", 12) \
+  X("napi_env", 18) \
+  X("napi_value", 19) \
+  X("buffer_length", 21) \
+  X("buffer_bytelength", 21)
 
-/* FFIType: name -> name property table, meant to be spliced into a
+/* bun's FFIType also maps each of the numbers 0 to 17 to itself ("5": 5). */
+#define FFI_TYPE_INDEX(X) \
+  X("0", 0) X("1", 1) X("2", 2) X("3", 3) X("4", 4) X("5", 5) X("6", 6) X("7", 7) X("8", 8) \
+  X("9", 9) X("10", 10) X("11", 11) X("12", 12) X("13", 13) X("14", 14) X("15", 15) X("16", 16) X("17", 17)
+
+#define FFI_TYPE_COUNT_ONE(name, type, kind, id) +1
+#define FFI_TYPE_COUNT_PAIR(name, id) +1
+#define FFI_TYPE_COUNT (0 FFI_TYPE_LIST(FFI_TYPE_COUNT_ONE) FFI_TYPE_EXTRA(FFI_TYPE_COUNT_PAIR) FFI_TYPE_INDEX(FFI_TYPE_COUNT_PAIR))
+
+/* FFIType: name -> number, as bun's: `FFIType.i32` is 5, and every member can
+ * be written where a CFunction/JSCallback `args`/`returns` type is expected,
+ * as the name ("i32") or as the number (FFIType.i32). Meant to be spliced into a
  * JSCFunctionListEntry list via JS_OBJECT_DEF("FFIType", js_ffitype_funcs,
- * FFI_TYPE_COUNT, ...), so `FFIType.i32` and `"i32"` are interchangeable
- * wherever a CFunction/JSCallback `args`/`returns` type is expected.
+ * FFI_TYPE_COUNT, ...).
  */
 extern const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT];
 
@@ -85,6 +108,11 @@ extern const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT];
  * points to; the text before the '*' is documentation only.
  */
 int ffi_is_pointer_name(const char* name);
+
+/* The type a number stands for (bun's FFIType values: 5 is i32, 12 a pointer),
+ * or NULL (leaving *kind untouched) for a number that is no type or that this
+ * module does not implement (napi_env, napi_value, buffer_length). */
+ffi_type* ffi_resolve_type_id(int id, int* kind);
 
 /* Looks up a type name; a name for which ffi_is_pointer_name() holds is
  * K_POINTER unless an exact table entry says otherwise. Returns NULL (leaving

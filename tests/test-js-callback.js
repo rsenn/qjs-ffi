@@ -238,6 +238,25 @@ await tests({
     }
   },
 
+  '+cb is the function pointer as a Number, 0 once closed'() {
+    const cb = new JSCallback(() => 0, { returns: 'i32' });
+
+    eq(Number(cb.ptr), +cb);
+    assert(+cb !== 0, 'expected a non-zero pointer');
+    cb.close();
+    eq(0, +cb);
+  },
+
+  'cb[Symbol.dispose]() closes the callback'() {
+    // QuickJS has no Symbol.dispose yet; the registered symbol stands in.
+    const dispose = Symbol.dispose || Symbol.for('Symbol.dispose');
+    const cb = new JSCallback(() => 0, { returns: 'i32' });
+
+    assert(typeof cb[dispose] === 'function', 'no dispose method');
+    cb[dispose]();
+    eq(null, cb.ptr);
+  },
+
   /* --- End-to-end proof against a real native caller (not our own probe
    * harness): libc's qsort() invokes the comparator with real int32*
    * arguments it owns, laid out in a buffer it is actively sorting. --- */

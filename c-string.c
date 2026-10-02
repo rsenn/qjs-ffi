@@ -97,7 +97,7 @@ static const JSCFunctionListEntry js_cstring_proto_funcs[] = {
 };
 
 int
-js_cstring_init(JSContext* ctx, JSModuleDef* m) {
+js_cstring_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClassID(&js_cstring_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cstring_class_id, &js_cstring_class);
 
@@ -107,6 +107,9 @@ js_cstring_init(JSContext* ctx, JSModuleDef* m) {
   JSValue ctor = JS_NewCFunction2(ctx, js_cstring_constructor, "CString", 1, JS_CFUNC_constructor, 0);
   JS_SetConstructor(ctx, ctor, proto);
   JS_SetClassProto(ctx, js_cstring_class_id, proto);
+
+  if(JS_IsObject(defaults))
+    JS_SetPropertyStr(ctx, defaults, "CString", JS_DupValue(ctx, ctor));
 
   if(m)
     JS_SetModuleExport(ctx, m, "CString", ctor);
