@@ -17,13 +17,20 @@
 #define WRAP(index, size) ((index) < 0 ? ((index) + (size)) : (index))
 #endif
 
-/* An (offset, length) pair; either may be negative until range_wrap(). */
+/* an (offset, length) pair; either may be negative until range_wrap(). */
 typedef struct {
   int64_t ofs, len;
 } OffsetLength;
 
-/* Resolve negative RANGE.ofs (from the end of a SIZE-byte buffer) and negative
- * RANGE.len (from the end of what remains after the offset), like slice(). */
+/* resolves negative values of `range` against a buffer of `size` bytes,
+ * like slice() does.
+ *
+ * ```c
+ * range_wrap((OffsetLength){-4, -1}, 10);  // {6, 3}
+ * ```
+ *
+ * a negative offset counts from the end of the buffer, a negative
+ * length from the end of what remains after the offset. */
 static inline OffsetLength
 range_wrap(OffsetLength range, size_t size) {
   int64_t offset = WRAP(range.ofs, size);
@@ -36,16 +43,19 @@ range_wrap(OffsetLength range, size_t size) {
   };
 }
 
-/* A pointer to bytes and how many there are. */
+/* a pointer to bytes and how many there are. */
 typedef struct {
   uint8_t* data;
   size_t size;
 } ByteSpan;
 
-/* All int-returning helpers below return 0 on success and -1 on failure, and
- * none of them leaves an exception pending (or touches its output) when it
- * fails: the caller decides whether to throw, and with what message. The
- * js_to_* helpers convert a JS value, the js_try_* helpers probe it;
+/* conversion helpers: each returns 0 on success, -1 on failure.
+ * on failure no exception is pending and the output is untouched; the
+ * caller decides whether to throw, and with what message.
+ *
+ *   js_to_*   convert a JS value
+ *   js_try_*  probe it
+ *
  * js_throw_pointer_error() is the TypeError for a refused pointer. */
 int js_to_index(JSContext*, int64_t*, JSValueConst value);
 int js_to_address(JSContext*, void** out, JSValueConst);

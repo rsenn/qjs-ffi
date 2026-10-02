@@ -2,9 +2,9 @@
 #include "js-callback.h"
 #include <cutils.h>
 
-/* Narrow SPAN in place to the window RANGE describes: advance data by ofs and
- * clamp size to what remains. RANGE must already be wrapped and ofs within
- * SPAN. */
+/* narrows `span` to the window `range` describes: data advances by the
+ * offset, size shrinks to what remains (at most len).
+ * `range` is already wrapped and its offset lies inside `span`. */
 static void
 span_slice(ByteSpan* span, OffsetLength range) {
   span->data += range.ofs;
@@ -12,18 +12,21 @@ span_slice(ByteSpan* span, OffsetLength range) {
   span->size = MIN(remain, range.len);
 }
 
-/* Drop the exception a failed conversion left behind: the js_to_* helpers
- * report failure through their return value only. */
+/* drops the exception a failed conversion left behind: the js_to_*
+ * helpers report failure by their return value only. */
 static void
 clear_exception(JSContext* ctx) {
   if(JS_HasException(ctx))
     JS_FreeValue(ctx, JS_GetException(ctx));
 }
 
-/* Convert VALUE to an int64 index/offset into *OUT (may be NULL). Returns 0
- * on success, -1 if the conversion fails (a Symbol, say, or a valueOf() that
- * throws). Never leaves an exception pending, and leaves *OUT alone on
- * failure, which js_parse_range() relies on. */
+/* converts `value` to an int64 offset or index.
+ *
+ *   int64_t*  out  receives the result; may be NULL; untouched on failure
+ *
+ *   returns  0, or -1 if `value` does not convert (a Symbol, a valueOf()
+ *            that throws); never throws
+ */
 int
 js_to_index(JSContext* ctx, int64_t* out, JSValueConst value) {
   int64_t ofs = 0;
@@ -39,16 +42,19 @@ js_to_index(JSContext* ctx, int64_t* out, JSValueConst value) {
   return 0;
 }
 
-/* Convert VALUE to a raw address and store it through OUT (a void**, may be
- * NULL to only validate), the way bun:ffi takes a pointer:
+/* converts `value` to a raw address, the way bun:ffi takes a pointer.
+ *
  *   null, undefined  NULL
- *   Number           truncated; a NaN, an infinity or a value outside int64
- *                    gives the garbage address 0x8000000000000000, as bun does
- *   BigInt           modulo 2^64 (-1n and 2n**64n-1n are the same address)
- *   anything else    failure: a boolean, a string, a Symbol, an object (an
- *                    array, a function, a Number object ...)
- * Returns 0 on success, -1 on failure. Never leaves an exception pending, and
- * leaves *OUT alone on failure: the caller throws, see js_throw_pointer_error(). */
+ *   Number           truncated; NaN, infinities and values outside int64
+ *                    give 0x8000000000000000, as bun does
+ *   BigInt           modulo 2^64: -1n and 2n**64n-1n are one address
+ *   anything else    failure: boolean, string, Symbol, any object
+ *
+ *   void**  out  receives the address; may be NULL to only validate
+ *
+ *   returns  0, or -1 with out untouched; never throws, the caller
+ *            throws with js_throw_pointer_error()
+ */
 int
 js_to_address(JSContext* ctx, void** out, JSValueConst value) {
   int64_t addr = 0;
@@ -79,12 +85,17 @@ js_to_address(JSContext* ctx, void** out, JSValueConst value) {
   return 0;
 }
 
-/* Get an address from VALUE into *OUT (a void**, may be NULL):
- * the data of an ArrayBuffer/TypedArray/DataView if it is one, the function
- * pointer of a live JSCallback, else null/undefined/Number/BigInt via
- * js_to_address(). Returns 0 on success, -1 on failure (a closed JSCallback
- * included). Never leaves an exception pending, and leaves *OUT alone on
- * failure. */
+/* converts `value` to an address like js_to_address(), and also takes
+ * memory and callbacks.
+ *
+ *   ArrayBuffer, TypedArray, DataView  its data
+ *   JSCallback                         its function pointer; closed fails
+ *   anything else                      as js_to_address()
+ *
+ *   void**  out  receives the address; may be NULL to only validate
+ *
+ *   returns  0, or -1 with out untouched; never throws
+ */
 int
 js_to_pointer(JSContext* ctx, void** out, JSValueConst value) {
   JSCallback* cl;
@@ -109,8 +120,14 @@ js_to_pointer(JSContext* ctx, void** out, JSValueConst value) {
   return 0;
 }
 
-/* Throw the TypeError that says why js_to_pointer() or js_to_address() refused
- * VALUE; returns JS_EXCEPTION, to be returned by the caller. */
+/* throws the TypeError that says why js_to_pointer() refused `value`.
+ *
+ *   a closed JSCallback  "JSCallback is closed"
+ *   a string             "cannot convert a string to a pointer; ..."
+ *   anything else        "cannot convert argument to a pointer"
+ *
+ *   returns  JS_EXCEPTION, for the caller to return
+ */
 JSValue
 js_throw_pointer_error(JSContext* ctx, JSValueConst value) {
   JSCallback* cl = js_callback_data(value);
@@ -124,9 +141,13 @@ js_throw_pointer_error(JSContext* ctx, JSValueConst value) {
   return JS_ThrowTypeError(ctx, "cannot convert argument to a pointer");
 }
 
-/* A pointer as bun:ffi hands it out: null for NULL, a Number up to 2^53 - 1
- * (Number.MAX_SAFE_INTEGER, exact; every user-space address on 64-bit Linux
- * and Windows is below 2^47), else an exact unsigned BigInt. */
+/* the JS value for a native pointer, as bun:ffi hands it out.
+ *
+ *   NULL            null
+ *   up to 2^53 - 1  a Number, exact (user-space addresses on 64-bit
+ *                   Linux and Windows are below 2^47)
+ *   above           an unsigned BigInt
+ */
 JSValue
 js_new_pointer(JSContext* ctx, void* ptr) {
   uintptr_t addr = (uintptr_t)ptr;
@@ -140,8 +161,8 @@ js_new_pointer(JSContext* ctx, void* ptr) {
   return JS_NewBigUint64(ctx, addr);
 }
 
-/* A DataView, which JS_GetTypedArrayBuffer() does not know, by its `buffer`,
- * `byteOffset` and `byteLength`. Never leaves an exception pending. */
+/* the bytes of a DataView, which JS_GetTypedArrayBuffer() does not know:
+ * its `buffer` from `byteOffset` for `byteLength`. never throws. */
 static int
 try_get_view_bytes(JSContext* ctx, ByteSpan* out, JSValueConst obj) {
   JSValue buffer, offset, length;
@@ -173,18 +194,18 @@ try_get_view_bytes(JSContext* ctx, ByteSpan* out, JSValueConst obj) {
   return data ? 0 : -1;
 }
 
-/* Get the bytes behind OBJ into OUT: an ArrayBuffer, a TypedArray or a
- * DataView (OUT is then narrowed to that view's byteOffset/byteLength).
- * Returns 0 on success, -1 if OBJ is none of them. Never leaves an exception
- * pending. */
+/* gets the bytes behind `obj`: an ArrayBuffer, a TypedArray or a
+ * DataView (a view gives just its byteOffset/byteLength window).
+ *
+ *   returns  0, or -1 if `obj` is none of them; never throws
+ */
 int
 js_try_get_bytes(JSContext* ctx, ByteSpan* out, JSValueConst obj) {
   size_t offset, bytes, bytes_per_element;
   JSValue buffer = JS_GetTypedArrayBuffer(ctx, obj, &offset, &bytes, &bytes_per_element);
 
   if(JS_IsException(buffer)) {
-    /* JS_GetTypedArrayBuffer threw; discard the exception so the caller can
-     * treat this as a silent "not a typed array" probe. */
+    /* not a typed array: drop the exception, try it as an ArrayBuffer */
     JS_FreeValue(ctx, JS_GetException(ctx));
     buffer = JS_DupValue(ctx, obj);
     offset = 0;
@@ -203,9 +224,9 @@ js_try_get_bytes(JSContext* ctx, ByteSpan* out, JSValueConst obj) {
   return try_get_view_bytes(ctx, out, obj);
 }
 
-/* Store OBJ.length in *OUT. Returns 0 on success, -1 (leaving *OUT alone) if
- * OBJ isn't an object or has no usable length. Never leaves an exception
- * pending. */
+/* stores `obj.length` in `out`.
+ * returns 0, or -1 with out untouched if `obj` is not an object or has no
+ * usable length; never throws. */
 int
 js_try_get_length(JSContext* ctx, JSValueConst obj, int64_t* out) {
   int64_t len;
@@ -214,8 +235,7 @@ js_try_get_length(JSContext* ctx, JSValueConst obj, int64_t* out) {
   if(JS_IsObject(obj)) {
     JSValue val = JS_GetPropertyStr(ctx, obj, "length");
 
-    /* Callers don't propagate errors, so a pending exception would leak out
-     * of an otherwise successful call. */
+    /* swallow the error: callers do not propagate it */
     if(JS_IsException(val) || JS_ToInt64(ctx, &len, val))
       JS_FreeValue(ctx, JS_GetException(ctx));
     else {
@@ -229,11 +249,17 @@ js_try_get_length(JSContext* ctx, JSValueConst obj, int64_t* out) {
   return ret;
 }
 
-/* Parse an optional [offset[, length]] pair from the front of ARGV into OUT
- * (may be NULL), defaulting to {0, INT64_MAX} ("everything").
- * Cannot fail: it stops at the first argument that isn't convertible.
- * Returns how many arguments were consumed (0, 1 or 2).
- * Values may be negative; see range_wrap(). */
+/* parses an optional `offset[, length]` from the front of `argv`.
+ *
+ *   ()        {0, INT64_MAX}: everything
+ *   (4)       {4, INT64_MAX}
+ *   (4, -1)   {4, -1}; negative counts from the end, see range_wrap()
+ *
+ *   OffsetLength*  out  receives the range; may be NULL
+ *
+ *   returns  how many arguments were used (0, 1 or 2); it stops at the
+ *            first one that does not convert, so it cannot fail
+ */
 int
 js_parse_range(JSContext* ctx, OffsetLength* out, int argc, JSValueConst argv[]) {
   OffsetLength range = {0, INT64_MAX};
@@ -249,11 +275,13 @@ js_parse_range(JSContext* ctx, OffsetLength* out, int argc, JSValueConst argv[])
   return i;
 }
 
-/* Parse buffer-ish arguments into OUT, in one of two forms:
- *   BUFFER[, offset[, length]]   an ArrayBuffer/TypedArray, optionally sliced
- *                                (negative offset/length count from the end)
- *   POINTER, length              a raw address (Number/BigInt) and a size
- * Returns the number of arguments consumed, or 0 if ARGV matches neither form.
+/* parses buffer-like arguments into a span, in one of two forms.
+ *
+ *   (buffer[, offset[, length]])  an ArrayBuffer/TypedArray, sliced;
+ *                                 negative values count from the end
+ *   (pointer, length)             a raw address and a size
+ *
+ *   returns  how many arguments were used, or 0 if neither form matches
  */
 int
 js_parse_span_args(JSContext* ctx, ByteSpan* out, int argc, JSValueConst argv[]) {
@@ -279,10 +307,7 @@ js_parse_span_args(JSContext* ctx, ByteSpan* out, int argc, JSValueConst argv[])
   return i;
 }
 
-/* Function.prototype, fetched the same way qjs-lws's js_function_prototype()
- * does (js-utils.c:9-15): a throwaway JS_NewCFunction exists only to read
- * its [[Prototype]] off of.
- */
+/* Function.prototype of the context, read off a throwaway C function. */
 JSValue
 js_function_prototype(JSContext* ctx) {
   JSValue fn = JS_NewCFunction(ctx, NULL, "", 0);

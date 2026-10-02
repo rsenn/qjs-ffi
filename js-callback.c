@@ -7,14 +7,11 @@ static JSValue js_callback_proto;
 
 static struct list_head callback_list;
 
-/* JSValue (the JS function's return value) -> native return slot, per
- * declared kind.
+/* converts the JS function's return value into the native return slot.
  *
- * libffi requires integer return values smaller than a machine word to be
- * written as a full ffi_arg (sign/zero-extended), not their natural size --
- * this is a closure-specific ABI quirk (unlike arguments, which use their
- * exact declared size). Getting this wrong corrupts the return register on
- * common ABIs.
+ * an integer narrower than a word is written as a full ffi_arg, sign- or
+ * zero-extended: libffi closures require it, and a narrower write
+ * corrupts the return register. arguments keep their declared size.
  */
 static void
 js_to_native_ret(JSContext* ctx, int kind, void* ret, JSValueConst v) {
@@ -93,7 +90,9 @@ callback_dup(JSCallback* cl) {
   return cl;
 }
 
-/* The libffi closure trampoline: invoked by native code through cl->code. */
+/* the libffi closure trampoline, which native code calls through
+ * cl->code: converts the arguments, calls the JS function, converts
+ * the result back. an exception is kept in cl->exception, not thrown. */
 static void
 js_callback_handler(ffi_cif* cif, void* ret, void** args, void* user_data) {
   JSCallback* cl = user_data;
@@ -314,8 +313,8 @@ static JSClassDef js_callback_class = {
     .finalizer = js_callback_finalizer,
 };
 
-/* cb[Symbol.toPrimitive]() -- the function pointer as a Number, 0 once closed,
- * so that `+cb` is what C is to be given. */
+/* cb[Symbol.toPrimitive](): the function pointer as a Number, 0 once
+ * closed, so `+cb` is what to give C. */
 static JSValue
 js_callback_toprimitive(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   JSCallback* cl;
@@ -341,9 +340,9 @@ static const JSCFunctionListEntry js_callback_static_funcs[] = {
     JS_CGETSET_MAGIC_DEF("list", js_callback_get, 0, PROP_LIST),
 };
 
-/* proto[Symbol.dispose] = close, for `using`: the engine's Symbol.dispose, or
- * if it has none (QuickJS does not yet) the registered
- * Symbol.for("Symbol.dispose"), which is what the usual polyfills install. */
+/* sets `proto[Symbol.dispose]` to `proto.close`, so `using` works.
+ * the symbol is Symbol.dispose, or when the engine has none (QuickJS
+ * does not yet) Symbol.for("Symbol.dispose"), as polyfills install it. */
 void
 js_callback_define_dispose(JSContext* ctx, JSValueConst proto) {
   JSValue global = JS_GetGlobalObject(ctx);

@@ -3,9 +3,8 @@
 #include <cutils.h>
 #include <string.h>
 
-/* s = CString(ptr[, byteOffset[, byteLength]]) -- also with `new`, as in
- * bun:ffi. A string, not an object: NULL gives "", and without byteLength the
- * bytes up to the first NUL are decoded (as UTF-8). */
+/* CString(ptr[, byteOffset[, byteLength]]), also with `new` as in bun:ffi.
+ * returns a string, not an object: the bytes decoded as UTF-8. */
 static JSValue
 js_cstring_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* p = NULL;

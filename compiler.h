@@ -3,18 +3,29 @@
 
 #include <quickjs.h>
 
-/* cc({ source, symbols, library, flags, define }) -- as Bun's bun:ffi cc()
- * (https://bun.com/docs/runtime/c-compiler): compiles and links the C file
- * `source` (a file name, or else an ArrayBuffer/TypedArray/DataView holding
- * the C source text) in memory with libtcc and returns
- * { symbols: { name: CFunction } } for every entry of `symbols`
- * ({ args, returns }, as for dlopen()).
+/* cc: compiles C in memory with TinyCC and binds it (bun:ffi's cc()).
  *
- *   library: string | string[]   libraries to link, e.g. ["sqlite3"]
- *   flags:   string | string[]   compiler flags such as -I and -D
- *   define:  { NAME: "value" }   preprocessor definitions
+ * ```js
+ * const { symbols } = cc({
+ *   source: "add.c",
+ *   symbols: { add: { args: ["i32", "i32"], returns: "i32" } },
+ * });
+ * symbols.add(1, 2); // 3
+ * ```
  *
- * Only built when ENABLE_TCC is set (CONFIG_TCC defined).
+ *   string|buffer    source   a C file name, or the C text as a buffer
+ *   object           symbols  { name: { args, returns } }, or
+ *                             { name: { type } } for a variable
+ *   string|string[]  library  libraries to link, e.g. ["sqlite3"]
+ *   string|string[]  include  include directories, as -I
+ *   string|string[]  flags    compiler flags such as -D and -L
+ *   object           define   preprocessor definitions { NAME: "value" }
+ *
+ *   returns  { symbols } as dlopen() gives
+ *   throws   TypeError for bad options or a missing symbol;
+ *            InternalError with the compiler's message on a C error
+ *
+ * only built when ENABLE_TCC is set (CONFIG_TCC defined).
  */
 
 JSValue js_compiler_cc(JSContext*, JSValueConst this_val, int argc, JSValueConst argv[]);

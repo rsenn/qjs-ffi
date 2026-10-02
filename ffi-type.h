@@ -6,9 +6,8 @@
 
 #define FFI_MAX_ARGS 32
 
-/* Marshaling kinds, matching bun:ffi's FFIType vocabulary. Deliberately
- * independent of ffi.c's mutable, string-keyed type registry.
- */
+/* marshaling kinds, one per bun:ffi FFIType; a static table, not a
+ * mutable registry. */
 enum {
   K_VOID = 0,
   K_BOOL,
@@ -30,10 +29,9 @@ enum {
   K_BUFFER_LENGTH, /* the byte length of the view passed for this argument */
 };
 
-/* X(name, libffi type, kind): the single source for the FFIType export, the
- * name lookup in ffi_resolve_type() and FFI_TYPE_COUNT. Besides the short
- * names, it carries bun:ffi's C-style aliases ("int", "uint8_t", "double" ...).
- */
+/* X(name, libffi type, kind, id): the one list that the FFIType export,
+ * the name lookup in ffi_resolve_type() and FFI_TYPE_COUNT come from.
+ * besides the short names it has bun:ffi's C aliases ("int", "double"). */
 #define FFI_TYPE_LIST(X) \
   X("void", ffi_type_void, K_VOID, 13) \
   X("bool", ffi_type_uint8, K_BOOL, 11) \
@@ -73,11 +71,10 @@ enum {
   X("buffer_length", ffi_type_uint64, K_BUFFER_LENGTH, 21) \
   X("buffer_bytelength", ffi_type_uint64, K_BUFFER_LENGTH, 21)
 
-/* Names bun:ffi has that are FFIType members only: aliases of types above with
- * a name that is not a valid identifier, and napi_env and napi_value, which have
- * no meaning outside Node-API. In a signature they are unknown names like any
- * other (an argument becomes "i32").
- */
+/* FFIType members that are only a name and a number: aliases that are
+ * not valid identifiers ("c_int", "char*"), and napi_env and napi_value,
+ * which mean nothing outside Node-API. in a signature they are unknown
+ * names, so an argument of that type becomes "i32". */
 #define FFI_TYPE_EXTRA(X) \
   X("c_int", 5) \
   X("c_uint", 6) \
@@ -96,46 +93,51 @@ enum {
 #define FFI_TYPE_COUNT_PAIR(name, id) +1
 #define FFI_TYPE_COUNT (0 FFI_TYPE_LIST(FFI_TYPE_COUNT_ONE) FFI_TYPE_EXTRA(FFI_TYPE_COUNT_PAIR) FFI_TYPE_INDEX(FFI_TYPE_COUNT_PAIR))
 
-/* FFIType: name -> number, as bun's: `FFIType.i32` is 5, and every member can
- * be written where a CFunction/JSCallback `args`/`returns` type is expected,
- * as the name ("i32") or as the number (FFIType.i32). Meant to be spliced into
- * a JSCFunctionListEntry list via JS_OBJECT_DEF("FFIType", js_ffitype_funcs,
- * FFI_TYPE_COUNT, ...).
- */
+/* FFIType: type name -> number, as in bun:ffi.
+ *
+ * ```js
+ * FFIType.i32; // 5
+ * // a type is written as the name ("i32") or the number (FFIType.i32)
+ * ```
+ *
+ * spliced into the export list:
+ * JS_OBJECT_DEF("FFIType", js_ffitype_funcs, FFI_TYPE_COUNT, ...). */
 extern const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT];
 
-/* Non-zero if `name` ends in '*' (ignoring trailing blanks): "int *",
- * "struct foo **", "char*". Any such name is a plain pointer, whatever it
- * points to; the text before the '*' is documentation only.
+/* true if `name` ends in '*' (trailing blanks ignored): a plain pointer,
+ * whatever it points to.
+ *
+ * ```c
+ * ffi_is_pointer_name("int *");          // 1
+ * ffi_is_pointer_name("struct foo **");  // 1
+ * ffi_is_pointer_name("char");           // 0
+ * ```
  */
 int ffi_is_pointer_name(const char* name);
 
-/* The type a number stands for (bun's FFIType values: 5 is i32, 12 a pointer),
- * or NULL (leaving *kind untouched) for a number that is no type or that this
- * module does not implement (napi_env, napi_value). */
+/* the type a number stands for (bun's FFIType values: 5 is i32, 12 a
+ * pointer), or NULL when it is no type or not implemented (napi_env,
+ * napi_value); *kind is then untouched. */
 ffi_type* ffi_resolve_type_id(int id, int* kind);
 
-/* Looks up a type name; a name for which ffi_is_pointer_name() holds is
- * K_POINTER unless an exact table entry says otherwise. Returns NULL (leaving
- * *kind untouched) if unknown.
- */
+/* looks up a type name; NULL if unknown, *kind then untouched.
+ * a name for which ffi_is_pointer_name() holds is K_POINTER, unless an
+ * exact table entry says otherwise. */
 ffi_type* ffi_resolve_type(const char* name, int* kind);
 
-/* Native slot -> JSValue per kind: a JSCallback argument, or an ffi_call()
- * return slot. Small integer returns are widened by libffi, which on
- * little-endian leaves the declared-width value at the slot's start.
- */
+/* converts a native slot to a JS value, per kind: a JSCallback argument
+ * or an ffi_call() return slot.
+ * little-endian: libffi widens small integer returns, and the value of
+ * the declared width is at the slot's start. */
 JSValue ffi_native_to_js(JSContext* ctx, int kind, const void* p);
 
-/* Maps an ABI name to its libffi constant; NULL or unknown names give
- * FFI_DEFAULT_ABI.
- */
+/* maps an ABI name to its libffi constant; NULL or an unknown name gives
+ * FFI_DEFAULT_ABI. */
 int ffi_resolve_abi(const char* name);
 
-/* Parsed `{ args, returns }` options, shared by CFunction and JSCallback.
- * `aggregates` owns the ffi_types built for struct types (K_STRUCT), which
- * arg_types/ret_type point into.
- */
+/* a parsed `{ args, returns }`, shared by CFunction and JSCallback.
+ * `aggregates` owns the ffi_types made for struct types (K_STRUCT);
+ * arg_types and ret_type point into them. */
 typedef struct FFISignature {
   int argc;
   ffi_type** arg_types;
@@ -146,21 +148,29 @@ typedef struct FFISignature {
   int aggregate_count;
 } FFISignature;
 
-/* Fills *sig from options.args / options.returns; `options` may be any value
- * (non-objects yield a no-argument, void-returning signature). Unknown type
- * names fall back to i32 for args and void for the return. A type given as an
- * array is a struct passed or returned by value: its elements, in order, are
- * type names or (for a nested struct) arrays, and libffi works out the layout,
- * so they must list every scalar member, array members repeated per element.
- * Returns 0, or -1 with an exception pending (out of memory, or an invalid
- * struct type). Release with ffi_sig_free().
- */
+/* parses options.args and options.returns into `sig`.
+ *
+ * ```js
+ * { args: ["i32", ["f32", "f32"]], returns: "void" }
+ * // an i32, then a struct of two floats passed by value
+ * ```
+ *
+ *   FFISignature*  sig      filled in; release with ffi_sig_free()
+ *   JSValueConst   options  any value; a non-object gives no arguments
+ *                           and a void return
+ *
+ *   returns  0, or -1 with an exception pending (out of memory, or an
+ *            invalid struct type)
+ *
+ * an unknown type name falls back to i32 for an argument, void for the
+ * return. a struct type lists every scalar member in memory order, array
+ * members once per element: libffi works the layout out from that. */
 int ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options);
 
-/* Non-zero if the signature passes or returns a struct by value. */
+/* true if the signature passes or returns a struct by value. */
 int ffi_sig_has_struct(const FFISignature* sig);
 
-/* Safe to call twice: the arrays are cleared on release. */
+/* releases the arrays; safe to call twice, they are cleared. */
 void ffi_sig_free(JSRuntime* rt, FFISignature* sig);
 
 #endif /* defined(QJSFFI_FFI_TYPE_H) */

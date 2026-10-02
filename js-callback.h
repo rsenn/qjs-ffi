@@ -6,19 +6,29 @@
 #include <ffi.h>
 #include "ffi-type.h"
 
-/* JSCallback: a native function pointer (.ptr) that, when called by C code,
- * invokes a JS function. Mirrors bun:ffi's JSCallback:
+/* JSCallback: a native function pointer that calls a JS function
+ * (bun:ffi's JSCallback).
  *
- *   const cb = new JSCallback(fn, { args: [...], returns: ... });
- *   someNativeApiExpectingAFunctionPointer(cb.ptr);
- *   ...
- *   cb.close();
+ * ```js
+ * const cb = new JSCallback(fn, { args: ["i32"], returns: "i32" });
+ * nativeApi(cb.ptr); // when C calls it, fn runs with the C arguments
+ * cb.close();
+ * ```
  *
- * Each instance owns its own ffi_closure/ffi_cif built from the declared
- * arg/return types, so .ptr is a real trampoline that marshals the actual
- * native call arguments into JS values (and the JS return value back into
- * the native ABI return slot) -- unlike the previous CallClosure, which
- * always invoked the JS function with zero arguments.
+ *   function  fn       receives the native arguments, converted
+ *   type[]    args     argument types, default none
+ *   type      returns  default "void"
+ *
+ *   cb.ptr        the function pointer; null once closed
+ *   cb.called     how many times C has called it
+ *   cb.exception  what fn threw in the last call, else undefined
+ *   cb.funcObj    fn
+ *   cb.close()    frees the trampoline; same as [Symbol.dispose]
+ *
+ *   throws  TypeError if fn is not a function
+ *
+ * each instance owns its ffi_closure and cif, built from `args` and
+ * `returns`, so .ptr is a real trampoline.
  */
 typedef struct JSCallback {
   int ref_count, called;
@@ -33,10 +43,15 @@ typedef struct JSCallback {
 
 extern JSClassID js_callback_class_id;
 
-/* `defaults`, if an object, also gets JSCallback (the module's default export). */
+/* exports JSCallback from the module.
+ *
+ *   JSModuleDef*  m         receives the export; may be NULL
+ *   JSValueConst  defaults  if an object, also gets JSCallback (the
+ *                           default export)
+ */
 int js_callback_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 
-/* proto[Symbol.dispose] = proto.close, where the engine or a polyfill has it. */
+/* sets `proto[Symbol.dispose]` to `proto.close`, so `using` works. */
 void js_callback_define_dispose(JSContext*, JSValueConst proto);
 
 static inline JSCallback*

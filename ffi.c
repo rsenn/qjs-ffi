@@ -51,13 +51,13 @@
 #include "ffi-type.h"
 #include "js-callback.h"
 
-/* debug() */
+/* debug(): a stub that returns null. */
 static JSValue
 js_debug(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   return JS_NULL;
 }
 
-/* errno() */
+/* errno(): the C errno, as a Number. */
 static JSValue
 js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   return JS_NewInt32(ctx, errno);
@@ -65,10 +65,15 @@ js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
 
 static JSValue js_dlopen_symbols(JSContext*, JSValueConst path_val, JSValueConst symbol_specs);
 
-/* h = dlopen(name, flags)
- * { symbols, close() } = dlopen(name, symbolSpecs) -- bun-shaped overload,
- * picked when argv[1] is an object rather than a number.
- */
+/* dlopen(path, flags) opens a library; dlopen(path, symbolSpecs) is
+ * bun's form, picked when argument 2 is an object.
+ *
+ * ```js
+ * dlopen("libm.so.6", RTLD_NOW);  // the handle, or null (see dlerror())
+ * dlopen("libm.so.6", { cos: { args: ["f64"], returns: "f64" } });
+ * ```
+ *
+ * the second form returns { symbols, close }, see js_dlopen_symbols(). */
 static JSValue
 js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   const char* s;
@@ -96,7 +101,7 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) 
   return js_new_pointer(ctx, res);
 }
 
-/* s = dlerror() */
+/* dlerror(): the text of the last libdl error, or null. */
 static JSValue
 js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   char* res = dlerror();
@@ -104,7 +109,8 @@ js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[])
   return res ? JS_NewString(ctx, res) : JS_NULL;
 }
 
-/* n = dlclose(h) */
+/* dlclose(handle): closes the library and returns dlclose()'s result,
+ * 0 on success. throws TypeError for a bad or NULL handle. */
 static JSValue
 js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   void* ptr;
@@ -118,7 +124,7 @@ js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[])
   return JS_NewInt32(ctx, dlclose(ptr));
 }
 
-/* p = dlsym(h, name) */
+/* dlsym(handle, name): the symbol's address as a pointer, or null. */
 static JSValue
 js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   void* ptr;
@@ -141,9 +147,9 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   return js_new_pointer(ctx, res);
 }
 
-/* n = dlopen(path, symbolSpecs).close() -- frees the dlopen() handle, passed
- * through js_function_cclosure()'s `opaque` (see js-helpers.c/.h) rather
- * than boxed into a func_data JSValue. */
+/* close() of dlopen(path, symbolSpecs): closes the library and returns
+ * dlclose()'s result. a second call returns 0 and does nothing.
+ * the handle is in data[0]. */
 static JSValue
 js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst data[]) {
   void* ptr;
@@ -160,9 +166,8 @@ js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   return ret;
 }
 
-/* symbols = { name: CFunction } for every key of symbol_specs, resolved with
- * resolve(handle, name), or dlsym() when `resolve` is NULL. With `linked`, a
- * spec's own `ptr` takes precedence over the lookup (linkSymbols()). */
+/* builds the `symbols` object, documented at js_build_symbols() in
+ * c-function.h. */
 JSValue
 js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int linked, const char* who, js_symbol_resolver* resolve) {
   JSPropertyEnum* tab = NULL;
@@ -236,10 +241,7 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
     if(JS_IsException(fn))
       goto fail;
 
-    /* JS_DefinePropertyValue() does not consume `prop` -- the shape's own
-     * property table dups its own atom reference internally (see
-     * add_shape_property() in quickjs.c) -- so this atom is still ours to
-     * free right here, same as every other path out of this loop body. */
+    /* takes `fn`, not the atom: the atom is freed here */
     JS_DefinePropertyValue(ctx, symbols, tab[i].atom, fn, JS_PROP_C_W_E);
     JS_FreeAtom(ctx, tab[i].atom);
   }
@@ -256,12 +258,19 @@ fail:
   return JS_EXCEPTION;
 }
 
-/* { symbols, close() } = dlopen(path, symbolSpecs) -- bun-shaped overload,
- * dispatched to from js_dlopen() when argv[1] is an object rather than a
- * flags number. Opens the library, dlsym()s each key in
- * symbolSpecs, and wraps each as a CFunction (see doc/c-function.md) --
- * no name-keyed registry, no strcmp scan at call time.
- */
+/* dlopen(path, symbolSpecs): opens the library with RTLD_NOW and returns
+ * { symbols, close() }.
+ *
+ * ```js
+ * const { symbols, close } = dlopen("libm.so.6", {
+ *   cos: { args: ["f64"], returns: "f64" },
+ * });
+ * symbols.cos(0); // 1
+ * close();
+ * ```
+ *
+ * throws Error with code ERR_DLOPEN_FAILED if the library does not
+ * open, TypeError for a symbol it does not have. */
 static JSValue
 js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_specs) {
   const char* path = NULL;
@@ -277,7 +286,7 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
     JS_FreeCString(ctx, path);
 
   if(!handle) {
-    /* As bun: an Error (not a TypeError) with a code. */
+    /* an Error with code ERR_DLOPEN_FAILED, as bun throws (no TypeError) */
     const char* err = dlerror();
     char msg[1024];
     JSValue error = JS_NewError(ctx);
@@ -306,9 +315,18 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
 }
 
 #ifdef RTLD_DEFAULT
-/* { symbols } = linkSymbols(symbolSpecs) -- like dlopen(path, symbolSpecs)
- * without opening a library: each spec is resolved from its own `ptr` if it
- * has one, else with dlsym(RTLD_DEFAULT, name). */
+/* linkSymbols(symbolSpecs): like dlopen(path, symbolSpecs), without a
+ * library; returns { symbols }.
+ *
+ * ```js
+ * linkSymbols({
+ *   myabs: { ptr: p, args: ["i32"], returns: "i32" },
+ *   strlen: { args: ["cstring"], returns: "u64" },
+ * });
+ * ```
+ *
+ * a spec's own `ptr` is used; without one the symbol is found with
+ * dlsym(RTLD_DEFAULT, name), as for `strlen` above. */
 static JSValue
 js_linksymbols(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   if(argc < 1 || !JS_IsObject(argv[0]))
@@ -325,7 +343,16 @@ js_linksymbols(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
 }
 #endif
 
-/* s = toString(BUF[, ofs, len] or PTR[, len]) */
+/* toString(buffer[, byteOffset[, byteLength]]) or toString(ptr[, length]):
+ * decodes bytes as a string.
+ *
+ * ```js
+ * toString(ab, 2, 3);  // 3 bytes of a buffer, from byte 2
+ * toString(ptr);       // up to the first NUL byte
+ * toString(ptr, 5);    // 5 bytes
+ * ```
+ *
+ * a NULL pointer gives null. */
 static JSValue
 js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   ByteSpan buf;
@@ -353,8 +380,8 @@ free_objptr(JSRuntime* rt, void* opaque, void* ptr) {
   }
 }
 
-/* b = toArrayBuffer(ArrayBuffer|string[, size[, copy]]) -- the pre-bun:ffi
- * form, still used for a buffer or string source (not valid in bun:ffi). */
+/* toArrayBuffer(buffer|string[, size[, copy]]): the form from before
+ * bun:ffi, still used for a buffer or a string as the source. */
 static JSValue
 js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   ByteSpan buf = {0, SIZE_MAX};
@@ -390,7 +417,7 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
     int64_t len;
 
     if(js_to_index(ctx, &len, argv[1]))
-    return JS_ThrowTypeError(ctx, "argument 2 must be BigInt | Number");
+      return JS_ThrowTypeError(ctx, "argument 2 must be BigInt | Number");
 
     if(buf.size) {
       len = WRAP(len, buf.size);
@@ -403,8 +430,8 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   return copy ? JS_NewArrayBufferCopy(ctx, buf.data, buf.size) : JS_NewArrayBuffer(ctx, buf.data, buf.size, &free_objptr, opaque, FALSE);
 }
 
-/* Deallocator of an ArrayBuffer made by toArrayBuffer(): the native
- * `void (*)(void *bytes, void *deallocatorContext)` the caller supplied. */
+/* the native deallocator of memory wrapped by toArrayBuffer(), supplied
+ * by the caller: void (*)(void *bytes, void *deallocatorContext). */
 typedef void bytes_deallocator(void* bytes, void* context);
 
 typedef struct {
@@ -420,9 +447,9 @@ free_bytes(JSRuntime* rt, void* opaque, void* ptr) {
   free(d);
 }
 
-/* A deallocator or its context: a C address, as a Number or BigInt (null and
- * undefined mean none). Not a JSCallback: the deallocator runs while
- * QuickJS is finalizing the ArrayBuffer, where re-entering JS is unsafe. */
+/* reads a deallocator or its context: a C address as a Number or BigInt;
+ * null and undefined mean none. a JSCallback is refused: the deallocator
+ * runs while QuickJS finalizes the ArrayBuffer, where JS must not run. */
 static int
 js_cptr(JSContext* ctx, void** pptr, JSValueConst v, const char* what) {
   *pptr = NULL;
@@ -443,13 +470,16 @@ js_cptr(JSContext* ctx, void** pptr, JSValueConst v, const char* what) {
   return 0;
 }
 
-/* b = toArrayBuffer(ptr[, byteOffset[, byteLength[, deallocatorContext],
- * jsTypedArrayBytesDeallocator]])
+/* toArrayBuffer(ptr[, byteOffset[, byteLength[, deallocatorContext],
+ * deallocator]]): bun:ffi's form, an ArrayBuffer over native memory.
  *
- * bun:ffi's form, for a pointer (Number, BigInt): an ArrayBuffer over the
- * memory itself (not a copy) from ptr + byteOffset, NUL-terminated when
- * byteLength is omitted. The memory is only freed if a deallocator, the
- * address of a native `void (*)(void *bytes, void *context)`, is given. */
+ * ```js
+ * toArrayBuffer(ptr, 4, 16);  // 16 bytes at ptr + 4, not a copy
+ * toArrayBuffer(ptr);         // the C string at ptr, up to its NUL
+ * ```
+ *
+ * the memory is freed only if a deallocator is given: the address of a
+ * native `void (*)(void *bytes, void *context)`. */
 static JSValue
 js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* p;
@@ -473,7 +503,7 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
   if(!p)
     return JS_ThrowTypeError(ctx, "toArrayBuffer: pointer is NULL");
 
-  /* (byteOffset, byteLength); an undefined one is as if omitted. */
+  /* byteOffset and byteLength; undefined counts as omitted */
   OffsetLength range;
   int given = argc > 2 && !JS_IsUndefined(argv[2]) ? 2 : argc > 1 && !JS_IsUndefined(argv[1]) ? 1 : 0;
   int parsed = js_parse_range(ctx, &range, given, argv + 1);
@@ -482,8 +512,8 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
     return JS_ThrowTypeError(ctx, "toArrayBuffer: byteOffset and byteLength must be BigInt | Number");
 
   if(parsed < 2) {
-    /* No byteLength: the memory is the C string at ptr, so a negative
-     * byteOffset counts from its end, as in slice(). */
+    /* no byteLength: the C string at ptr; a negative byteOffset counts
+     * from its end, as in slice() */
     range = range_wrap(range, strlen((const char*)p));
     p += range.ofs;
     len = strlen((const char*)p);
@@ -495,7 +525,7 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
     len = range.len;
   }
 
-  /* (ptr, off, len, dealloc) or (ptr, off, len, context, dealloc) */
+  /* the last argument is the deallocator, the one before it its context */
   if(argc > 4) {
     if(js_cptr(ctx, &context, argv[3], "deallocatorContext") || js_cptr(ctx, (void**)&dealloc, argv[4], "jsTypedArrayBytesDeallocator"))
       return JS_EXCEPTION;
@@ -523,12 +553,15 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
   return ab;
 }
 
-/* s = toPointer(ArrayBuffer[, offset])
+/* toPointer(buffer[, offset]): the address of a buffer, as a string.
  *
- * returns string 0xAABBCCDD which is the base of the ArrayBuffer
- * plus an optional offset. A negative offset can be used,
- * indicating an offset from the end of the buffer.
- */
+ * ```js
+ * toPointer(ab);     // "0x7f12a4001230"
+ * toPointer(ab, 8);  // 8 bytes further
+ * ```
+ *
+ * the offset is added to the address and may be negative.
+ * ptr() gives a Number or BigInt instead. */
 static JSValue
 js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* ptr = NULL;
@@ -550,9 +583,15 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[
   return JS_NewString(ctx, str);
 }
 
-/* p = ptr(ArrayBuffer[, offset]) -- like toPointer(), but returns the address
- * as a Number/BigInt so it can be fed back into toBuffer()/CString, where a
- * string argument would be read as content rather than an address. */
+/* ptr(buffer[, offset]): the address of a buffer as a Number or BigInt,
+ * which toBuffer() and CString() read as an address; a string would be
+ * read as content.
+ *
+ * ```js
+ * ptr(ab);     // 140123456789
+ * ptr(ab, 8);  // 8 bytes further
+ * ```
+ */
 static JSValue
 js_ptr_address(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* ptr = NULL;
@@ -575,7 +614,7 @@ js_ptr_address(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   return js_new_pointer(ctx, ptr);
 }
 
-/* p = JSContext() */
+/* JSContext(): the address of the running JSContext, as a pointer. */
 static JSValue
 js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   return js_new_pointer(ctx, ctx);
@@ -639,16 +678,16 @@ static const JSCFunctionListEntry js_funcs[] = {
 
 static int
 js_init(JSContext* ctx, JSModuleDef* m) {
-  /* bun:ffi's default export is an object holding every export, so `import ffi
-   * from "ffi"` works: the named exports are the same values. */
+  /* default export: an object holding every export, as in bun:ffi, so
+   * `import ffi from "ffi"` works; the named exports are the same values */
   JSValue defaults = JS_NewObject(ctx);
 
   js_callback_init(ctx, m, defaults);
   js_cfunction_init(ctx, m, defaults);
   js_cstring_init(ctx, m, defaults);
 
-  /* The list instantiates its entries non-enumerable; they are copied so that
-   * `Object.keys(ffi)` lists them, as for the named exports. */
+  /* the list makes its entries non-enumerable; copying them lets
+   * `Object.keys(ffi)` list them, as for the named exports */
   JSValue all = JS_NewObject(ctx);
 
   JS_SetPropertyFunctionList(ctx, all, js_funcs, countof(js_funcs));

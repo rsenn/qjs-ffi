@@ -26,7 +26,8 @@ enum {
     v_; \
   })
 
-/* v = read.<kind>(ptr[, byteOffset]) */
+/* read.<kind>(ptr[, byteOffset]): loads one value of the kind `magic`
+ * names (READ_*) from memory. see ffi-read.h. */
 static JSValue
 js_ffiread(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
   const uint8_t* p = NULL;

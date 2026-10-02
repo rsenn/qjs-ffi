@@ -3,17 +3,23 @@
 
 #include <quickjs.h>
 
-/* read: bun:ffi's direct memory reads, without a DataView or ArrayBuffer.
+/* read: direct memory reads, no DataView or ArrayBuffer (bun:ffi's read).
  *
- *   read.u8(ptr, byteOffset), read.i32(ptr, byteOffset), ...
+ * ```js
+ * read.u8(ptr, byteOffset);
+ * read.i64(ptr); // a bigint
+ * ```
  *
- * for ptr, intptr, i8, i16, i32, i64, u8, u16, u32, u64, f32 and f64 (i64/u64 give
- * a bigint, ptr a pointer as ptr() does, intptr the pointer-sized integer as a
- * Number). `ptr` is an address (Number/BigInt) or
- * an ArrayBuffer/view; byteOffset defaults to 0 and may be negative. The
- * read need not be aligned. A NULL pointer throws a TypeError.
+ *   number|bigint|buffer  ptr         address, or an ArrayBuffer/view
+ *   number                byteOffset  default 0, may be negative;
+ *                                     need not be aligned
  *
- * Meant to be spliced into the module's export list like FFIType:
+ *   returns  by member: i8..i32, u8..u32, f32, f64 a Number; i64, u64
+ *            a bigint; ptr a pointer as ptr() gives; intptr the
+ *            pointer-sized integer as a Number
+ *   throws   TypeError for a NULL or bad pointer
+ *
+ * spliced into the export list like FFIType:
  * JS_OBJECT_DEF("read", js_ffiread_funcs, FFI_READ_COUNT, ...).
  */
 

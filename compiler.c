@@ -10,7 +10,7 @@
 #include "c-function.h"
 #include "js-helpers.h"
 
-/* First line(s) of libtcc diagnostics, reported in the thrown error. */
+/* the first lines of libtcc's diagnostics, reported in the thrown error. */
 typedef struct {
   char text[1024];
   size_t len;
@@ -30,8 +30,12 @@ cc_resolve(void* handle, const char* name) {
   return tcc_get_symbol(handle, name);
 }
 
-/* Calls fn(state, str) for the string, or every string of the array, in
- * options[key] (absent: nothing to do). */
+/* applies `fn(s, str)` to each string in `options[key]`, which is a
+ * string or an array of strings; absent does nothing.
+ *
+ *   returns  0, or -1 with an exception pending: TypeError for another
+ *            type, InternalError if `fn` fails
+ */
 static int
 cc_each_string(JSContext* ctx, JSValueConst options, const char* key, TCCState* s, int (*fn)(TCCState*, const char*)) {
   JSValue arr = JS_GetPropertyStr(ctx, options, key);
@@ -162,8 +166,7 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
     return JS_EXCEPTION;
   }
 
-  /* A file path (string), else a view (ArrayBuffer, TypedArray, DataView)
-   * holding the C source text itself. */
+  /* source: a file path (string), else a buffer holding the C text */
   src = JS_GetPropertyStr(ctx, options, "source");
 
   if(JS_IsString(src)) {
@@ -202,7 +205,8 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
 #endif
   tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
 
-  if(cc_each_string(ctx, options, "flags", s, tcc_set_options) || cc_each_string(ctx, options, "include", s, tcc_add_include_path) || cc_define_all(ctx, options, s) || cc_each_string(ctx, options, "library", s, tcc_add_library))
+  if(cc_each_string(ctx, options, "flags", s, tcc_set_options) || cc_each_string(ctx, options, "include", s, tcc_add_include_path) || cc_define_all(ctx, options, s) ||
+     cc_each_string(ctx, options, "library", s, tcc_add_library))
     goto fail;
 
   rc = path ? tcc_add_file(s, path) : tcc_compile_string(s, text);
@@ -215,7 +219,7 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
     goto fail;
   }
 
-  /* No close(), as in Bun: the TCCState (the compiled code) lives on. */
+  /* no close(), as in bun: the TCCState, so the compiled code, lives on */
   JSValue fns = js_build_symbols(ctx, s, symbols, FALSE, "cc", cc_resolve);
 
   JS_FreeValue(ctx, symbols);

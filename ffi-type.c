@@ -113,15 +113,15 @@ ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
     case K_I64: return JS_NewBigInt64(ctx, *(const int64_t*)p);
     case K_U64: return JS_NewBigUint64(ctx, *(const uint64_t*)p);
     case K_I64_FAST: {
-      /* A Number while it is exact, else the BigInt, as bun:ffi does:
-       * |v| <= Number.MAX_SAFE_INTEGER. */
+      /* a Number while it is exact (|v| <= Number.MAX_SAFE_INTEGER), else
+       * a BigInt, as bun:ffi does */
       int64_t v = *(const int64_t*)p;
 
       return v >= -9007199254740991LL && v <= 9007199254740991LL ? JS_NewInt64(ctx, v) : JS_NewBigInt64(ctx, v);
     }
     case K_U64_FAST: {
-      /* bun switches one value earlier for the unsigned type: a Number up to
-       * 2^53 - 2, the BigInt from 2^53 - 1 on. */
+      /* the unsigned type switches one value earlier, as in bun: a Number
+       * up to 2^53 - 2, a BigInt from 2^53 - 1 on */
       uint64_t v = *(const uint64_t*)p;
 
       return v <= 9007199254740990ULL ? JS_NewInt64(ctx, (int64_t)v) : JS_NewBigUint64(ctx, v);
@@ -142,11 +142,10 @@ ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
 
 static ffi_type* value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, int depth);
 
-/* The struct type of an array of element types, owned by `sig`. NULL with an
- * exception pending on error. libffi fills in size and alignment in
- * ffi_prep_cif(), from the elements alone, so they have to list every scalar
- * member in memory order.
- */
+/* builds the struct type of an array of element types, owned by `sig`;
+ * NULL with an exception pending on error.
+ * the elements list every scalar member in memory order: libffi works
+ * out size and alignment in ffi_prep_cif() from them alone. */
 static ffi_type*
 struct_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int depth) {
   int64_t n = 0;
@@ -201,8 +200,9 @@ struct_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int depth) {
   return st;
 }
 
-/* Sets *kind to -1 if an exception is pending (an invalid struct type); NULL
- * with any other kind is an unknown type name. */
+/* resolves one type spec (name, number or struct array) to its ffi_type.
+ * NULL means an unknown name, or with *kind set to -1 an exception is
+ * pending (an invalid struct type). */
 static ffi_type*
 value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, int depth) {
   const char* s;
