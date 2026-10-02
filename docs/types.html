@@ -77,15 +77,31 @@ number: <code>FFIType.i32</code> is <code>5</code>, and <code>{ args: [5], retur
 <p>Each of the numbers 0 to 17 is also a key that maps to itself (`FFIType[5] ===
 5`), as in bun, which has 61 members in all.</p>
 <p>Not every member can be used in a signature. <code>napi_env</code> and <code>napi_value</code> only
-mean something in Node-API, and <code>buffer_length</code> is not implemented yet: they are
-unknown types, which an argument reads as <code>i32</code> and a return as <code>void</code>.</p>
+mean something in Node-API: they are unknown types, which an argument reads as
+<code>i32</code> and a return as <code>void</code>.</p>
+<h3 id="buffer_length"><a class="anchor" href="#buffer_length" aria-hidden="true">#</a><code>buffer_length</code></h3>
+<p>An argument whose value is the byte length of a view, as in bun:ffi. Pass the
+<em>same</em> view for it as for the <code>buffer</code> parameter before it; the pointer and the
+length are then read off one object, so they always agree (unlike passing
+<code>view.byteLength</code> yourself), and a typed-array view or a <code>DataView</code> over a
+part of a buffer gives the length of that part:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, {
+  <span class="t-id">memchr</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"buffer"</span>, <span class="t-str">"i32"</span>, <span class="t-str">"buffer_length"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"pointer"</span> },
+});
+
+<span class="t-kw">const</span> <span class="t-id">buf</span> <span class="t-op">=</span> <span class="t-type">Uint8Array</span>.<span class="t-kw">from</span>(<span class="t-str">"abcdef"</span>, <span class="t-id">c</span> <span class="t-op">=&gt;</span> <span class="t-id">c</span>.<span class="t-fn">charCodeAt</span>(<span class="t-num">0</span>));
+<span class="t-id">symbols</span>.<span class="t-fn">memchr</span>(<span class="t-id">buf</span>, <span class="t-num">100</span>, <span class="t-id">buf</span>) <span class="t-op">-</span> <span class="t-fn">ptr</span>(<span class="t-id">buf</span>); <span class="t-cm">// 3: 'd' is the fourth byte</span></code></pre></div>
+<p>The function takes three arguments (<code>memchr.length</code> is 3). The argument must be a
+typed array, <code>DataView</code> or <code>ArrayBuffer</code>, else <code>TypeError</code>. <code>buffer_length</code> is
+argument-only: as a <code>returns</code>, in a struct or in a <code>JSCallback</code> it is a
+<code>TypeError</code>.</p>
 <h2 id="abi"><a class="anchor" href="#abi" aria-hidden="true">#</a>ABI</h2>
 <div class="tablewrap"><table><thead><tr><th>Name</th><th>Notes</th></tr></thead><tbody><tr><td><code>"default"</code></td><td>Platform default. Used when <code>abi</code> is omitted.</td></tr><tr><td><code>"sysv"</code></td><td>Only available where libffi defines <code>FFI_SYSV</code>.</td></tr><tr><td><code>"unix64"</code></td><td>Only available where libffi defines <code>FFI_UNIX64</code>.</td></tr><tr><td><code>"stdcall"</code></td><td>Windows only (<code>FFI_STDCALL</code>).</td></tr><tr><td><code>"win64"</code></td><td>Windows only (<code>FFI_WIN64</code>).</td></tr></tbody></table></div>
 <p>An unrecognized or platform-unavailable ABI name falls back to
 <code>"default"</code>.</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/types.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#structs-by-value">Structs by value</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl2"><a href="#abi">ABI</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#structs-by-value">Structs by value</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl3"><a href="#buffer_length">buffer_length</a></li><li class="lvl2"><a href="#abi">ABI</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

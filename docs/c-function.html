@@ -46,13 +46,16 @@ against that stored <code>cif</code>/function pointer with no string lookup invo
 });
 
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">"hello"</span>)); <span class="t-cm">// "hello"</span></code></pre></div>
-<p><code>CFunction()</code> is a factory function, not a constructor -- call it directly,
-without <code>new</code>.</p>
+<p><code>CFunction()</code> may be called with or without <code>new</code>, as in bun:ffi: either way it
+returns the callable function.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">fn</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span>, <span class="t-id">args</span>, <span class="t-id">returns</span>, <span class="t-id">abi</span> })</code></pre></div>
-<div class="tablewrap"><table><thead><tr><th>Option</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>yes</td><td>The native function pointer to call. Anything accepted by <code>toPointer</code>/<code>js_ptr</code> works: <code>null</code>, a number/BigInt address (e.g. from <code>dlsym()</code>, which itself returns <code>null</code> for a NULL pointer), or an ArrayBuffer/TypedArray.</td></tr><tr><td><code>args</code></td><td>no</td><td>Array of types, names or <code>FFIType</code> numbers (see <a href="#types">Types</a>) declaring the parameter list, in order. Omit or use <code>[]</code> for a function that takes no arguments; a value with no usable <code>length</code> (not an object, or a <code>length</code> that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped.</td></tr><tr><td><code>returns</code></td><td>no</td><td>Type name for the return value (see <a href="#types">Types</a>). Defaults to <code>"void"</code>.</td></tr><tr><td><code>abi</code></td><td>no</td><td>Call ABI name (see <a href="types.html#abi">ABI</a>). Defaults to <code>"default"</code>.</td></tr></tbody></table></div>
-<p>If <code>ptr</code> cannot be resolved to a non-null pointer, or the declared types
-can't be turned into a working <code>ffi_cif</code>, <code>CFunction()</code> throws a
-<code>TypeError</code>.</p>
+<div class="tablewrap"><table><thead><tr><th>Option</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>yes</td><td>The native function pointer to call: a <code>number</code> or <code>bigint</code> address, e.g. from <code>dlsym()</code>. NULL, <code>undefined</code>, a view, a <code>JSCallback</code>, a string or anything else is not a function pointer: <code>TypeError</code>.</td></tr><tr><td><code>args</code></td><td>no</td><td>Array of types, names or <code>FFIType</code> numbers (see <a href="#types">Types</a>) declaring the parameter list, in order. Omit or use <code>[]</code> for a function that takes no arguments; a value with no usable <code>length</code> (not an object, or a <code>length</code> that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped.</td></tr><tr><td><code>returns</code></td><td>no</td><td>Type name for the return value (see <a href="#types">Types</a>). Defaults to <code>"void"</code>.</td></tr><tr><td><code>abi</code></td><td>no</td><td>Call ABI name (see <a href="types.html#abi">ABI</a>). Defaults to <code>"default"</code>.</td></tr></tbody></table></div>
+<p>If <code>ptr</code> is not a non-NULL <code>number</code> or <code>bigint</code>, or the declared types can't
+be turned into a working <code>ffi_cif</code>, <code>CFunction()</code> throws a <code>TypeError</code>.</p>
+<p>An argument declared <code>"pointer"</code>, <code>"function"</code> or <code>"T *"</code> is converted as
+described in <a href="pointers.html#pointer-values">Pointer values</a>: an address, a view, a
+<code>JSCallback</code>, or <code>null</code>/<code>undefined</code> for NULL; a boolean, a string or an object is
+a <code>TypeError</code>.</p>
 <p>The returned function's <code>.length</code> matches the declared <code>args</code> count. Extra
 arguments passed at call time are ignored; missing ones are treated as
 <code>undefined</code> (and converted per the declared type, e.g. <code>0</code>/<code>NaN</code>-like for
@@ -89,9 +92,12 @@ of member types for a struct passed by value.</p>
 <h2 id="relationship-to-jscallback"><a class="anchor" href="#relationship-to-jscallback" aria-hidden="true">#</a>Relationship to JSCallback</h2>
 <p><code>CFunction</code> and <a href="js-callback.html"><code>JSCallback</code></a> are mirror images: <code>CFunction</code>
 lets JS call into native code, <code>JSCallback</code> lets native code call into JS.
-Passing a <code>JSCallback</code>'s <code>.ptr</code> as a <code>CFunction</code> argument (declared
-<code>"pointer"</code>) is how you hand a JS-backed callback to a native API expecting
-a function pointer.</p>
+Passing a <code>JSCallback</code> as a <code>CFunction</code> argument (declared <code>"pointer"</code>,
+<code>"function"</code> or <code>"T *"</code>) is how you hand a JS-backed callback to a native API
+expecting a function pointer. It passes the callback's function pointer, so
+<code>cb</code> and <code>cb.ptr</code> are the same; a closed callback is a <code>TypeError</code>. (Any
+function that takes a pointer, such as <code>ptr()</code> or <code>read</code>, unwraps a
+<code>JSCallback</code> the same way.)</p>
 <h2 id="see-also"><a class="anchor" href="#see-also" aria-hidden="true">#</a>See also</h2>
 <ul>
 <li><a href="js-callback.html"><code>doc/js-callback.md</code></a></li>

@@ -416,7 +416,7 @@ of native memory (not copied, not owned), and <code>s.ptr</code> is the address.
 <li>A pointer member gives <code>null</code>, a <code>number</code> or a <code>bigint</code> and takes those, a
 class instance or a buffer. A pointer to a struct of a known class gives a
 live instance of that class (<code>null</code> for NULL). <code>const char *</code> is a plain
-pointer here: decode it with <code>new CString(s.name)</code>.</li>
+pointer here: decode it with <code>CString(s.name)</code>.</li>
 <li>A bitfield is read and written through its storage unit, <code>bitOffset</code> bits up.</li>
 <li>A nested struct is a view of the same memory (<code>s.origin</code> above), an array
 member a typed-array view, an array of pointers a <code>Proxy</code> over a
@@ -439,7 +439,7 @@ for a scalar or pointer, the value:</p>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">sum</span> <span class="t-kw">instanceof</span> <span class="t-id">geom</span>.<span class="t-prop">vec2</span>, <span class="t-id">sum</span>.<span class="t-prop">x</span>, <span class="t-id">sum</span>.<span class="t-prop">y</span>); <span class="t-cm">// true 6 8</span>
 
 <span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-id">geom</span>.<span class="t-prop">shape</span>.<span class="t-fn">at</span>(<span class="t-id">geom</span>.<span class="t-fn">geom_find</span>(<span class="t-str">'circle'</span>));
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">s</span>.<span class="t-prop">id</span>, <span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-id">s</span>.<span class="t-prop">name</span>).<span class="t-fn">toString</span>(), <span class="t-id">s</span>.<span class="t-prop">origin</span>.<span class="t-prop">x</span>, <span class="t-id">s</span>.<span class="t-prop">visible</span>); <span class="t-cm">// 1 circle 0 1</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">s</span>.<span class="t-prop">id</span>, <span class="t-fn">CString</span>(<span class="t-id">s</span>.<span class="t-prop">name</span>), <span class="t-id">s</span>.<span class="t-prop">origin</span>.<span class="t-prop">x</span>, <span class="t-id">s</span>.<span class="t-prop">visible</span>); <span class="t-cm">// 1 circle 0 1</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-fn">geom_move</span>(<span class="t-id">s</span>, <span class="t-num">2</span>, <span class="t-num">3</span>), <span class="t-id">s</span>.<span class="t-prop">origin</span>.<span class="t-prop">x</span>, <span class="t-id">s</span>.<span class="t-prop">origin</span>.<span class="t-prop">y</span>); <span class="t-cm">// 0 2 3</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-prop">geom_count</span>.<span class="t-prop">value</span>); <span class="t-cm">// 2  (geom_count.ptr is its address)</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">geom</span>.<span class="t-type">GEOM_BAD_ARG</span>, <span class="t-id">geom</span>.<span class="t-prop">shape</span>.<span class="t-prop">size</span>); <span class="t-cm">// -1 32</span></code></pre></div>

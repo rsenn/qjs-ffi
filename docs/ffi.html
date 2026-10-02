@@ -114,7 +114,7 @@ resolved from its own <code>ptr</code>, or else with <code>dlsym(RTLD_DEFAULT, n
 <span class="t-kw">const</span> <span class="t-id">qsort</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"qsort"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"void"</span> });
 
 <span class="t-kw">const</span> <span class="t-id">numbers</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Int32Array</span>([<span class="t-num">5</span>, <span class="t-num">3</span>, <span class="t-num">9</span>, <span class="t-num">1</span>]);
-<span class="t-fn">qsort</span>(<span class="t-id">numbers</span>, <span class="t-id">numbers</span>.<span class="t-prop">length</span>, <span class="t-num">4n</span>, <span class="t-id">compare</span>.<span class="t-prop">ptr</span>);
+<span class="t-fn">qsort</span>(<span class="t-id">numbers</span>, <span class="t-id">numbers</span>.<span class="t-prop">length</span>, <span class="t-num">4n</span>, <span class="t-id">compare</span>);
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">numbers</span>); <span class="t-cm">// 1, 3, 5, 9</span>
 
 <span class="t-id">compare</span>.<span class="t-fn">close</span>();</code></pre></div>
@@ -125,7 +125,7 @@ the function.</p>
 <p><code>cstring</code> converts at the boundary: a JavaScript string argument is encoded as
 a NUL-terminated UTF-8 string for the duration of the call, and a <code>cstring</code>
 result is decoded into a new JavaScript string. For a <code>char *</code> that you hold as
-an address, <code>new CString(ptr)</code> decodes it, and <code>toString(ptr, length)</code> decodes
+an address, <code>CString(ptr)</code> decodes it, and <code>toString(ptr, length)</code> decodes
 an exact number of bytes. A <code>char *</code> type spelled that way is a plain pointer.
 See <a href="pointers.html#cstring">Pointers and memory</a>.</p>
 <h2 id="pointers"><a class="anchor" href="#pointers" aria-hidden="true">#</a>Pointers</h2>
@@ -180,14 +180,21 @@ builds compile but are untested.</li>
 <h2 id="differences-from-bunffi"><a class="anchor" href="#differences-from-bunffi" aria-hidden="true">#</a>Differences from bun:ffi</h2>
 <p>This module follows bun:ffi but is not a drop-in replacement yet. The open
 items are tracked in <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies" target="_blank" rel="noopener">TODO.md</a>:</p>
+<p>Not implemented:</p>
 <ul>
-<li><code>CString</code> needs <code>new</code>, and is an object with <code>.ptr</code> and <code>.length</code>.</li>
-<li><code>new CFunction(...)</code> is not supported, call <code>CFunction(...)</code>; there is no
-<code>CFunction().close()</code>.</li>
+<li><code>CFunction().close()</code>, <code>JSCallback</code>'s <code>threadsafe</code> option, <code>cc()</code>'s <code>include</code>
+option, and <code>viewSource</code>. Variables in <code>cc()</code> symbols are not in bun either.</li>
+</ul>
+<p>Different on purpose or for now:</p>
+<ul>
 <li><code>toBuffer()</code> returns an <code>ArrayBuffer</code> (QuickJS has no <code>Buffer</code>).</li>
-<li>Not implemented: the <code>buffer_length</code> type, <code>JSCallback</code>'s <code>threadsafe</code>
-option, passing a <code>JSCallback</code> object (instead of its <code>.ptr</code>) as an
-argument, and variables in <code>cc()</code> symbols (bun has none either).</li>
+<li><code>i64_fast</code> and <code>u64_fast</code> results are always a <code>number</code>, rounded past 2^53;
+bun returns a <code>bigint</code> once the value is no longer exact.</li>
+<li><code>read.ptr</code> and every pointer result are exact (a <code>bigint</code> above 2^53 - 1);
+bun's <code>read.ptr</code> rounds to a <code>number</code>.</li>
+<li>A closed <code>JSCallback</code> passed as a pointer is a <code>TypeError</code>; bun passes a stale
+pointer. <code>CString(ptr, 0, 0)</code> is <code>""</code>; bun throws. An out-of-range <code>bigint</code>
+pointer wraps modulo 2^64, as in bun.</li>
 <li><code>dlopen()</code> failures are a <code>TypeError</code>, not an <code>Error</code> with
 <code>code: "ERR_DLOPEN_FAILED"</code>.</li>
 </ul></article>

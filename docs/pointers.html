@@ -48,11 +48,34 @@ covers every user-space address on 64-bit Linux and Windows (they are below
 </ul>
 <p>As in bun:ffi a <code>number</code> is what you get in practice. Unlike bun's <code>read.ptr</code>,
 which rounds to a <code>number</code> above 2^53, a pointer is never rounded here.</p>
-<p>Everywhere a pointer is taken, a <code>number</code>, a <code>bigint</code>, <code>null</code> (NULL) or an
-<code>ArrayBuffer</code> or view (its address) is accepted, so a typed array or a
-<a href="gen-bindings.html">generated struct class</a> can be passed to a <code>pointer</code>
-parameter as it is. A string is never read as an address (see
-<a href="#topointer"><code>toPointer()</code></a>).</p>
+<p>Where a pointer is taken (a pointer argument, <code>ptr()</code>, <code>read</code>, a library handle),
+the conversion is bun:ffi's:</p>
+<ul>
+<li><code>null</code> and <code>undefined</code> are NULL.</li>
+<li>An <code>ArrayBuffer</code> or view (a typed array or a <code>DataView</code>) is its address, so a
+typed array or a <a href="gen-bindings.html">generated struct class</a> can be passed to
+a <code>pointer</code> parameter as it is. A <a href="js-callback.html"><code>JSCallback</code></a> is its
+function pointer; a closed one is a <code>TypeError</code>.</li>
+<li>A <code>number</code> is truncated to an integer. A <code>NaN</code>, an infinity or a value outside
+the 64-bit range is not an error: it becomes the garbage address
+<code>0x8000000000000000</code>, as in bun.</li>
+<li>A <code>bigint</code> is taken modulo 2^64, so <code>-1n</code> and <code>2n ** 64n - 1n</code> are the same
+address.</li>
+<li>Anything else is a <code>TypeError</code>: a boolean, a Symbol, an object (an array, a
+function, a <code>Number</code> object) and a <strong>string</strong>. A string is never an address:
+encode it as a buffer to pass its bytes (see <a href="#topointer"><code>toPointer()</code></a>;
+only the legacy <code>toArrayBuffer(string, size, false)</code> form still reads one).</li>
+</ul>
+<h3 id="offsets-and-lengths"><a class="anchor" href="#offsets-and-lengths" aria-hidden="true">#</a>Offsets and lengths</h3>
+<p>A <code>byteOffset</code> or <code>byteLength</code> (of <code>ptr()</code>, <code>toPointer()</code>, <code>read</code>, <code>CString</code>,
+<code>toArrayBuffer()</code>) is converted to an integer like <code>Math.trunc(Number(x))</code>, and a
+<code>bigint</code> is taken as it is: <code>"3"</code> is 3, <code>1.5</code> is 1, <code>null</code> and <code>undefined</code> are 0
+(and where it is optional, <code>undefined</code> means omitted). Only a value that cannot
+be converted at all, a Symbol, is refused; it throws a <code>TypeError</code> at once, and
+<code>CString</code> and <code>toArrayBuffer()</code> throw a <code>RangeError</code> for a negative length. The
+argument that is not a pointer is the same <code>TypeError</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">ptr</span>(<span class="t-id">buffer</span>, <span class="t-fn">Symbol</span>());    <span class="t-cm">// TypeError: ptr: argument 2 must be BigInt | Number</span>
+<span class="t-fn">ptr</span>(<span class="t-str">"0x1000"</span>);            <span class="t-cm">// TypeError: cannot convert a string to a pointer; encode it as a buffer</span></code></pre></div>
 <h2 id="ptr"><a class="anchor" href="#ptr" aria-hidden="true">#</a><code>ptr()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>]);</code></pre></div>
 <p>The address of an <code>ArrayBuffer</code> or typed array, plus the offset of the view
@@ -77,7 +100,7 @@ legacy <code>call()</code>.</p>
 <p>Makes an <code>ArrayBuffer</code> over the memory at <code>ptr + byteOffset</code>, as bun:ffi's
 <code>toArrayBuffer()</code>. <code>toBuffer()</code> is the same function (QuickJS has no Node
 <code>Buffer</code>, so it also returns an <code>ArrayBuffer</code>).</p>
-<div class="tablewrap"><table><thead><tr><th>Argument</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>An address (<code>number</code> or <code>bigint</code>). NULL throws a <code>TypeError</code>.</td></tr><tr><td><code>byteOffset</code></td><td>Bytes to skip first. Defaults to 0.</td></tr><tr><td><code>byteLength</code></td><td>Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Negative is a <code>RangeError</code>.</td></tr><tr><td><code>deallocatorContext</code></td><td>An address passed to the deallocator. <code>null</code> or omitted for NULL.</td></tr><tr><td><code>jsTypedArrayBytesDeallocator</code></td><td>The address of a native function <code>void (*)(void *bytes, void *context)</code>, called when the buffer is freed.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Argument</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>An address (<code>number</code> or <code>bigint</code>). NULL throws a <code>TypeError</code>.</td></tr><tr><td><code>byteOffset</code></td><td>Bytes to skip first. Defaults to 0. Without a <code>byteLength</code> a negative offset counts from the end of the C string, as in <code>slice()</code>.</td></tr><tr><td><code>byteLength</code></td><td>Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Negative is a <code>RangeError</code>. An <code>undefined</code> one counts as omitted.</td></tr><tr><td><code>deallocatorContext</code></td><td>An address passed to the deallocator. <code>null</code> or omitted for NULL.</td></tr><tr><td><code>jsTypedArrayBytesDeallocator</code></td><td>The address of a native function <code>void (*)(void *bytes, void *context)</code>, called when the buffer is freed.</td></tr></tbody></table></div>
 <p>The buffer is a view, not a copy: writes to it change the native memory, and
 the memory must stay valid for as long as the buffer is used. Without a
 deallocator the memory is never freed. <code>.slice(0)</code> makes a copy:</p>
@@ -127,21 +150,23 @@ crashes the process.</p>
 <span class="t-id">read</span>.<span class="t-fn">i8</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">1</span>); <span class="t-cm">// -1</span>
 <span class="t-id">read</span>.<span class="t-fn">u32</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">4</span>); <span class="t-cm">// 0x12345678</span></code></pre></div>
 <h2 id="cstring"><a class="anchor" href="#cstring" aria-hidden="true">#</a><code>CString</code></h2>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>]]);</code></pre></div>
-<p>A C string at <code>ptr + byteOffset</code>. Without <code>byteLength</code> it ends at the first NUL
-byte. It decodes when asked, so it follows the memory it is made on; call
-<code>toString()</code> for a JavaScript string that stays valid after the memory is
-freed.</p>
-<div class="tablewrap"><table><thead><tr><th>Member</th><th>Description</th></tr></thead><tbody><tr><td><code id="cstring-s-ptr">s.ptr</code><a class="member-anchor" href="#cstring-s-ptr" aria-hidden="true">#</a></td><td>The address of the first byte.</td></tr><tr><td><code id="cstring-s-length">s.length</code><a class="member-anchor" href="#cstring-s-length" aria-hidden="true">#</a></td><td>The length in bytes (the length to the NUL, if none was given).</td></tr><tr><td><code id="cstring-s-tostring">s.toString()</code><a class="member-anchor" href="#cstring-s-tostring" aria-hidden="true">#</a></td><td>The text, decoded as UTF-8. NULL gives <code>null</code>.</td></tr></tbody></table></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-fn">CString</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>]]);</code></pre></div>
+<p>The C string at <code>ptr + byteOffset</code>, decoded as UTF-8 into a JavaScript string.
+Without <code>byteLength</code> it ends at the first NUL byte. It is a string, not an
+object, so it stays valid after the memory is freed; NULL (or no argument)
+gives <code>""</code>. As in bun:ffi it may be called with <code>new</code>, which also gives a string.
+<code>ptr</code> may be an address or an <code>ArrayBuffer</code> or view.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">CString</span>, <span class="t-id">ptr</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
 
 <span class="t-kw">const</span> <span class="t-id">bytes</span> <span class="t-op">=</span> <span class="t-type">Uint8Array</span>.<span class="t-kw">from</span>(<span class="t-str">"hello\0world"</span>, <span class="t-id">c</span> <span class="t-op">=&gt;</span> <span class="t-id">c</span>.<span class="t-fn">charCodeAt</span>(<span class="t-num">0</span>));
-<span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>));
 
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">s</span>.<span class="t-fn">toString</span>(), <span class="t-id">s</span>.<span class="t-prop">length</span>); <span class="t-cm">// hello 5</span>
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-kw">new</span> <span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>), <span class="t-num">6</span>, <span class="t-num">5</span>).<span class="t-fn">toString</span>()); <span class="t-cm">// world</span></code></pre></div>
-<p><code>CString</code> must be called with <code>new</code>. To get a string from a function that
-returns <code>char *</code>, declare the return type <code>"cstring"</code> and it arrives decoded.</p>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>))); <span class="t-cm">// hello</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>), <span class="t-num">6</span>, <span class="t-num">5</span>)); <span class="t-cm">// world</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>), <span class="t-num">6</span>)); <span class="t-cm">// world</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">CString</span>(<span class="t-atom">null</span>) <span class="t-op">===</span> <span class="t-str">""</span>); <span class="t-cm">// true</span></code></pre></div>
+<p>A negative <code>byteLength</code> is a <code>RangeError</code>. (bun refuses a <code>byteLength</code> of 0;
+here it gives <code>""</code>.) To get a string from a function that returns <code>char *</code>,
+declare the return type <code>"cstring"</code> and it arrives decoded.</p>
 <h2 id="tostring"><a class="anchor" href="#tostring" aria-hidden="true">#</a><code>toString()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toString</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>]]);
 <span class="t-fn">toString</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteLength</span>]);</code></pre></div>
@@ -157,7 +182,7 @@ structures of pointers and to step over arrays of them.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">read</span>.<span class="t-fn">ptr</span>(<span class="t-id">p</span>, <span class="t-id">i</span> <span class="t-op">*</span> <span class="t-id">pointerSize</span>);</code></pre></div></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/pointers.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#pointer-values">Pointer values</a></li><li class="lvl2"><a href="#ptr">ptr()</a></li><li class="lvl2"><a href="#topointer">toPointer()</a></li><li class="lvl2"><a href="#toarraybuffer">toArrayBuffer()</a></li><li class="lvl3"><a href="#freeing-the-memory-with-the-buffer">Freeing the memory with the buffer</a></li><li class="lvl3"><a href="#from-an-arraybuffer-or-a-string">From an ArrayBuffer or a string</a></li><li class="lvl2"><a href="#read">read</a></li><li class="lvl2"><a href="#cstring">CString</a></li><li class="lvl2"><a href="#tostring">toString()</a></li><li class="lvl2"><a href="#pointersize">pointerSize</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#pointer-values">Pointer values</a></li><li class="lvl3"><a href="#offsets-and-lengths">Offsets and lengths</a></li><li class="lvl2"><a href="#ptr">ptr()</a></li><li class="lvl2"><a href="#topointer">toPointer()</a></li><li class="lvl2"><a href="#toarraybuffer">toArrayBuffer()</a></li><li class="lvl3"><a href="#freeing-the-memory-with-the-buffer">Freeing the memory with the buffer</a></li><li class="lvl3"><a href="#from-an-arraybuffer-or-a-string">From an ArrayBuffer or a string</a></li><li class="lvl2"><a href="#read">read</a></li><li class="lvl2"><a href="#cstring">CString</a></li><li class="lvl2"><a href="#tostring">toString()</a></li><li class="lvl2"><a href="#pointersize">pointerSize</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

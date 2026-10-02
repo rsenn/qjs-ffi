@@ -97,7 +97,7 @@ or <code>cc()</code> throws a <code>TypeError</code> (<code>cc: symbol not found
 <p>Only functions can be exposed. Bun's docs prose says "functions and
 variables", but its <code>symbols</code> is typed <code>Record&lt;string, FFIFunction&gt;</code> and its
 implementation requires <code>args</code> and wraps every entry as a call, so it exposes
-no variables either; exposing them here is planned (see <code>TODO.md</code>, 5.4).</p>
+no variables either; exposing them here is planned (see <code>TODO.md</code>, 5.3).</p>
 <h3 id="library"><a class="anchor" href="#library" aria-hidden="true">#</a><code>library</code></h3>
 <div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Library = string | string[];
 
