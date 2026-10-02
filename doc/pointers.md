@@ -78,8 +78,8 @@ Makes an `ArrayBuffer` over the memory at `ptr + byteOffset`, as bun:ffi's
 | Argument | Description |
 | -------- | ----------- |
 | `ptr` | An address (`number` or `bigint`). NULL throws a `TypeError`. |
-| `byteOffset` | Bytes to skip first. Defaults to 0. |
-| `byteLength` | Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Negative is a `RangeError`. |
+| `byteOffset` | Bytes to skip first. Defaults to 0. Without a `byteLength` a negative offset counts from the end of the C string, as in `slice()`. |
+| `byteLength` | Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Negative is a `RangeError`. An `undefined` one counts as omitted. |
 | `deallocatorContext` | An address passed to the deallocator. `null` or omitted for NULL. |
 | `jsTypedArrayBytesDeallocator` | The address of a native function `void (*)(void *bytes, void *context)`, called when the buffer is freed. |
 

@@ -2,19 +2,6 @@
 #include "js-callback.h"
 #include <cutils.h>
 
-/* Resolve negative RANGE.ofs (from the end of a SIZE-byte buffer) and negative
- * RANGE.len (from the end of what remains after the offset), like slice(). */
-static OffsetLength
-range_wrap(OffsetLength range, size_t size) {
-  int64_t offset = WRAP(range.ofs, size);
-
-  size -= offset;
-
-  return (OffsetLength){
-      offset,
-      WRAP(range.len, size),
-  };
-}
 
 /* Narrow SPAN in place to the window RANGE describes: advance data by ofs and
  * clamp size to what remains. RANGE must already be wrapped and ofs within

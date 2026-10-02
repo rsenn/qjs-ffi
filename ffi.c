@@ -67,7 +67,7 @@ static JSValue js_dlopen_symbols(JSContext*, JSValueConst path_val, JSValueConst
 
 /* h = dlopen(name, flags)
  * { symbols, close() } = dlopen(name, symbolSpecs) -- bun-shaped overload,
- * picked when argv[1] is an object rather than a number (TODO.md Phase 2).
+ * picked when argv[1] is an object rather than a number.
  */
 static JSValue
 js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
@@ -238,7 +238,7 @@ fail:
 
 /* { symbols, close() } = dlopen(path, symbolSpecs) -- bun-shaped overload,
  * dispatched to from js_dlopen() when argv[1] is an object rather than a
- * flags number (TODO.md Phase 2). Opens the library, dlsym()s each key in
+ * flags number. Opens the library, dlsym()s each key in
  * symbolSpecs, and wraps each as a CFunction (see doc/c-function.md) --
  * no name-keyed registry, no strcmp scan at call time.
  */
@@ -410,7 +410,7 @@ js_cptr(JSContext* ctx, void** pptr, JSValueConst v, const char* what) {
 static JSValue
 js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* p;
-  int64_t off = 0, len = -1;
+  int64_t len;
   bytes_deallocator* dealloc = NULL;
   void* context = NULL;
 
@@ -430,16 +430,27 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
   if(!p)
     return JS_ThrowTypeError(ctx, "toArrayBuffer: pointer is NULL");
 
-  if(argc > 1 && !JS_IsUndefined(argv[1]) && JS_ToInt64(ctx, &off, argv[1]))
+  /* (byteOffset, byteLength); an undefined one is as if omitted. */
+  OffsetLength range;
+  int given = argc > 2 && !JS_IsUndefined(argv[2]) ? 2 : argc > 1 && !JS_IsUndefined(argv[1]) ? 1 : 0;
+  int parsed = js_parse_range(ctx, &range, given, argv + 1);
+
+  if(JS_HasException(ctx))
     return JS_EXCEPTION;
 
-  p += off;
+  if(parsed < 2) {
+    /* No byteLength: the memory is the C string at ptr, so a negative
+     * byteOffset counts from its end, as in slice(). */
+    range = range_wrap(range, strlen((const char*)p));
+    p += range.ofs;
+    len = strlen((const char*)p);
+  } else {
+    if(range.len < 0)
+      return JS_ThrowRangeError(ctx, "toArrayBuffer: byteLength must not be negative");
 
-  if(argc > 2 && !JS_IsUndefined(argv[2]) && JS_ToInt64(ctx, &len, argv[2]))
-    return JS_EXCEPTION;
-
-  if(len < 0 && argc > 2 && !JS_IsUndefined(argv[2]))
-    return JS_ThrowRangeError(ctx, "toArrayBuffer: byteLength must not be negative");
+    p += range.ofs;
+    len = range.len;
+  }
 
   /* (ptr, off, len, dealloc) or (ptr, off, len, context, dealloc) */
   if(argc > 4) {
@@ -449,9 +460,6 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
     if(js_cptr(ctx, (void**)&dealloc, argv[3], "jsTypedArrayBytesDeallocator"))
       return JS_EXCEPTION;
   }
-
-  if(len < 0)
-    len = strlen((const char*)p);
 
   if(!dealloc)
     return JS_NewArrayBuffer(ctx, p, len, NULL, NULL, FALSE);

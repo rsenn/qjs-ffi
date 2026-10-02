@@ -33,6 +33,22 @@ await tests({
     eq(0, toArrayBuffer(ptr(src), 2).byteLength);
   },
 
+  'without a byteLength a negative byteOffset counts from the end of the C string'() {
+    const src = new Uint8Array([104, 101, 108, 108, 111, 0, 120]);
+
+    eq('108,111', new Uint8Array(toArrayBuffer(ptr(src), -2)).join());
+    eq('104,101,108,108,111', new Uint8Array(toArrayBuffer(ptr(src), -5)).join());
+    eq(1, toArrayBuffer(ptr(src), 4).byteLength);
+  },
+
+  'an explicit byteLength reads that much past any NUL; undefined is as if omitted'() {
+    const src = new Uint8Array([104, 105, 0, 7, 8]);
+
+    eq('104,105,0,7,8', new Uint8Array(toArrayBuffer(ptr(src), 0, 5)).join());
+    eq(2, toArrayBuffer(ptr(src), 0, undefined).byteLength);
+    eq('104,105,0', new Uint8Array(toArrayBuffer(ptr(src), undefined, 3)).join());
+  },
+
   'toBuffer is the same function'() {
     const src = new Uint8Array([1, 2, 3]);
     eq('2,3', new Uint8Array(toBuffer(ptr(src), 1, 2)).join());
