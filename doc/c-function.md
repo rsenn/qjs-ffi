@@ -35,14 +35,18 @@ fn = CFunction({ ptr, args, returns, abi })
 
 | Option    | Required | Description                                                                                       |
 | --------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `ptr`     | yes      | The native function pointer to call. Anything accepted by `toPointer`/`js_to_pointer` works: `null`, a number/BigInt address (e.g. from `dlsym()`, which itself returns `null` for a NULL pointer), or an ArrayBuffer/TypedArray. |
+| `ptr`     | yes      | The native function pointer to call: a `number` or `bigint` address, e.g. from `dlsym()`. NULL, `undefined`, a view, a `JSCallback`, a string or anything else is not a function pointer: `TypeError`. |
 | `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
 | `returns` | no       | Type name for the return value (see [Types](#types)). Defaults to `"void"`.                       |
 | `abi`     | no       | Call ABI name (see [ABI](types.md#abi)). Defaults to `"default"`.                                          |
 
-If `ptr` cannot be resolved to a non-null pointer, or the declared types
-can't be turned into a working `ffi_cif`, `CFunction()` throws a
-`TypeError`.
+If `ptr` is not a non-NULL `number` or `bigint`, or the declared types can't
+be turned into a working `ffi_cif`, `CFunction()` throws a `TypeError`.
+
+An argument declared `"pointer"`, `"function"` or `"T *"` is converted as
+described in [Pointer values](pointers.md#pointer-values): an address, a view, a
+`JSCallback`, or `null`/`undefined` for NULL; a boolean, a string or an object is
+a `TypeError`.
 
 The returned function's `.length` matches the declared `args` count. Extra
 arguments passed at call time are ignored; missing ones are treated as

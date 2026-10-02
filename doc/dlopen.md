@@ -55,8 +55,8 @@ const { symbols } = linkSymbols(symbolSpecs);
 ```
 
 Like `dlopen()`, without opening a library, and without `close()`. A spec is
-resolved from its own `ptr` if it has one (a number or `bigint`; a NULL `ptr`
-is a `TypeError`), and otherwise with `dlsym(RTLD_DEFAULT, name)`. It makes
+resolved from its own `ptr` if it has one (a non-NULL `number` or `bigint`; NULL,
+a string or anything else is a `TypeError`), and otherwise with `dlsym(RTLD_DEFAULT, name)`. It makes
 functions from pointers you got elsewhere in one call:
 
 ```js
@@ -98,8 +98,10 @@ const fp = dlsym(handle, "compress");
 ```
 
 Returns the address of the symbol, or `null` if it is not found. `handle` is a
-library handle, or `RTLD_DEFAULT` or `RTLD_NEXT`. Pass the result to
-[`CFunction`](c-function.md) or as a `ptr`.
+library handle, or `RTLD_DEFAULT` or `RTLD_NEXT`: a `number`, a `bigint` (taken
+modulo 2^64, so `2n ** 64n - 1n` is `RTLD_NEXT`) or `null`/`undefined` for
+`RTLD_DEFAULT`. A boolean, a string or an object is a `TypeError`. Pass the
+result to [`CFunction`](c-function.md) or as a `ptr`.
 
 ### `dlclose(handle)`
 

@@ -42,6 +42,21 @@ the conversion is bun:ffi's:
     encode it as a buffer to pass its bytes (see [`toPointer()`](#topointer);
     only the legacy `toArrayBuffer(string, size, false)` form still reads one).
 
+### Offsets and lengths
+
+A `byteOffset` or `byteLength` (of `ptr()`, `toPointer()`, `read`, `CString`,
+`toArrayBuffer()`) is converted to an integer like `Math.trunc(Number(x))`, and a
+`bigint` is taken as it is: `"3"` is 3, `1.5` is 1, `null` and `undefined` are 0
+(and where it is optional, `undefined` means omitted). Only a value that cannot
+be converted at all, a Symbol, is refused; it throws a `TypeError` at once, and
+`CString` and `toArrayBuffer()` throw a `RangeError` for a negative length. The
+argument that is not a pointer is the same `TypeError`:
+
+```js
+ptr(buffer, Symbol());    // TypeError: ptr: argument 2 must be BigInt | Number
+ptr("0x1000");            // TypeError: cannot convert a string to a pointer; encode it as a buffer
+```
+
 ## `ptr()`
 
 ```js

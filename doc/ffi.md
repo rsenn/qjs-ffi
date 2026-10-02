@@ -226,9 +226,20 @@ pointer outlives nothing. In particular
 This module follows bun:ffi but is not a drop-in replacement yet. The open
 items are tracked in [TODO.md](../TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies):
 
-*   There is no `CFunction().close()`.
-*   `toBuffer()` returns an `ArrayBuffer` (QuickJS has no `Buffer`).
-*   Not implemented: `JSCallback`'s `threadsafe` option, `cc()`'s `include`
+Not implemented:
+
+*   `CFunction().close()`, `JSCallback`'s `threadsafe` option, `cc()`'s `include`
     option, and `viewSource`. Variables in `cc()` symbols are not in bun either.
+
+Different on purpose or for now:
+
+*   `toBuffer()` returns an `ArrayBuffer` (QuickJS has no `Buffer`).
+*   `i64_fast` and `u64_fast` results are always a `number`, rounded past 2^53;
+    bun returns a `bigint` once the value is no longer exact.
+*   `read.ptr` and every pointer result are exact (a `bigint` above 2^53 - 1);
+    bun's `read.ptr` rounds to a `number`.
+*   A closed `JSCallback` passed as a pointer is a `TypeError`; bun passes a stale
+    pointer. `CString(ptr, 0, 0)` is `""`; bun throws. An out-of-range `bigint`
+    pointer wraps modulo 2^64, as in bun.
 *   `dlopen()` failures are a `TypeError`, not an `Error` with
     `code: "ERR_DLOPEN_FAILED"`.
