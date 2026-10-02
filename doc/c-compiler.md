@@ -103,7 +103,7 @@ or `cc()` throws a `TypeError` (`cc: symbol not found: <name>`).
 Only functions can be exposed. Bun's docs prose says "functions and
 variables", but its `symbols` is typed `Record<string, FFIFunction>` and its
 implementation requires `args` and wraps every entry as a call, so it exposes
-no variables either; exposing them here is planned (see `TODO.md`, 5.4).
+no variables either; exposing them here is planned (see `TODO.md`, 5.3).
 
 ### `library`
 

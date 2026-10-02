@@ -15,16 +15,6 @@ function assertThrows(fn) {
   throw new Error('expected to throw');
 }
 
-// Writes `code` to .tmp/<name>.c and returns its path.
-function csource(name, code) {
-  os.mkdir(tmp);
-  const path = tmp + name + '.c';
-  const f = std.open(path, 'w');
-  f.puts(code);
-  f.close();
-  return path;
-}
-
 const bytesOf = str => Uint8Array.from(str, c => c.charCodeAt(0));
 
 // cc() only exists when the module was built with -DENABLE_TCC=ON.
@@ -36,18 +26,18 @@ if(typeof ffi.cc != 'function') {
 
   await tests({
     'cc compiles and calls a function'() {
-      const source = csource('add', 'int add(int a, int b) { return a + b; }');
+      const source = bytesOf('int add(int a, int b) { return a + b; }');
       const { symbols } = cc({ source, symbols: { add: { args: ['i32', 'i32'], returns: 'i32' } } });
       eq(5, symbols.add(2, 3));
     },
 
     'cc accepts bun:ffi C-style type names'() {
-      const source = csource('alias', 'int hello(void) { return 42; }');
+      const source = bytesOf('int hello(void) { return 42; }');
       eq(42, cc({ source, symbols: { hello: { args: [], returns: 'int' } } }).symbols.hello());
     },
 
     'cc returns only { symbols }'() {
-      const source = csource('hello', 'int hello(void) { return 42; }');
+      const source = bytesOf('int hello(void) { return 42; }');
       const r = cc({ source, symbols: { hello: { args: [], returns: 'i32' } } });
       eq('symbols', Object.keys(r).join());
       eq(42, r.symbols.hello());
@@ -70,10 +60,9 @@ if(typeof ffi.cc != 'function') {
     },
 
     'cc can use libc and doubles'() {
-      const source = csource(
-        'libc',
+      const source = bytesOf(
         '#include <math.h>\n#include <string.h>\ndouble hyp(double a, double b) { return sqrt(a*a + b*b); }\n' +
-          'unsigned long len(const char* s) { return strlen(s); }',
+          'unsigned long len(const char* s) { return strlen(s); }'
       );
       const { symbols } = cc({
         source,
@@ -84,30 +73,30 @@ if(typeof ffi.cc != 'function') {
     },
 
     'cc honours define'() {
-      const source = csource('define', 'int answer(void) { return ANSWER; }');
+      const source = bytesOf('int answer(void) { return ANSWER; }');
       eq(42, cc({ source, define: { ANSWER: '42' }, symbols: { answer: { args: [], returns: 'i32' } } }).symbols.answer());
     },
 
     'cc honours flags (string and array)'() {
-      const source = csource('flags', 'int answer(void) { return ANSWER + OTHER; }');
+      const source = bytesOf('int answer(void) { return ANSWER + OTHER; }');
       const symbols = { answer: { args: [], returns: 'i32' } };
       eq(3, cc({ source, flags: '-DANSWER=1 -DOTHER=2', symbols }).symbols.answer());
       eq(7, cc({ source, flags: ['-DANSWER=3', '-DOTHER=4'], symbols }).symbols.answer());
     },
 
     'cc honours library'() {
-      const source = csource('lib', '#include <math.h>\ndouble f(double x) { return pow(x, 2); }');
+      const source = bytesOf('#include <math.h>\ndouble f(double x) { return pow(x, 2); }');
       eq(9, cc({ source, library: ['m'], symbols: { f: { args: ['f64'], returns: 'f64' } } }).symbols.f(3));
     },
 
     'cc throws InternalError with the compiler message on a syntax error'() {
-      const source = csource('bad', 'int f( {');
+      const source = bytesOf('int f( {');
       const e = assertThrows(() => cc({ source, symbols: { f: { args: [], returns: 'i32' } } }));
       assert(e instanceof InternalError && /error/.test(e.message), 'unexpected ' + e);
     },
 
     'cc throws TypeError for an unknown symbol'() {
-      const source = csource('nosym', 'int f(void) { return 1; }');
+      const source = bytesOf('int f(void) { return 1; }');
       const e = assertThrows(() => cc({ source, symbols: { g: { args: [], returns: 'i32' } } }));
       assert(e instanceof TypeError, 'expected TypeError, got ' + e);
     },

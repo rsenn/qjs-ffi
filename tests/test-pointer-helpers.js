@@ -105,7 +105,7 @@ await tests({
     for(const f of cases) {
       let e;
       try { f(); } catch(x) { e = x; }
-      assert(e instanceof TypeError || e instanceof RangeError, 'expected a TypeError (or RangeError) for ' + f + ', got ' + e);
+      assert(e instanceof TypeError, 'expected a TypeError for ' + f + ', got ' + e);
     }
 
     // After all that, a good call must work, and the script must end clean:
