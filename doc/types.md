@@ -61,6 +61,8 @@ compiler's layout and only binds a function when it holds.
 *   An empty array, a nesting more than 8 deep, or a member that is not a type
     name or an array throws when the `CFunction` is made.
 *   `JSCallback` does not take struct types and throws a `TypeError`.
+*   A struct type also describes a [variable](dlopen.md#variables): it reads as
+    an `ArrayBuffer` over the variable's memory.
 
 
 ## FFIType

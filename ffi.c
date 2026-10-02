@@ -181,9 +181,16 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
       goto fail;
 
     JSValue spec = JS_GetPropertyStr(ctx, symbol_specs, name);
+    int data;
 
     if(JS_IsException(spec)) {
       JS_FreeCString(ctx, name);
+      goto fail;
+    }
+
+    if((data = js_is_data_spec(ctx, spec, who, name)) < 0) {
+      JS_FreeCString(ctx, name);
+      JS_FreeValue(ctx, spec);
       goto fail;
     }
 
@@ -206,6 +213,19 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
       JS_FreeCString(ctx, name);
       JS_FreeValue(ctx, spec);
       goto fail;
+    }
+
+    if(data) {
+      int rc = js_variable_define(ctx, symbols, tab[i].atom, fp, spec, who, name);
+
+      JS_FreeCString(ctx, name);
+      JS_FreeValue(ctx, spec);
+
+      if(rc)
+        goto fail;
+
+      JS_FreeAtom(ctx, tab[i].atom);
+      continue;
     }
 
     JS_FreeCString(ctx, name);

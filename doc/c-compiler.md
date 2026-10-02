@@ -100,10 +100,10 @@ value](types.md#structs-by-value) and [ABI names](types.md#abi)
 documented there apply unchanged. Every name must exist in the compiled code,
 or `cc()` throws a `TypeError` (`cc: symbol not found: <name>`).
 
-Only functions can be exposed. Bun's docs prose says "functions and
-variables", but its `symbols` is typed `Record<string, FFIFunction>` and its
-implementation requires `args` and wraps every entry as a call, so it exposes
-no variables either; exposing them here is planned (see `TODO.md`, 5.3).
+A spec with `type` instead of `args`/`returns` exposes a variable, which bun
+does not (its `symbols` is typed `Record<string, FFIFunction>`); see
+[Variables](dlopen.md#variables). `cc()` code is never freed, so such an
+address stays valid.
 
 ### `library`
 

@@ -22,7 +22,7 @@ if(typeof ffi.cc != 'function') {
   console.log('cc() not available (ENABLE_TCC=OFF), skipping');
   await tests({ 'cc skipped'() {} });
 } else {
-  const { cc } = ffi;
+  const { cc, read } = ffi;
 
   await tests({
     'cc compiles and calls a function'() {
@@ -101,6 +101,129 @@ if(typeof ffi.cc != 'function') {
         os.remove(dir + 'answer.h');
         os.remove(dir);
       }
+    },
+
+    'cc exposes variables: read, write, live'() {
+      const source = bytesOf(`
+        int counter = 5;
+        unsigned char u8 = 200;
+        long long i64 = -5;
+        unsigned long long big = 1ULL << 60;
+        float f = 1.5f;
+        double d = 2.25;
+        _Bool flag = 1;
+        const char* name = "bob";
+        void* p = 0;
+        int get(void) { return counter; }
+        void set(int v) { counter = v; }
+      `);
+      const { symbols: s } = cc({
+        source,
+        symbols: {
+          counter: { type: 'i32' },
+          u8: { type: 'u8' },
+          i64: { type: 'i64' },
+          big: { type: 'u64' },
+          f: { type: 'f32' },
+          d: { type: 'f64' },
+          flag: { type: 'bool' },
+          name: { type: 'cstring' },
+          p: { type: 'pointer' },
+          get: { args: [], returns: 'i32' },
+          set: { args: ['i32'], returns: 'void' },
+        },
+      });
+
+      eq(5, s.counter);
+      eq(200, s.u8);
+      eq(-5n, s.i64);
+      eq(1n << 60n, s.big);
+      eq(1.5, s.f);
+      eq(2.25, s.d);
+      eq(true, s.flag);
+      eq('bob', s.name);
+      eq(null, s.p);
+
+      s.counter = 7;
+      eq(7, s.counter);
+      eq(7, s.get());
+      s.set(9);
+      eq(9, s.counter);
+
+      s.u8 = 255;
+      eq(255, s.u8);
+      s.i64 = -(1n << 40n);
+      eq(-(1n << 40n), s.i64);
+      s.f = 0.5;
+      eq(0.5, s.f);
+      s.d = -1e100;
+      eq(-1e100, s.d);
+      s.flag = false;
+      eq(false, s.flag);
+      s.p = 4096;
+      eq(4096, Number(s.p));
+
+      eq('counter,u8,i64,big,f,d,flag,name,p,get,set', Object.keys(s).join());
+      eq(true, Object.getOwnPropertyDescriptor(s, 'counter').enumerable);
+      eq('function', typeof Object.getOwnPropertyDescriptor(s, 'counter').get);
+    },
+
+    'cc variables: readonly, cstring and void are not assignable'() {
+      const source = bytesOf('const double pi = 3.25; const char* name = "bob"; int x;');
+      const { symbols: s } = cc({ source, symbols: { pi: { type: 'f64', readonly: true }, name: { type: 'cstring' } } });
+
+      assert(assertThrows(() => (s.pi = 3)) instanceof TypeError);
+      eq(3.25, s.pi);
+      assert(assertThrows(() => (s.name = 'x')) instanceof TypeError);
+      eq('bob', s.name);
+      assert(assertThrows(() => cc({ source, symbols: { x: { type: 'void' } } })) instanceof TypeError);
+    },
+
+    'cc variables: a struct or array is a view of the C memory'() {
+      const source = bytesOf(`
+        struct { float x; float y; } origin = { 1, 2 };
+        int arr[3] = { 1, 2, 3 };
+        float sum(void) { return origin.x + origin.y; }
+        int third(void) { return arr[2]; }
+      `);
+      const { symbols: s } = cc({
+        source,
+        symbols: {
+          origin: { type: ['f32', 'f32'] },
+          arr: { type: ['i32', 'i32', 'i32'] },
+          sum: { args: [], returns: 'f32' },
+          third: { args: [], returns: 'i32' },
+        },
+      });
+
+      assert(s.origin instanceof ArrayBuffer);
+      eq(8, s.origin.byteLength);
+      eq('1,2', [...new Float32Array(s.origin)].join());
+
+      new Float32Array(s.origin)[1] = 5; // written through the view, seen by C
+      eq(6, s.sum());
+      eq('1,5', [...new Float32Array(s.origin)].join());
+
+      eq('1,2,3', [...new Int32Array(s.arr)].join());
+      new Int32Array(s.arr)[2] = 30;
+      eq(30, s.third());
+
+      assert(assertThrows(() => (s.origin = new ArrayBuffer(8))) instanceof TypeError);
+    },
+
+    'cc variables: address: true is the address, as dlsym()'() {
+      const source = bytesOf('int counter = 5;');
+      const { symbols: s } = cc({ source, symbols: { counter: { type: 'i32', address: true } } });
+
+      eq(5, read.i32(s.counter, 0));
+      assert(assertThrows(() => (s.counter = 1)) instanceof TypeError);
+    },
+
+    'cc throws for a variable that is not there, and for type mixed with args'() {
+      const source = bytesOf('int x;');
+      assert(assertThrows(() => cc({ source, symbols: { y: { type: 'i32' } } })) instanceof TypeError);
+      assert(assertThrows(() => cc({ source, symbols: { x: { type: 'i32', args: [] } } })) instanceof TypeError);
+      assert(assertThrows(() => cc({ source, symbols: { x: { type: 'i32', returns: 'i32' } } })) instanceof TypeError);
     },
 
     'cc honours library'() {

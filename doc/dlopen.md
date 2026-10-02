@@ -6,6 +6,7 @@ behind everything else in `ffi`: [`CFunction`](c-function.md) and
 
 *   [`dlopen(path, symbols)`](#dlopenpath-symbols)
 *   [`linkSymbols(symbols)`](#linksymbols)
+*   [Variables](#variables)
 *   [`dlopen(path, flags)`, `dlsym()`, `dlclose()`, `dlerror()`](#raw-libdl)
 *   [`errno()`](#errno)
 *   [`suffix`](#suffix) and the [RTLD constants](#rtld-constants)
@@ -73,6 +74,46 @@ symbols.strlen("hello"); // 5n
 
 A symbol that is not found throws a `TypeError`. Only available where the
 platform defines `RTLD_DEFAULT`.
+
+## Variables
+
+An extension: bun exposes only functions. A spec with `type` and no `args` or
+`returns` is a variable (a spec with both throws a `TypeError`). It works the
+same in `dlopen()`, `linkSymbols()` and [`cc()`](c-compiler.md):
+
+```js
+const { symbols } = cc({
+  source: "counter.c", // int counter = 5; const double pi = 3.14; struct { float x, y; } origin;
+  symbols: {
+    counter: { type: "i32" },
+    pi: { type: "f64", readonly: true },
+    origin: { type: ["f32", "f32"] },
+    hello: { args: [], returns: "i32" }, // functions as before
+  },
+});
+
+symbols.counter; // 5, the memory is read each time
+symbols.counter = 7; // and written
+```
+
+`symbols.<name>` is an enumerable accessor property, so it is live. A read
+converts the value as a `returns` of that type does, a write as an `args` of it
+does (a `bigint` for `i64`, a pointer for `pointer`; see [Types](types.md)).
+
+*   `readonly: true`: a write throws a `TypeError`.
+*   A struct type (an array, see [structs](types.md#structs-by-value)) reads as
+    an `ArrayBuffer` over the variable's own memory, with no copy: writes
+    through a view reach the variable. This is also how a C array is exposed
+    (list the element type once per element). It cannot be assigned.
+*   `cstring` reads the string a `char *` variable points to (`null` for NULL)
+    and cannot be assigned. `function` reads as a pointer.
+*   `void` (and `buffer_length`) is a `TypeError`.
+*   `address: true` makes the property a plain pointer value, the address like
+    `dlsym()` gives, for passing `&counter` to C or to `read`.
+    A variable that is not in the library is a `TypeError` as for functions.
+
+The address is the library's: after `close()` a variable dangles as the
+functions do.
 
 ## Raw libdl
 

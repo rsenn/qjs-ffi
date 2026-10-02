@@ -32,6 +32,14 @@ typedef void* js_symbol_resolver(void* handle, const char* name);
  * precedence. `who` prefixes error messages. */
 JSValue js_build_symbols(JSContext*, void* handle, JSValueConst symbol_specs, int linked, const char* who, js_symbol_resolver* resolve);
 
+/* Data symbols: a spec with `type` (and not `args`/`returns`) is a variable.
+ * js_is_data_spec() is 1 for one, 0 for a function spec, -1 (TypeError) for a
+ * mix. js_variable_define() defines property `prop` of `obj` for the variable
+ * at `addr`: an accessor over its memory, or with `address: true` the address
+ * as a pointer value. `who` and `name` prefix error messages. Returns 0 or -1. */
+int js_is_data_spec(JSContext*, JSValueConst spec, const char* who, const char* name);
+int js_variable_define(JSContext*, JSValueConst obj, JSAtom prop, void* addr, JSValueConst spec, const char* who, const char* name);
+
 /* `defaults`, if an object, also gets CFunction (the module's default export). */
 int js_cfunction_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 

@@ -1,5 +1,5 @@
 import { tests, eq, assert } from './tinytest.js';
-import { dlopen, dlsym, RTLD_DEFAULT } from 'ffi';
+import { dlopen, dlsym, linkSymbols, read, RTLD_DEFAULT } from 'ffi';
 
 function assertThrows(fn, msg) {
   try {
@@ -66,5 +66,28 @@ await tests({
     const lib2 = dlopen(null, { getpid: { args: [], returns: 'i32' } });
     assert(lib2.symbols.getpid() > 0, 'pid should be positive');
     lib2.close();
+  },
+
+  'dlopen exposes a variable of the library (optind), live'() {
+    const lib = dlopen(null, { optind: { type: 'i32' }, abs: { args: ['i32'], returns: 'i32' } });
+    const was = lib.symbols.optind;
+
+    eq(1, was);
+    lib.symbols.optind = 3;
+    eq(3, lib.symbols.optind);
+    lib.symbols.optind = was;
+    eq(5, lib.symbols.abs(-5));
+    lib.close();
+  },
+
+  'linkSymbols exposes a variable too, with address: true as a pointer'() {
+    const { symbols } = linkSymbols({ optind: { type: 'i32' }, optind_at: { type: 'i32', address: true, ptr: dlsym(RTLD_DEFAULT, 'optind') } });
+
+    eq(symbols.optind, read.i32(symbols.optind_at, 0));
+  },
+
+  'dlopen: a variable spec with args throws, and an unknown variable is a TypeError'() {
+    assertThrows(() => dlopen(null, { optind: { type: 'i32', args: [] } }));
+    assert(assertThrows(() => dlopen(null, { no_such_variable_xyz: { type: 'i32' } })) instanceof TypeError);
   },
 });

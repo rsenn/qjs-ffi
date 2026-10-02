@@ -220,6 +220,190 @@ js_cfunction_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   return JS_UNDEFINED;
 }
 
+/* Data symbols (variables): `{ type, readonly?, address? }` instead of
+ * `{ args, returns }`. The property is an accessor over the variable's memory,
+ * so it is live: a read converts the value there as a return of that type, a
+ * write as an argument. See doc/dlopen.md. */
+typedef struct VariableData {
+  void* addr;
+  char* name;
+  FFISignature sig; /* only .ret_type and .ret_kind: the variable's type */
+  int readonly;
+} VariableData;
+
+static JSClassID js_variable_class_id;
+
+static void
+js_variable_finalizer(JSRuntime* rt, JSValue val) {
+  VariableData* v;
+
+  if((v = JS_GetOpaque(val, js_variable_class_id))) {
+    ffi_sig_free(rt, &v->sig);
+    js_free_rt(rt, v->name);
+    js_free_rt(rt, v);
+  }
+}
+
+static JSClassDef js_variable_class = {
+    .class_name = "FFIVariable",
+    .finalizer = js_variable_finalizer,
+};
+
+static JSValue
+js_variable_get(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst data[]) {
+  VariableData* v = JS_GetOpaque(data[0], js_variable_class_id);
+
+  /* No copy and no free function: the view aliases the C memory. */
+  if(v->sig.ret_kind == K_STRUCT)
+    return JS_NewArrayBuffer(ctx, v->addr, v->sig.ret_type->size, NULL, NULL, FALSE);
+
+  return ffi_native_to_js(ctx, v->sig.ret_kind, v->addr);
+}
+
+static JSValue
+js_variable_set(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst data[]) {
+  VariableData* v = JS_GetOpaque(data[0], js_variable_class_id);
+  JSValueConst arg = argc > 0 ? argv[0] : JS_UNDEFINED;
+  union native_value nv;
+
+  if(v->readonly)
+    return JS_ThrowTypeError(ctx, "%s is read-only", v->name);
+
+  if(v->sig.ret_kind == K_CSTRING)
+    return JS_ThrowTypeError(ctx, "%s is a cstring and cannot be assigned (its storage would have to outlive the call)", v->name);
+
+  nv.i64 = 0;
+
+  if(v->sig.ret_kind == K_POINTER) {
+    if(js_to_pointer(ctx, &nv.ptr, arg))
+      return js_throw_pointer_error(ctx, arg);
+  } else {
+    js_to_native_arg(ctx, v->sig.ret_kind, &nv, arg);
+
+    if(JS_HasException(ctx))
+      return JS_EXCEPTION;
+  }
+
+  memcpy(v->addr, &nv, v->sig.ret_type->size);
+  return JS_UNDEFINED;
+}
+
+/* A spec is a data symbol if it has `type`. 1 if so, 0 if not, -1 with a
+ * TypeError if it also has `args` or `returns`. */
+int
+js_is_data_spec(JSContext* ctx, JSValueConst spec, const char* who, const char* name) {
+  int ret = 0;
+
+  if(!JS_IsObject(spec))
+    return 0;
+
+  JSValue type = JS_GetPropertyStr(ctx, spec, "type");
+
+  if(JS_IsException(type))
+    return -1;
+
+  if(!JS_IsUndefined(type)) {
+    JSValue args = JS_GetPropertyStr(ctx, spec, "args"), returns = JS_GetPropertyStr(ctx, spec, "returns");
+
+    ret = 1;
+
+    if(!JS_IsUndefined(args) || !JS_IsUndefined(returns)) {
+      JS_ThrowTypeError(ctx, "%s: %s: a variable has `type`, a function `args` and `returns`, not both", who, name);
+      ret = -1;
+    }
+
+    JS_FreeValue(ctx, args);
+    JS_FreeValue(ctx, returns);
+  }
+
+  JS_FreeValue(ctx, type);
+  return ret;
+}
+
+int
+js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JSValueConst spec, const char* who, const char* name) {
+  JSValue address = JS_GetPropertyStr(ctx, spec, "address"), readonly = JS_GetPropertyStr(ctx, spec, "readonly");
+  int want_address = JS_ToBool(ctx, address) > 0, want_readonly = JS_ToBool(ctx, readonly) > 0;
+  VariableData* v = NULL;
+  JSValue holder = JS_UNDEFINED, getter, setter;
+
+  JS_FreeValue(ctx, address);
+  JS_FreeValue(ctx, readonly);
+
+  /* A plain, read-only pointer value, like dlsym(). */
+  if(want_address)
+    return JS_DefinePropertyValue(ctx, obj, prop, js_new_pointer(ctx, addr), JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE) < 0 ? -1 : 0;
+
+  JSValue options = JS_NewObject(ctx);
+
+  JS_SetPropertyStr(ctx, options, "returns", JS_GetPropertyStr(ctx, spec, "type"));
+
+  if(!(v = js_mallocz(ctx, sizeof(VariableData)))) {
+    JS_FreeValue(ctx, options);
+    return -1;
+  }
+
+  v->addr = addr;
+  v->readonly = want_readonly;
+
+  if(ffi_sig_parse(ctx, &v->sig, options)) {
+    JS_FreeValue(ctx, options);
+    js_free(ctx, v);
+    return -1;
+  }
+
+  JS_FreeValue(ctx, options);
+
+  if(v->sig.ret_kind == K_VOID || v->sig.ret_kind == K_BUFFER_LENGTH) {
+    JS_ThrowTypeError(ctx, "%s: %s: not a type a variable can have", who, name);
+    goto fail;
+  }
+
+  if(v->sig.ret_kind == K_STRUCT) {
+    /* ffi_prep_cif() works out the struct's size and alignment. */
+    ffi_cif cif;
+
+    if(ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0, v->sig.ret_type, NULL) != FFI_OK) {
+      JS_ThrowTypeError(ctx, "%s: %s: ffi_prep_cif failed", who, name);
+      goto fail;
+    }
+
+    v->readonly = TRUE;
+  }
+
+  if(!(v->name = js_strdup(ctx, name)))
+    goto fail;
+
+  holder = JS_NewObjectClass(ctx, js_variable_class_id);
+
+  if(JS_IsException(holder))
+    goto fail;
+
+  JS_SetOpaque(holder, v);
+  v = NULL;
+
+  getter = JS_NewCFunctionData(ctx, js_variable_get, 0, 0, 1, (JSValueConst*)&holder);
+  setter = JS_NewCFunctionData(ctx, js_variable_set, 1, 0, 1, (JSValueConst*)&holder);
+  JS_FreeValue(ctx, holder);
+
+  if(JS_IsException(getter) || JS_IsException(setter)) {
+    JS_FreeValue(ctx, getter);
+    JS_FreeValue(ctx, setter);
+    return -1;
+  }
+
+  return JS_DefinePropertyGetSet(ctx, obj, prop, getter, setter, JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE) < 0 ? -1 : 0;
+
+fail:
+  if(v) {
+    ffi_sig_free(JS_GetRuntime(ctx), &v->sig);
+    js_free(ctx, v->name);
+    js_free(ctx, v);
+  }
+
+  return -1;
+}
+
 static const JSCFunctionListEntry js_cfunction_proto_funcs[] = {
     JS_CFUNC_DEF("close", 0, js_cfunction_close),
 };
@@ -279,6 +463,8 @@ int
 js_cfunction_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClassID(&js_cfunction_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cfunction_class_id, &js_cfunction_class);
+  JS_NewClassID(&js_variable_class_id);
+  JS_NewClass(JS_GetRuntime(ctx), js_variable_class_id, &js_variable_class);
 
   /* The class prototype inherits Function.prototype (call, apply, bind) and adds close(). */
   JSValue func_proto = js_function_prototype(ctx);
