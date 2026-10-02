@@ -100,6 +100,103 @@ assumption, a second bug found along the way, an install/build gotcha -
 a note in the relevant source comment) is where that history belongs
 instead.
 
+## Comments
+
+These rules govern every comment you write or rewrite in this repo, from
+here on. Keep comments short and readable, not a running log of debugging
+history — and not a packed block of prose either. A comment should be
+something the reader's eye takes in as a shape, the way a table or a
+diagram is, not something they have to read start to end to parse.
+
+- Struct-member comments: 1-2 lines, right on the member.
+- Any other comment explaining behavior: 4 lines max. If the full
+  rationale genuinely needs more room, don't write a longer paragraph —
+  restructure: a one-line summary, then a short list (one point per
+  fact), or the argument table below. Never let a comment become an
+  unbroken block of sentences; break it into pieces the eye can scan.
+- Never reference `BUGS` / `TODO.md` entries, issue names, or "confirmed
+  via repro X" in a comment — that history belongs in the commit message
+  not in the source. State the current rule and its reason, not how it was discovered or what broke before it existed.
+- Prefer showing over telling: when a C expression, a literal value, or
+  a short before/after pair makes the point, put that in the comment
+  instead of describing it in words. code says more, faster, than a sentence explaining the same fact.
+- If a comment describes a function's parameters, give each one its own
+  line: 2-space indent, then type, name, and description as aligned
+  columns (pad names so the descriptions all start at the same column):
+  ```
+  /* one-line summary of what the function does.
+   *
+   *   const char*  name   what this argument is / controls
+   *   size_t       len    what this argument is / controls
+   *
+   *   returns ssize_t     what the return value means
+   /
+  ```
+- Write sentences a reader can take in on one pass: subject, verb,
+  concrete fact, in that order. No hedging, no throat-clearing, no
+  "used to X / now Y" history — state the current behavior and, if it's
+  not obvious, the one reason it has to be that way.
+- A comment starts lowercase, unless its first word is an identifier that
+  starts with an uppercase letter (`CFunction: ...`, `JSClassDef.call ...`).
+  Applies to every comment you write, rewritten or new. Later sentences in
+  a comment are fragments or follow after `;`, not new capitalised ones.
+- Comment text is 75 columns at most, measured after the leading ` * `
+  (or `/* `); with the prefix that is 78, so a closing ` */` still fits.
+- Multi-line code in a comment is fenced: ```` ```js ```` for JS and
+  ```` ```c ```` for C, each fence on its own comment line. A one-line
+  snippet stays in single backticks.
+- A function's comment says what the function does, in plain words, in its
+  first line. After two lines a reader who has not seen the code can say
+  what goes in and what comes out; if they cannot, rewrite it.
+- Show one concrete input and its result instead of describing the shape:
+  `{ abs: <function> }` beats "an object with one entry per key".
+- One comment per function, never one block shared by several. Name what
+  each parameter is for in plain words, with the real value where it is a
+  message (`"dlopen: symbol not found"`), not jargon like "prefixes the
+  error messages".
+- Never a packed block of text. Summary line, example, parameter columns
+  and `returns` are separate paragraphs, split by an empty ` *` line.
+
+### A JS-facing function, class or object gets a header block
+
+Whatever C exposes to JS (a function, a class, an object spliced into the
+export list) is explained once, in a block at its declaration: in the `.h`
+for what other files call, above the definition for a `static`. The block
+reads like the JS docs, in JS terms, and is the one place the 4-line prose
+cap does not count the example and the table. Order:
+
+1. `Name: what it is` (and the bun/Node API it mirrors, if any).
+2. The JS usage as code in a ```js fence, not described in words.
+3. Arguments and result as aligned columns, with the accepted forms, the
+   default and the range in the description.
+4. `throws`: which error type, for what.
+5. One line on how it is wired in (`JS_OBJECT_DEF(...)` entry, `defaults`).
+
+Example, after `ffi-read.h`:
+
+````c
+/* read: direct memory reads, no DataView or ArrayBuffer (bun:ffi's read).
+ *
+ * ```js
+ * read.u8(ptr, byteOffset);
+ * read.i64(ptr); // a bigint
+ * ```
+ *
+ *   number|bigint|buffer  ptr         address, or an ArrayBuffer/view
+ *   number                byteOffset  default 0, may be negative
+ *
+ *   returns  Number, bigint (i64, u64) or pointer (ptr), by member name
+ *   throws   TypeError for a NULL pointer
+ *
+ * spliced into the export list:
+ * JS_OBJECT_DEF("read", js_ffiread_funcs, FFI_READ_COUNT, ...).
+ */
+````
+
+The same shape serves a class: constructor usage, then one line per
+method/getter, then `throws`. Internals (ownership, why a pointer is
+held) go in the 4-line comments at the code, not in this block.
+
 ## Running scripts with qjsm
 
 To run a script (e.g. a throwaway test file while debugging), invoke it

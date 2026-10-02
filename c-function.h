@@ -3,44 +3,60 @@
 
 #include <quickjs.h>
 
-/* CFunction: wraps an already-resolved native function pointer as a plain
- * callable JS function, with no name-keyed registry involved. Mirrors
- * bun:ffi's CFunction:
+/* CFunction: a native function pointer as a plain JS function, as in
+ * bun:ffi.
  *
- *   const fn = CFunction({ ptr: dlsym(h, "strdup"), args: ["cstring"], returns: "cstring" });
- *   fn("hello");
+ * ```js
+ * const fn = CFunction({
+ *   ptr: dlsym(h, "strdup"),
+ *   args: ["cstring"],
+ *   returns: "cstring",
+ * });
+ * fn("hello");
+ * fn.close();
+ * ```
  *
- * The returned object is itself the opaque holder of the ffi_cif/fp/arg-type
- * array built once at construction time, and is made callable via the
- * `.call` entry in its own JSClassDef (the same pattern qjs-lws's
- * JSCClosure uses, see js-utils.c:405-409) -- calling it invokes libffi
- * directly against that stored cif, so there is nothing to look up (no
- * strcmp scan, unlike ffi.c's legacy define()/call()).
+ *   number|bigint  ptr      address of the function, not NULL
+ *   type[]         args     argument types, default none; an array
+ *                           type is a struct by value
+ *   type           returns  default "void"
+ *   string         abi      libffi ABI name, default the platform's
+ *
+ *   throws  TypeError for a non-object argument, a NULL or bad ptr, or
+ *           a type that does not parse; RangeError for a struct type
+ *           that is empty, too long or nested too deep
+ *
+ * `new CFunction(...)` works too; the callable holds the cif, built
+ * once, so a call does no name lookup.
  */
 
-/* Builds a CFunction around `fp` from a `{ args, returns, abi }` spec; a
- * non-object spec yields a no-argument, void-returning function. Returns
- * JS_EXCEPTION on failure.
- */
+/* makes the JS function for one native function. */
 JSValue js_cfunction_create(JSContext*, void* fp, JSValueConst spec);
 
-/* Resolves `name` against an opaque `handle` (dlopen's handle, a TCCState..). */
+/* finds the address of the symbol called `name`, or NULL.
+ * dlsym() does it for a library; cc() has its own for the code it built. */
 typedef void* js_symbol_resolver(void* handle, const char* name);
 
-/* { name: CFunction } for every key of `symbol_specs`, each looked up with
- * `resolve` (dlsym when NULL). With `linked`, a spec's own `ptr` takes
- * precedence. `who` prefixes error messages. */
-JSValue js_build_symbols(JSContext*, void* handle, JSValueConst symbol_specs, int linked, const char* who, js_symbol_resolver* resolve);
+/* builds the `symbols` object that dlopen(), linkSymbols() and cc()
+ * return, from the table the caller passed. */
+JSValue js_build_symbols(JSContext*, void* handle, JSValueConst symbol_specs,
+	int linked, const char* who, js_symbol_resolver* resolve);
 
-/* Data symbols: a spec with `type` (and not `args`/`returns`) is a variable.
- * js_is_data_spec() is 1 for one, 0 for a function spec, -1 (TypeError) for a
- * mix. js_variable_define() defines property `prop` of `obj` for the variable
- * at `addr`: an accessor over its memory, or with `address: true` the address
- * as a pointer value. `who` and `name` prefix error messages. Returns 0 or -1. */
+/* tells a variable spec from a function spec.
+ *
+ * ```js
+ * { type: "i32" }                    // variable: returns 1
+ * { args: ["i32"], returns: "i32" }  // function: returns 0
+ * { type: "i32", args: [] }          // both: TypeError, returns -1
+ * ```
+ */
 int js_is_data_spec(JSContext*, JSValueConst spec, const char* who, const char* name);
+
+/* defines the property for one variable on the symbols object.
+ * returns  0, or -1 with an exception pending */
 int js_variable_define(JSContext*, JSValueConst obj, JSAtom prop, void* addr, JSValueConst spec, const char* who, const char* name);
 
-/* `defaults`, if an object, also gets CFunction (the module's default export). */
+/* sets up the CFunction class and exports it. */
 int js_cfunction_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 
 #endif /* defined(QJSFFI_C_FUNCTION_H) */

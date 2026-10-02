@@ -13,8 +13,8 @@ AllowShortIfStatementsOnASingleLine: false
 AlwaysBreakAfterDefinitionReturnType: All
 AlwaysBreakBeforeMultilineStrings: false
 AlwaysBreakTemplateDeclarations: false
-BinPackArguments: false
-BinPackParameters: false
+BinPackArguments: true
+BinPackParameters: true
 BraceWrapping: 
   AfterClass: false
   AfterControlStatement: false
@@ -52,7 +52,7 @@ SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
 UseTab: Never
-ColumnLimit: 200
+ColumnLimit: 100
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 IndentWidth: 2

@@ -5,11 +5,9 @@
 #include <cutils.h>
 #include <ffi.h>
 
-/* Storage for one argument, or the return value. Only one member is ever
- * live at a time; which one depends on the declared kind. Relies on the
- * same little-endian assumption already documented in ffi.c: writing/reading
- * a narrower member than the union's size still lands on the right bytes.
- */
+/* one argument or return slot; only the member of the declared kind
+ * is live.
+ * little-endian: a narrower member than the union still reads right. */
 union native_value {
   int64_t i64;
   uint64_t u64;
@@ -108,13 +106,12 @@ js_cfunction_new(JSContext* ctx, void* fp, JSValueConst spec) {
   return cf;
 }
 
-/* The CFunction instance's own .call handler (JSClassDef.call): the object
- * returned by CFunction() IS the callable, opaque-holding object -- no
- * separate JS_NewCFunctionData wrapper/holder pair needed (same pattern as
- * qjs-lws's JSCClosure, see js-utils.c:405-409).
- */
+/* JSClassDef.call of CFunction: ffi_call() on the stored cif.
+ * the object is its own opaque holder; no wrapper/holder pair.
+ * returns the converted result, or JS_EXCEPTION (TypeError once closed). */
 static JSValue
-js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, int argc, JSValueConst argv[], int flags) {
+js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val, int argc,
+                    JSValueConst argv[], int flags) {
   CFunctionData* cf = JS_GetOpaque(func_obj, js_cfunction_class_id);
   union native_value args_storage[FFI_MAX_ARGS];
   void* ptrs[FFI_MAX_ARGS];
@@ -134,18 +131,21 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
       cstrings[cstring_count++] = s;
       args_storage[i].ptr = (void*)s;
     } else if(cf->sig.arg_kind[i] == K_POINTER) {
-      /* An address, a view, or a JSCallback (its function pointer). */
+      /* pointer: an address, a view, or a JSCallback's function pointer. */
       if(js_to_pointer(ctx, &args_storage[i].ptr, v)) {
         ret = js_throw_pointer_error(ctx, v);
         goto done;
       }
     } else if(cf->sig.arg_kind[i] == K_BUFFER_LENGTH) {
-      /* The byte length of the view passed here (the same one as for the
-       * buffer parameter before it, as bun:ffi wants it). */
+      /* buffer_length: byte size of the view given here, the same view
+       * as the buffer argument before it. */
       ByteSpan buf;
 
       if(js_try_get_bytes(ctx, &buf, v)) {
-        ret = JS_ThrowTypeError(ctx, "CFunction: argument %d must be a TypedArray, DataView or ArrayBuffer (buffer_length)", i + 1);
+        ret = JS_ThrowTypeError(
+            ctx,
+            "CFunction: argument %d must be a TypedArray, DataView or ArrayBuffer (buffer_length)",
+            i + 1);
         goto done;
       }
 
@@ -159,8 +159,7 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
         ret = JS_ThrowTypeError(ctx,
                                 "CFunction: argument %d must be an ArrayBuffer of at least %zu "
                                 "bytes (a struct passed by value)",
-                                i + 1,
-                                cf->sig.arg_types[i]->size);
+                                i + 1, cf->sig.arg_types[i]->size);
         goto done;
       }
 
@@ -220,10 +219,9 @@ js_cfunction_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   return JS_UNDEFINED;
 }
 
-/* Data symbols (variables): `{ type, readonly?, address? }` instead of
- * `{ args, returns }`. The property is an accessor over the variable's memory,
- * so it is live: a read converts the value there as a return of that type, a
- * write as an argument. See doc/dlopen.md. */
+/* a variable exported from C: JS reads it with `symbols.n` (converted like
+ * a return value) and writes it with `symbols.n = 7` (like an argument).
+ * doc/dlopen.md has the JS side. */
 typedef struct VariableData {
   void* addr;
   char* name;
@@ -250,10 +248,12 @@ static JSClassDef js_variable_class = {
 };
 
 static JSValue
-js_variable_get(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst data[]) {
+js_variable_get(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic,
+                JSValueConst data[]) {
   VariableData* v = JS_GetOpaque(data[0], js_variable_class_id);
 
-  /* No copy and no free function: the view aliases the C memory. */
+  /* struct or array: an ArrayBuffer over the memory itself, no copy and
+   * no free function. */
   if(v->sig.ret_kind == K_STRUCT)
     return JS_NewArrayBuffer(ctx, v->addr, v->sig.ret_type->size, NULL, NULL, FALSE);
 
@@ -261,7 +261,8 @@ js_variable_get(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 }
 
 static JSValue
-js_variable_set(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst data[]) {
+js_variable_set(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic,
+                JSValueConst data[]) {
   VariableData* v = JS_GetOpaque(data[0], js_variable_class_id);
   JSValueConst arg = argc > 0 ? argv[0] : JS_UNDEFINED;
   union native_value nv;
@@ -270,7 +271,9 @@ js_variable_set(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     return JS_ThrowTypeError(ctx, "%s is read-only", v->name);
 
   if(v->sig.ret_kind == K_CSTRING)
-    return JS_ThrowTypeError(ctx, "%s is a cstring and cannot be assigned (its storage would have to outlive the call)", v->name);
+    return JS_ThrowTypeError(
+        ctx, "%s is a cstring and cannot be assigned (its storage would have to outlive the call)",
+        v->name);
 
   nv.i64 = 0;
 
@@ -288,8 +291,8 @@ js_variable_set(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
   return JS_UNDEFINED;
 }
 
-/* A spec is a data symbol if it has `type`. 1 if so, 0 if not, -1 with a
- * TypeError if it also has `args` or `returns`. */
+/* returns 1 if `spec` has `type`, 0 if not, -1 with a TypeError if
+ * `args` or `returns` come with it. */
 int
 js_is_data_spec(JSContext* ctx, JSValueConst spec, const char* who, const char* name) {
   int ret = 0;
@@ -303,12 +306,15 @@ js_is_data_spec(JSContext* ctx, JSValueConst spec, const char* who, const char* 
     return -1;
 
   if(!JS_IsUndefined(type)) {
-    JSValue args = JS_GetPropertyStr(ctx, spec, "args"), returns = JS_GetPropertyStr(ctx, spec, "returns");
+    JSValue args = JS_GetPropertyStr(ctx, spec, "args"),
+            returns = JS_GetPropertyStr(ctx, spec, "returns");
 
     ret = 1;
 
     if(!JS_IsUndefined(args) || !JS_IsUndefined(returns)) {
-      JS_ThrowTypeError(ctx, "%s: %s: a variable has `type`, a function `args` and `returns`, not both", who, name);
+      JS_ThrowTypeError(ctx,
+                        "%s: %s: a variable has `type`, a function `args` and `returns`, not both",
+                        who, name);
       ret = -1;
     }
 
@@ -321,8 +327,10 @@ js_is_data_spec(JSContext* ctx, JSValueConst spec, const char* who, const char* 
 }
 
 int
-js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JSValueConst spec, const char* who, const char* name) {
-  JSValue address = JS_GetPropertyStr(ctx, spec, "address"), readonly = JS_GetPropertyStr(ctx, spec, "readonly");
+js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JSValueConst spec,
+                   const char* who, const char* name) {
+  JSValue address = JS_GetPropertyStr(ctx, spec, "address"),
+          readonly = JS_GetPropertyStr(ctx, spec, "readonly");
   int want_address = JS_ToBool(ctx, address) > 0, want_readonly = JS_ToBool(ctx, readonly) > 0;
   VariableData* v = NULL;
   JSValue holder = JS_UNDEFINED, getter, setter;
@@ -330,9 +338,12 @@ js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JS
   JS_FreeValue(ctx, address);
   JS_FreeValue(ctx, readonly);
 
-  /* A plain, read-only pointer value, like dlsym(). */
+  /* address: true: a read-only pointer value, as dlsym() returns. */
   if(want_address)
-    return JS_DefinePropertyValue(ctx, obj, prop, js_new_pointer(ctx, addr), JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE) < 0 ? -1 : 0;
+    return JS_DefinePropertyValue(ctx, obj, prop, js_new_pointer(ctx, addr),
+                                  JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE) < 0
+               ? -1
+               : 0;
 
   JSValue options = JS_NewObject(ctx);
 
@@ -392,7 +403,10 @@ js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JS
     return -1;
   }
 
-  return JS_DefinePropertyGetSet(ctx, obj, prop, getter, setter, JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE) < 0 ? -1 : 0;
+  return JS_DefinePropertyGetSet(ctx, obj, prop, getter, setter,
+                                 JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE) < 0
+             ? -1
+             : 0;
 
 fail:
   if(v) {
@@ -430,8 +444,9 @@ js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec) {
 
   JS_SetOpaque(func_obj, cf);
 
-  /* Like a function's own: not writable or enumerable, but configurable. */
-  if(JS_DefinePropertyValueStr(ctx, func_obj, "length", JS_NewInt32(ctx, cf->sig.argc), JS_PROP_CONFIGURABLE) < 0) {
+  /* length: like a function's own: configurable, not writable/enumerable. */
+  if(JS_DefinePropertyValueStr(ctx, func_obj, "length", JS_NewInt32(ctx, cf->sig.argc),
+                               JS_PROP_CONFIGURABLE) < 0) {
     JS_FreeValue(ctx, func_obj);
     return JS_EXCEPTION;
   }
@@ -466,16 +481,18 @@ js_cfunction_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClassID(&js_variable_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_variable_class_id, &js_variable_class);
 
-  /* The class prototype inherits Function.prototype (call, apply, bind) and adds close(). */
+  /* class prototype: Function.prototype's call, apply and bind, plus close(). */
   JSValue func_proto = js_function_prototype(ctx);
   JSValue proto = JS_NewObjectProto(ctx, func_proto);
 
   JS_FreeValue(ctx, func_proto);
-  JS_SetPropertyFunctionList(ctx, proto, js_cfunction_proto_funcs, countof(js_cfunction_proto_funcs));
+  JS_SetPropertyFunctionList(ctx, proto, js_cfunction_proto_funcs,
+                             countof(js_cfunction_proto_funcs));
   js_callback_define_dispose(ctx, proto);
   JS_SetClassProto(ctx, js_cfunction_class_id, proto);
 
-  JSValue ctor = JS_NewCFunction2(ctx, js_cfunction_constructor, "CFunction", 1, JS_CFUNC_constructor_or_func, 0);
+  JSValue ctor = JS_NewCFunction2(ctx, js_cfunction_constructor, "CFunction", 1,
+                                  JS_CFUNC_constructor_or_func, 0);
 
   if(JS_IsObject(defaults))
     JS_SetPropertyStr(ctx, defaults, "CFunction", JS_DupValue(ctx, ctor));
