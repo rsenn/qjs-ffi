@@ -465,6 +465,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     const cls = { name, type: tag, size: null, align: null, line: node.line === undefined ? null : node.line, bases: [], methods: [], getters: [], setters: [], fields: [], prototypeChain: [], constructors: [] };
     let access = tag === 'class' ? 'private' : 'public';
     let fieldIndex = 0;
+    const sigs = new Map();
 
     if(layout) ((cls.size = layout.size), (cls.align = layout.align));
     if(info.isAbstract) cls.abstract = true;
@@ -540,12 +541,20 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
           Object.assign(entry, description);
           (entry.kind === 'constructor' ? cls.constructors : cls.methods).push(entry);
+
+          // The parameter types as the AST and, with typedefs resolved, as
+          // clang's vtable dump spell them, to tell overloads apart.
+          if(entry.kind === 'function') {
+            const types = (child.inner || []).filter(p => p.kind === 'ParmVarDecl').map(p => p.type || {});
+
+            sigs.set(entry, [types.map(t => t.qualType || ''), types.map(t => t.desugaredQualType || t.qualType || '')]);
+          }
           break;
         }
       }
     }
 
-    if(layout && layout.vtableIndices) assignVtableSlots(cls, layout.vtableIndices);
+    if(layout && layout.vtableIndices) assignVtableSlots(cls, layout.vtableIndices, sigs);
 
     ir.classes.push(cls);
   }

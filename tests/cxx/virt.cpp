@@ -20,9 +20,29 @@ Bird::Bird() {}
 int Bird::legs() const { return 2; }
 const char* Bird::sound() const { return "tweet"; }
 
+Puppy::Puppy() {}
+const char* Puppy::sound() const { return "yip"; }
+
+Guarded::Guarded() {}
+Guarded::~Guarded() {}
+int Guarded::f(int) const { return 1; }
+int Guarded::f(double) const { return 2; }
+int Guarded2::f(int) const { return 11; }
+int Guarded2::f(double) const { return 22; }
+void Guarded2::destroy(Guarded2* p) { delete p; }
+
+Sealed::Sealed() {}
+int Sealed::v(int) const { return 1; }
+int Sealed::v(double) const { return 2; }
+
 Animal*
 make_animal(int kind) {
-  return kind == 1 ? static_cast<Animal*>(new Dog) : static_cast<Animal*>(new Bird);
+  return kind == 1 ? static_cast<Animal*>(new Dog) : kind == 3 ? static_cast<Animal*>(new Puppy) : static_cast<Animal*>(new Bird);
+}
+
+Guarded*
+make_guarded() {
+  return new Guarded2;
 }
 
 int

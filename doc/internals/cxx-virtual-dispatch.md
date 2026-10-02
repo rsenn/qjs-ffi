@@ -1,236 +1,168 @@
-# Plan: virtual method dispatch through the vtable
+# Virtual method dispatch through the vtable
 
-Status: **plan, nothing implemented.** Scope: the C++ classes that
+Status: **implemented** in `tools/gen-bindings/` (`vtable.js`, `clang.js`,
+`ir.js`, `emit/classes.js`). Scope: the C++ classes that
 `tools/gen-bindings.js` emits (see `classesCode()` and
-[TODO.md](../../TODO.md), "C++ gaps" item 1).
+[TODO.md](../../TODO.md), "C++ gaps" item 1). Tests:
+`tests/test-gen-bindings-virtual.js` on `tests/cxx/virt.{hpp,cpp}`.
 
 ## 1. Problem
 
-A generated method binds the **declaring class's own symbol**, so every call
-is a non-virtual (`Class::method()`-qualified) call:
+Binding a method's own symbol makes every call a non-virtual
+(`Class::method()`-qualified) call:
 
 ```js
 const s = new geo_Shape(3, 2.0);
-geo_Base.from(s.ptr).area();   // calls Base::area, not Shape::area
+geo_Base.from(s.ptr).area();   // would call Base::area, not Shape::area
 ```
 
 C++ would call `Shape::area` here. Any wrapper whose static type is a base
-class (`from()` on a pointer returned by a factory, or an inherited method)
-runs the wrong code, and `.delete()` through a base wrapper runs the wrong
-destructor.
-
-Two more consequences of binding symbols:
-
-- a **pure virtual** method has no symbol, so it is not bound at all today;
-- a virtual method that is inline or never instantiated has no exported
-  symbol, so the call fails with "symbol not found".
-
-Dispatching through the vtable fixes all three.
+class (`at()`/`from()` on a pointer returned by a factory, or an inherited
+method) would run the wrong code, and `.delete()` through a base wrapper the
+wrong destructor. A **pure virtual** has no symbol at all, and a virtual that is
+inline or never instantiated has no exported symbol, so binding it fails with
+"symbol not found". Calling through the vtable fixes all three.
 
 ## 2. ABI facts (Itanium, x86-64 Linux)
 
-Checked against `tests/cxx/shapes.{hpp,cpp}` compiled with `clang++ -std=c++17` (a small C++ program that `dlsym`s the symbols and reads the
-vptr), not recalled from the spec:
+Checked against `tests/cxx/shapes.{hpp,cpp}` compiled with `clang++ -std=c++17`
+(a small C++ program that `dlsym`s the symbols and reads the vptr):
 
 | Fact | Evidence |
 | --- | --- |
 | The vptr is the first 8 bytes of a polymorphic object (offset 0) | `*(void***)&shape` is the vptr |
 | `vptr == &_ZTV<class> + 16` (skips offset-to-top and RTTI) | printed `vptr - _ZTV = 16` |
-| `vptr[n]` is the n-th virtual slot; the declaration-order rule puts a destructor in **two** consecutive slots, `[complete]` then `[deleting]` | `Shape`: `vptr[0]` = `D1`, `vptr[1]` = `D0`, `vptr[2]` = `area` |
+| `vptr[n]` is the n-th virtual slot; a destructor takes **two** consecutive slots, `[complete]` then `[deleting]` | `Shape`: `vptr[0]` = `D1`, `vptr[1]` = `D0`, `vptr[2]` = `area` |
 | A slot holds the **final overrider's** function | `vptr[2]` of a `Shape` is `Shape::area`, and calling it on the object returned `6` |
 | A pure virtual's slot holds `__cxa_pure_virtual` | `Base`'s `vptr[2]` equals `dlsym("__cxa_pure_virtual")` |
 | A subclass's slots start with the base's, so a base-class index is valid for every subclass | `PC : C : B : A`: `f`, `g(int)`, `g(double)` keep their indices |
 
-clang's JSON AST does **not** reliably say which methods are virtual: the
-overrider `Shape::area` carries only an `OverrideAttr` child and no
-`"virtual": true` key (that is why the IR currently has no `virtual` on it).
-An override written without `virtual`/`override` has no marker at all (not
-checked: the probe below makes it moot).
+clang's JSON AST does **not** reliably say which methods are virtual: an
+overrider carries only an `OverrideAttr` child and no `"virtual": true`, and one
+written without `virtual`/`override` has no marker at all. So the slot numbers
+come from the compiler's own vtable dump, not from the AST.
 
 ## 3. Where the slot index comes from
 
-Two options; **recommended: the clang probe.**
+clang lays a class's vtable out, and prints it with `-Xclang
+-fdump-vtable-layouts`, only once code needs it. `runLayoutDump()` (`clang.js`)
+already compiles a probe translation unit for the record layouts; for every
+polymorphic class it adds code that makes clang lay the vtable out, and the
+compile then goes to LLVM IR (`-S -emit-llvm -o /dev/null`) instead of
+`-fsyntax-only`, only if there is such a class. The dump goes to stdout, with
+the layouts.
 
-| | A. Compute from the AST | B. Ask clang (probe) |
-| --- | --- | --- |
-| Source of truth | our reimplementation of the Itanium layout rules | clang's own `-fdump-vtable-layouts` |
-| Needs override matching (name + params + const + covariant returns) | yes | no, clang already resolved it |
-| Handles overrides without `virtual`/`override` | only via that matching | yes |
-| Extra clang run | no | yes, only when a polymorphic class exists |
-| Breaks on | typedef/qualified-type spelling mismatches | `final` classes (cannot be derived from) |
+Each polymorphic class gets, tried in this order of need:
 
-### 3.1 The probe
+1. `p->~C()` in a function, when the destructor is public: lays the vtable out
+   if the destructor is virtual (declared so or inherited).
+2. `auto m = &C::f;` for a method the AST flags `virtual` or pure whose name is
+   not overloaded.
+3. A **key-function probe**, only when neither of those can work (overloaded
+   virtuals only, and a destructor that is not virtual or not public):
 
-For every complete class with `definitionData.isPolymorphic` (already kept by
-`AstCondenser`), append to a probe translation unit:
+   ```cpp
+   typedef class ns::C __gbc0;
+   struct __gbk0 : __gbc0 { virtual void __gb_key(); };
+   void __gbk0::__gb_key() {}
+   ```
 
-```cpp
-#include "/abs/path/to/source.hpp"
-struct __gb_probe0 : ns::Class { virtual void __gb_key(); };
-void __gb_probe0::__gb_key() {}
-```
+   The out-of-line `__gb_key` is the class's key function, so clang emits the
+   whole vtable. This works for abstract classes and protected destructors. A
+   **`final`** class cannot be derived from, and the error would lose the whole
+   dump, so it gets no key probe (the AST condenser keeps `FinalAttr` for this)
+   and keeps binding its own symbols.
 
-and compile it with `clang++ -Xclang -fdump-vtable-layouts -c -o /dev/null`
-(same `-I`/`-D`/`-x c++`/`-std=` as the AST run, see `langArgs()`).
+`parseVtableIndices()` (`vtable.js`) reads the `VTable indices for 'C'` blocks
+that 1 and 2 give: the methods the class itself declares, overriders included,
+each with its index relative to the vptr. `parseVtableBlocks()` reads the
+`Vtable for '__gbkN'` block of 3, which lists every slot, inherited ones too, as
+`<row> | <return type> <Qualifier::name>(<params>)[ const]`; the index is **row
+- 2** (rows 0 and 1 are offset-to-top and RTTI), and rows naming another class
+are ignored when the methods are matched.
 
-- The out-of-line `__gb_key` is the **key function**, so clang emits the
-  vtable and dumps it. Verified for a concrete class, an abstract class and an
-  abstract class with a non-virtual protected destructor. A `delete p` probe
-  was tried first and is **not** enough: with a non-virtual destructor no
-  vtable is needed and nothing is dumped. `sizeof` alone dumps nothing either.
-- The dump goes to **stdout**, like `-fdump-record-layouts-simple`, so
-  `runLayoutDump()`'s `popen` handling carries over.
-- The "Vtable for '__gb_probe0'" block lists every slot, including inherited
-  ones, as `<row> | <return type> <Qualifier::name>(<params>)[ const]`. The
-  index is **row − 2** (rows 0 and 1 are offset-to-top and RTTI):
+The result is `layouts[...].vtableIndices`, cached with the AST
+(`AST_CACHE_VERSION`).
 
-  ```
-  2 | void C::f()          -> vptr[0]
-  3 | int A::g(int)        -> vptr[1]
-  4 | void B::g(double)    -> vptr[2]
-  5 | PC::~PC() [complete] -> vptr[3]
-  7 | void B::h()          -> vptr[5]
-  ```
+### 3.1 Matching entries to methods
 
-  (output of the probe on a 3-level hierarchy; only the rows naming `C::`,
-  the class being probed, are the probed class's own, the rest document the
-  bases).
-- Pure slots are tagged `[pure]`.
-- A `final` class cannot be probed (`base 'F' is marked 'final'`). Its own
-  methods need no vtable anyway (nothing can override them), so they keep
-  binding their own symbol; only slots inherited from a base need the base's
-  index, which comes from the base's probe.
+`assignVtableSlots()` gives a method of the class `vtableSlot` when its entry is
+found by name, number of parameters and constness. Overloads of one arity (a
+`f(int)` and an `f(double)`) are told apart by their parameter types: the
+entry's, normalized, against the AST's `ParmVarDecl` types (as written, and with
+typedefs resolved). A method without exactly one match keeps its own symbol:
+a wrong slot would call the wrong function. The complete-object destructor entry
+becomes `destructor.vtableSlot`.
 
-The result is stored next to `layouts` as `ast.vtables`
-(`{ "ns::Class": [{ index, text, pure }, ...] }`) and cached with the AST;
-bump `AST_CACHE_VERSION`.
+### 3.2 IR
 
-### 3.2 Matching rows to IR methods
-
-A row names the final overrider as text; the IR has structured entries. For
-each class, a row belongs to an IR method when the qualifier equals the class
-and:
-
-1. name and parameter count match and the method has the same `const`;
-2. if that is still ambiguous (overloads), compare the normalized parameter
-   list against `mapCType`'s input (`normalizeType()`; clang prints fully
-   qualified types, the AST may spell them short, so also try the
-   `desugaredQualType`).
-
-A virtual method that cannot be matched keeps the static binding and gets an
-entry in `ir.skipped`-style warnings, never a wrong slot.
-
-### 3.3 IR changes
-
-- method: `virtual: true` (set from the probe, replacing `child.virtual`) and
-  `vtableIndex: n` (`vptr[n]`); `pure` stays.
-- class: `destructor.vtableIndex` (the `[complete]` slot) when the destructor
-  is virtual.
-- A class that is polymorphic but whose probe failed: no indices, everything
-  stays statically bound (today's behavior), noted in the generated file.
+`vtableSlot: n` (`vptr[n]`) on each virtual method, whether the AST flags it or
+not; `destructor.vtableSlot` (the `[complete]` slot). `virtual` and `pure` stay
+as the AST has them. A class without a vtable dump (final, or a failed probe)
+has none, and binds as before.
 
 ## 4. Generated JS
 
-A virtual overload entry carries the slot instead of a lazy function:
+With `--api=cfunction`, a virtual method's overload entry calls through
+`__virtual(slot, spec)` instead of a `CFunction` on its symbol:
 
 ```js
-const __geo_Base_m_area = [
-  { n: 0, t: [], v: 2, f: __virtual(2, target => CFunction({ ptr: target, args: ["pointer"], returns: "f64" })) },
-];
+function __virtual(slot, spec) {
+  const cache = new Map();
+
+  return (self, ...args) => {
+    const vptr = new DataView(self).getBigUint64(0, true);
+    // fp = vptr[slot]
+    // cache.get(fp) or a new CFunction({ ptr: fp, ...spec }); f(self, ...args)
+  };
+}
 ```
 
-`__virtual(index, make)` returns `(self, ...args)`:
-
-1. read the vptr: `BigInt(read u64 at self)`;
-2. read the target: `read u64 at vptr + 8 * index`;
-3. look `target` up in a per-method `Map`; on a miss, `make(target)` builds the
-   `CFunction` once;
-4. call it with `self, ...args`.
-
-Notes:
-
-- **Cost.** Two small `toBuffer` views per call and a cached `CFunction` per
-  distinct overrider. Acceptable first; see 4.1 for the native fast path.
-- **`--api=define`.** `define()` registers by name, so `make(target)` uses a
-  synthetic unique name (`mangledName + "@" + target`).
+- **Cost.** One small `toArrayBuffer` view per call and a cached `CFunction` per
+  distinct overrider. A native fast path (`CFunction({ vtableIndex })` in
+  `ffi.c`, reading `this->vptr[index]` per call) would remove the view; it is
+  not done, and only worth it if a benchmark shows the JS path matters.
 - **No symbol needed.** A virtual method is never `dlsym`ed, so pure, inline
-  and uninstantiated virtuals all work; the `filter(m => !m.pure)` in
-  `classesCode()` goes away, and an abstract class's JS methods become
+  and uninstantiated virtuals work, and an abstract class's methods are
   callable on instances of its subclasses.
-- **Destructor.** `.delete()` calls `vptr[destructor.vtableIndex]` when the
-  destructor is virtual, so `Base.from(derivedPtr).delete()` runs the derived
-  destructor. A non-virtual destructor keeps the direct `D1` call (a
-  `[deleting]` slot, `vptr[index + 1]`, would also free the memory, which an
-  owned `ArrayBuffer` must not do: never use it).
+- **Destructor.** `.delete()` calls `vptr[destructor.vtableSlot]` when there is
+  one, so deleting through a base wrapper runs the derived destructor. The
+  `[deleting]` slot (`+ 1`) is never used: it would also free the memory, which
+  an owned `ArrayBuffer` must not do.
+- **`--api=define`** keeps binding by symbol (`define()` registers by name, so
+  a call target found at run time has none); no `__virtual()` is generated.
 - **Single inheritance.** Slots of a primary base share `this`, so no
   adjustment is needed. A secondary base's slots point at `this`-adjusting
-  thunks and need the subobject pointer: part of multiple inheritance, still
-  out of scope.
+  thunks and need the subobject pointer: part of multiple inheritance, still out
+  of scope.
 - **Objects without a vptr.** `new` already refuses to zero-fill a polymorphic
-  class. `from(ptr)` on memory that is not a live object reads a garbage
-  vptr; document it, do not guard it.
+  class. `at(ptr)` on memory that is not a live object reads a garbage vptr;
+  that is not guarded. A zero vptr throws.
 - **Explicitly qualified calls** (`Base::f()` from a subclass) are the old
-  behavior. Not needed now; if wanted later, expose it as
-  `Class.prototype.f.nonVirtual` rather than as the default.
+  behavior and are not exposed; if wanted, as
+  `Class.prototype.f.nonVirtual` rather than the default.
 
-### 4.1 Optional native fast path
+## 5. Tests
 
-`CFunction({ vtableIndex: 2, args: ["pointer", ...], returns })` in
-`ffi.c`: reads `this->vptr[index]` on every call and reuses one prepared
-`cif`. Removes the per-call views and the cache. Only worth it if a benchmark
-shows the JS path matters; it is a change to the C module, so it needs its own
-review.
-
-## 5. Work items
-
-| # | Step | Verify |
-| --- | --- | --- |
-| 1 | `runVtableDump()`: build the probe TU, run clang, parse `Vtable for` blocks into `ast.vtables`; bump `AST_CACHE_VERSION` | dump of `tests/cxx/shapes.hpp` gives `geo::Shape` `area` = 2 and both destructor slots |
-| 2 | Match rows to methods (3.2); set `virtual`/`vtableIndex`/`destructor.vtableIndex` in `collectClass()` | IR test: indices equal `vptr[n]` found by the C++ program of section 2, and `Shape::area` is now `virtual: true` |
-| 3 | `__virtual()` helper, `v:`/dispatch in `overloadList()`, drop the `!m.pure` filter, virtual `.delete()` | tests of section 6 |
-| 4 | `--api=define` path with synthetic names | same tests with `--api=define` |
-| 5 | Update `TODO.md` ("C++ gaps" item 1) and the `classesCode()` doc comment | read-through |
-
-## 6. Tests
-
-New fixture `tests/cxx/virtuals.{hpp,cpp}` (leave `shapes.*` alone: its sizes
-and offsets are asserted):
-
-```cpp
-struct Animal {
-  virtual ~Animal();                       // bumps a live counter
-  virtual int legs() const;                // 4
-  virtual const char *name() const = 0;    // pure
-  virtual int add(int);  virtual int add(double);   // overloads
-  int fixed() const;                       // non-virtual
-  inline virtual int inline_only() const { return 1; }   // no exported symbol
-};
-struct Dog : Animal { int legs() const override; const char *name() const override; ... };
-struct Bird : Animal { int legs() const override /* 2 */; ... };
-struct Puppy : Dog { const char *name() const; /* override without keyword */ };
-extern "C" Animal *make_dog(); extern "C" Animal *make_puppy(); extern "C" int live();
-```
+`tests/test-gen-bindings-virtual.js`, with `tests/cxx/virt.{hpp,cpp}`:
 
 | Test | Asserts |
 | --- | --- |
-| override through a base wrapper | `Animal.from(make_dog()).legs() === 4`, `Bird` gives `2` |
-| three levels, override without keyword | `Animal.from(make_puppy()).name() === "puppy"` |
-| pure method on an abstract class | `Animal.from(p).name()` works |
-| non-virtual stays static | `fixed()` returns the base's value for every subclass |
-| overloaded virtuals | `add(1)` and `add(1.5)` reach the right slots |
-| inline virtual | `inline_only()` works although `nm -D` does not list it |
-| virtual destructor | deleting through `Animal.from(make_dog())` makes `live()` drop |
-| indices match the compiler | IR `vtableIndex`es equal clang's `-fdump-vtable-layouts` of `virtuals.cpp` |
+| IR slots | an overrider has its base's slot, overloads have two, a plain or static method none, the implicit destructor of `Bird` has one |
+| override through a base wrapper, a pure virtual, a native caller, an object made in JS | `Animal.at(make_animal(1)).legs() === 4`, `Bird` gives `2` |
+| three levels, an override without `virtual`/`override` | `Puppy::sound()` through `Animal` |
+| inline virtual | `inline_only()` works, with no exported symbol |
+| overloads of one arity, protected destructor | `Guarded::f(int)` / `f(double)`, found by the key-function probe |
+| `final` class | no probe, own symbols, the other classes unaffected |
+| non-virtual stays static | `describe()` is bound to its symbol, `legs()` is not |
+| destructors | deleting through `Animal` runs `Dog`'s; `Bird`'s inherited one runs; a deleted object cannot be called |
+| `--api=define` | no `__virtual(` in the output |
 
-Run each new test at least 5 times, per
-`.claude/rules/check-tests-for-flakiness.md`.
+## 6. Open
 
-## 7. Open questions
-
-- Is a second `clang` run acceptable for every C++ source with polymorphic
-  classes? The cache makes it a one-off per source; a single probe TU holds
-  all classes.
-- Is the per-call JS cost acceptable, or should 4.1 be part of the first
-  version?
-- Should unmatched virtual methods be a hard error instead of a warning plus
-  static binding?
+- A second `clang` run is not needed: the probes ride on the layout dump, which
+  runs once per source and is cached; only the compile goes from
+  `-fsyntax-only` to code generation when a polymorphic class exists.
+- The per-call JS cost (4) and a native fast path are undecided.
+- A virtual method that cannot be matched keeps its symbol silently. A warning
+  in `ir.skipped`, or an error, would make it visible.

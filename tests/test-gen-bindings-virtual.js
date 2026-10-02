@@ -60,6 +60,46 @@ await tests({
     eq('tweet', wrap(2).sound());
   },
 
+  'three levels, an override written without virtual or override'() {
+    eq('yip', wrap(3).sound());
+    eq(4, wrap(3).legs());
+  },
+
+  'an inline virtual method has no symbol and is still callable'() {
+    eq(1, wrap(1).inline_only());
+    eq(5, wrap(3).inline_only());
+  },
+
+  'overloaded virtuals in a class whose destructor is protected reach the right slots'() {
+    const g = m.Guarded.at(m.make_guarded());
+
+    eq(11, g.f(1));
+    eq(22, g.f(1.5));
+  },
+
+  'a final class cannot be probed and keeps its own symbols, without losing the others'() {
+    const s = new m.Sealed();
+
+    try {
+      eq(1, s.v(1));
+      eq(2, s.v(1.5));
+    } finally {
+      s.delete();
+    }
+
+    eq(4, wrap(1).legs());
+  },
+
+  'only virtual methods are called through the vtable'() {
+    const text = std.loadFile(tmp + 'test-gen-bindings-virtual.gen.js');
+    const list = name => new RegExp('const __Animal_m_' + name + ' = \\[\\n([\\s\\S]*?)\\n\\];').exec(text)[1];
+
+    assert(list('describe').includes('__sym('), 'describe is bound to its symbol');
+    assert(!list('describe').includes('__virtual('), 'describe is not virtual');
+    assert(list('legs').includes('__virtual('), 'legs is');
+    assert(list('inline_only').includes('__virtual('), 'an inline virtual is');
+  },
+
   'a native method that calls a virtual one gets the override too'() {
     eq(4, wrap(1).describe());
     eq(2, wrap(2).describe());

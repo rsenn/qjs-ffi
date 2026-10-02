@@ -48,7 +48,7 @@ function nodePolicy(parent, kind) {
     case 'RecordDecl':
       return kind === 'FieldDecl' || kind === 'RecordDecl' || kind === 'EnumDecl' || kind === 'AlignedAttr' ? 'full' : kind === 'PackedAttr' ? 'leaf' : 'skip';
     case 'CXXRecordDecl':
-      return CLASS_KINDS.has(kind) || kind === 'AlignedAttr' ? 'full' : kind === 'AccessSpecDecl' || kind === 'PackedAttr' ? 'leaf' : 'skip';
+      return CLASS_KINDS.has(kind) || kind === 'AlignedAttr' ? 'full' : kind === 'AccessSpecDecl' || kind === 'PackedAttr' || kind === 'FinalAttr' ? 'leaf' : 'skip';
     case 'TypedefDecl':
     case 'TypeAliasDecl':
       return kind === 'ElaboratedType' ? 'leaf' : 'skip';

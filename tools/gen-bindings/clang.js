@@ -4,7 +4,7 @@ import { JsonParser } from 'json';
 import { AstCondenser } from './condense.js';
 import { walkDecls, collectRecordTypedefs } from './ir.js';
 import { header } from './emit/common.js';
-import { parseVtableIndices } from './vtable.js';
+import { parseVtableIndices, parseVtableBlocks } from './vtable.js';
 
 function shquote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
@@ -49,7 +49,7 @@ function mtime(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 6;
+const AST_CACHE_VERSION = 7;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
@@ -101,6 +101,7 @@ export function runLayoutDump(opts, source, ast) {
   const fieldProbes = [];
   const typedefNames = [];
   const vtableProbes = [];
+  const keyProbes = []; /* class type spelling of probe __gbk<i> */
 
   /* `t` is the record's type spelling; its public, named, non-bitfield fields
    * get a size probe. */
@@ -122,17 +123,26 @@ export function runLayoutDump(opts, source, ast) {
    * it, only once code needs it: a call of the destructor does when that is
    * virtual, taking the address of a virtual method does whatever the
    * destructor is. The AST flags only the methods declared `virtual`, so
-   * those are the ones tried; an overloaded name would be ambiguous. */
+   * those are the ones tried; an overloaded name would be ambiguous. When
+   * neither works (overloads only, or a destructor that is not virtual or not
+   * public), a probe class derived from it with an out-of-line virtual
+   * function, its key function, makes clang emit its vtable, the whole of it,
+   * dumped in the "Vtable for" form. A `final` class cannot be derived from
+   * (an error that would lose the whole dump), so it keeps what it has. */
   const addVtableProbe = (node, t) => {
     const i = vtableProbes.length;
     const counts = {};
     const virtuals = [];
     let access = node.tagUsed === 'class' ? 'private' : 'public';
     let destructorOk = true;
+    let destructorVirtual = false;
 
     for(const child of node.inner || []) {
       if(child.kind === 'AccessSpecDecl') access = child.access;
-      else if(child.kind === 'CXXDestructorDecl' && access !== 'public') destructorOk = false;
+      else if(child.kind === 'CXXDestructorDecl') {
+        if(access !== 'public') destructorOk = false;
+        if(child.virtual) destructorVirtual = true;
+      }
       else if(child.kind === 'CXXMethodDecl' && child.name && access === 'public' && child.storageClass !== 'static' && !child.name.startsWith('operator')) {
         counts[child.name] = (counts[child.name] || 0) + 1;
         if(child.virtual || child.pure) virtuals.push(child.name);
@@ -140,8 +150,14 @@ export function runLayoutDump(opts, source, ast) {
     }
 
     const unique = virtuals.find(n => counts[n] === 1);
+    const final = (node.inner || []).some(child => child.kind === 'FinalAttr');
+    const key = !final && !unique && !(destructorOk && destructorVirtual);
 
-    vtableProbes.push('typedef ' + t + ' __gbc' + i + ';\n' + (destructorOk ? 'void __gbd' + i + '(__gbc' + i + '* p) { p->~__gbc' + i + '(); }\n' : '') + (unique ? 'auto __gbm' + i + ' = &__gbc' + i + '::' + unique + ';\n' : ''));
+    if(key) keyProbes[i] = t;
+
+    vtableProbes.push(
+      'typedef ' + t + ' __gbc' + i + ';\n' + (destructorOk ? 'void __gbd' + i + '(__gbc' + i + '* p) { p->~__gbc' + i + '(); }\n' : '') + (unique ? 'auto __gbm' + i + ' = &__gbc' + i + '::' + unique + ';\n' : '') + (key ? 'struct __gbk' + i + ' : __gbc' + i + ' { virtual void __gb_key(); };\nvoid __gbk' + i + '::__gb_key() {}\n' : ''),
+    );
   };
 
   // Field and typedef sizes are only needed for what will be collected, and
@@ -231,6 +247,14 @@ export function runLayoutDump(opts, source, ast) {
 
     if(key) layouts[key].vtableIndices = entries;
   }
+
+  for(const [name, entries] of parseVtableBlocks(out)) {
+    const i = /^__gbk(\d+)$/.exec(name);
+
+    if(i && keyProbes[i[1]] && layouts[keyProbes[i[1]]]) layouts[keyProbes[i[1]]].vtableIndices = entries;
+  }
+
+  for(const name of Object.keys(layouts)) if(/^struct __gbk\d+$/.test(name)) delete layouts[name];
 
   return layouts;
 }
