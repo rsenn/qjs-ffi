@@ -45,9 +45,10 @@ const { symbols: { abs } } = dlopen(null, { abs: { args: ["i32"], returns: "i32"
 
 Each spec is `{ args, returns, abi }`, exactly as for
 [`CFunction`](c-function.md) without `ptr`; the names are in
-[Types and ABI](types.md). A library that cannot be opened, or a symbol that is
-not in it, throws a `TypeError` carrying the `dlerror()` text. Nothing stays
-open then.
+[Types and ABI](types.md). A library that cannot be opened throws an `Error`
+with `code: "ERR_DLOPEN_FAILED"` (as bun's) and the `dlerror()` text in its
+message; a symbol that is not in it throws a `TypeError`. Nothing stays open
+then.
 
 ## `linkSymbols`
 

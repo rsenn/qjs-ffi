@@ -50,7 +50,9 @@ await tests({
 
   'throws when the library path does not exist'() {
     const e = assertThrows(() => dlopen('/no/such/library.so', { foo: { args: [], returns: 'void' } }));
-    assert(e instanceof TypeError, 'expected TypeError, got ' + e);
+    assert(e instanceof Error && !(e instanceof TypeError), 'expected a plain Error, got ' + e);
+    eq('ERR_DLOPEN_FAILED', e.code);
+    assert(/^dlopen: .*library\.so/.test(e.message), 'message was ' + e.message);
   },
 
   'close() called twice is a no-op'() {

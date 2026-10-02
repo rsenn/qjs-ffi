@@ -276,8 +276,17 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
   if(path)
     JS_FreeCString(ctx, path);
 
-  if(!handle)
-    return JS_ThrowTypeError(ctx, "dlopen: %s", dlerror());
+  if(!handle) {
+    /* As bun: an Error (not a TypeError) with a code. */
+    const char* err = dlerror();
+    char msg[1024];
+    JSValue error = JS_NewError(ctx);
+
+    snprintf(msg, sizeof(msg), "dlopen: %s", err ? err : "failed");
+    JS_DefinePropertyValueStr(ctx, error, "message", JS_NewString(ctx, msg), JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    JS_DefinePropertyValueStr(ctx, error, "code", JS_NewString(ctx, "ERR_DLOPEN_FAILED"), JS_PROP_C_W_E);
+    return JS_Throw(ctx, error);
+  }
 
   JSValue symbols = js_build_symbols(ctx, handle, symbol_specs, FALSE, "dlopen", NULL);
 

@@ -72,8 +72,8 @@ console.log(`SQLite 3 version: ${sqlite3_libversion()}`);
 ```
 
 `path` may be `null` to search the symbols already loaded into the process
-(libc, and whatever the interpreter links). A missing library or symbol throws
-a `TypeError`. See [Libraries and symbols](dlopen.md).
+(libc, and whatever the interpreter links). A missing library throws an `Error`
+with `code: "ERR_DLOPEN_FAILED"`, a missing symbol a `TypeError`. See [Libraries and symbols](dlopen.md).
 
 ## Types
 
@@ -228,8 +228,10 @@ items are tracked in [TODO.md](../TODO.md#5-meeting-the-bunffi-spec-remaining-di
 
 Not implemented:
 
-*   `CFunction().close()`, `JSCallback`'s `threadsafe` option, `cc()`'s `include`
-    option, and `viewSource`. Variables in `cc()` symbols are not in bun either.
+*   `JSCallback`'s `threadsafe` option and `viewSource`.
+
+An extension: a spec with `type` instead of `args`/`returns` exposes a
+[variable](dlopen.md#variables), which bun does not.
 
 Different on purpose or for now:
 
@@ -239,5 +241,3 @@ Different on purpose or for now:
 *   A closed `JSCallback` passed as a pointer is a `TypeError`; bun passes a stale
     pointer. `CString(ptr, 0, 0)` is `""`; bun throws. An out-of-range `bigint`
     pointer wraps modulo 2^64, as in bun.
-*   `dlopen()` failures are a `TypeError`, not an `Error` with
-    `code: "ERR_DLOPEN_FAILED"`.

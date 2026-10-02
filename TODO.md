@@ -155,10 +155,4 @@ Ordered roughly by how likely bun code is to trip over it.
        keyed by symbol name. Bun's shapes are the plan, so that code indexing
        the array works.
 
-### 5.2 Different shape
-
-1. Errors: bun's `dlopen` failure is an `Error` with `code:
-   "ERR_DLOPEN_FAILED"`; ours is a `TypeError`. A missing symbol is a
-   `TypeError` in both.
-
 Order of work: 5.1.2 (`viewSource`, postponed), and 5.1.1 (`threadsafe`) last.
