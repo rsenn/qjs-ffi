@@ -161,24 +161,7 @@ Ordered roughly by how likely bun code is to trip over it.
 
 ### 5.2 Different shape
 
-1. `i64_fast` / `u64_fast` returns: bun's are a `number` while the value is
-   exact and a `BigInt` otherwise, "may be either a `number` or a `BigInt`"
-   (`ffi.d.ts`); ours (`ffi_native_to_js()`, `ffi-type.c`) are always a `number`,
-   so a value past 2^53 is silently rounded (`2^53 + 1` comes back as `2^53`),
-   where bun's gives the exact `BigInt`. Measured on bun 1.4.2 with `labs()`:
-   `i64_fast` is a `number` up to 2^53 - 1 (`Number.MAX_SAFE_INTEGER`) and a
-   `BigInt` from 2^53 up; `u64_fast` is a `number` up to 2^53 - 2 and a `BigInt`
-   from 2^53 - 1 up (one lower than the signed one). Arguments take a `number`
-   or a `BigInt` in both, as ours already do. Plan: `K_I64_FAST` and `K_U64_FAST`
-   in `ffi_native_to_js()` return `JS_NewInt64` inside those ranges, else
-   `JS_NewBigInt64`/`JS_NewBigUint64` (copy bun's thresholds, so code that
-   branches on the type behaves the same, even though the unsigned one is one
-   lower than needed). It reaches `JSCallback` arguments too, which use the
-   same function. `legacy.js` already turns a `BigInt` result into a `Number`.
-   Tests in `tests/test-ffitype.js` (the boundaries, both signs, a round trip
-   through an argument); `doc/types.md` says "lossy above 2^53" for these two,
-   and `doc/ffi.md` lists them as `number`: update both.
-2. Errors: bun's `dlopen` failure is an `Error` with `code:
+1. Errors: bun's `dlopen` failure is an `Error` with `code:
    "ERR_DLOPEN_FAILED"`; ours is a `TypeError`. A missing symbol is a
    `TypeError` in both.
 
@@ -234,6 +217,6 @@ symbols.counter = 7;  // writes it (TypeError if readonly)
 *   Docs: replace the "Only functions can be exposed" paragraph in
     `doc/c-compiler.md`, add to `doc/dlopen.md`/`doc/types.md`.
 
-Order of work: 5.2.1 (the `_fast` returns), 5.1.2 (`cc` `include`) and 5.1.3
-(`CFunction().close()`), the variables of 5.3, then 5.1.4 (`viewSource`,
-postponed), and 5.1.1 (`threadsafe`) last.
+Order of work: 5.1.2 (`cc` `include`) and 5.1.3 (`CFunction().close()`), the
+variables of 5.3, then 5.1.4 (`viewSource`, postponed), and 5.1.1
+(`threadsafe`) last.

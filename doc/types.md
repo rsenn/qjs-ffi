@@ -16,7 +16,7 @@ The names a signature is written with, matching [bun:ffi's
 | `"i32"`                 | `int32_t`                         | `number`                                                 |
 | `"u32"`                 | `uint32_t`                        | `number`                                                 |
 | `"i64"`, `"u64"`        | `int64_t`, `uint64_t`             | `bigint` -- exact, no precision loss                     |
-| `"i64_fast"`, `"u64_fast"` | `int64_t`, `uint64_t`          | `number` -- fast to convert, but lossy above 2^53         |
+| `"i64_fast"`, `"u64_fast"` | `int64_t`, `uint64_t`          | `number` while the value is exact, else an exact `bigint`, see below |
 | `"f32"`                 | `float`                           | `number`                                                 |
 | `"f64"`                 | `double`                          | `number`                                                 |
 | `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise a `number`, or a `bigint` above 2^53 - 1 |
@@ -96,6 +96,20 @@ number: `FFIType.i32` is `5`, and `{ args: [5], returns: 5 }` means the same as
 | 18, 19 | `napi_env`, `napi_value` |
 | 20 | `buffer` |
 | 21 | `buffer_length` `buffer_bytelength` |
+
+### `i64_fast` and `u64_fast`
+
+Results of these two are a `number` while that is exact and an exact `bigint`
+beyond, as in bun:ffi, so `typeof` is the thing to check:
+
+| Type | `number` for | `bigint` for |
+| ---- | ------------ | ------------ |
+| `i64_fast` | -(2^53 - 1) to 2^53 - 1 (`Number.MAX_SAFE_INTEGER`) | anything beyond |
+| `u64_fast` | 0 to 2^53 - 2 | 2^53 - 1 and up (bun's unsigned limit is one lower) |
+
+An argument takes a `number` or a `bigint` for either, as for every integer type.
+`"i64"` and `"u64"` are always a `bigint`. A `JSCallback` gets its `_fast`
+arguments the same way.
 
 Each of the numbers 0 to 17 is also a key that maps to itself (`FFIType[5] ===
 5`), as in bun, which has 61 members in all.

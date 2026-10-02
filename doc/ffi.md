@@ -87,7 +87,7 @@ passed or returned by value is an array of member types.
 | ---- | ------ | ---------- |
 | `i8`..`i32`, `u8`..`u32` | `int8_t`..`uint32_t` | `number` |
 | `i64`, `u64` | `int64_t`, `uint64_t` | `bigint` |
-| `i64_fast`, `u64_fast` | `int64_t`, `uint64_t` | `number`, lossy above 2^53 |
+| `i64_fast`, `u64_fast` | `int64_t`, `uint64_t` | `number`, or an exact `bigint` past 2^53 |
 | `f32`, `f64` | `float`, `double` | `number` |
 | `bool` | `bool` | `boolean` |
 | `pointer`, `ptr`, `function` | `void *` | `null`, `number` or `bigint` |
@@ -234,8 +234,6 @@ Not implemented:
 Different on purpose or for now:
 
 *   `toBuffer()` returns an `ArrayBuffer` (QuickJS has no `Buffer`).
-*   `i64_fast` and `u64_fast` results are always a `number`, rounded past 2^53;
-    bun returns a `bigint` once the value is no longer exact.
 *   `read.ptr` and every pointer result are exact (a `bigint` above 2^53 - 1);
     bun's `read.ptr` rounds to a `number`.
 *   A closed `JSCallback` passed as a pointer is a `TypeError`; bun passes a stale

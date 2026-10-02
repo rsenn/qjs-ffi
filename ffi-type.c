@@ -112,8 +112,20 @@ ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
     case K_U32: return JS_NewInt64(ctx, *(const uint32_t*)p);
     case K_I64: return JS_NewBigInt64(ctx, *(const int64_t*)p);
     case K_U64: return JS_NewBigUint64(ctx, *(const uint64_t*)p);
-    case K_I64_FAST: return JS_NewFloat64(ctx, (double)*(const int64_t*)p);
-    case K_U64_FAST: return JS_NewFloat64(ctx, (double)*(const uint64_t*)p);
+    case K_I64_FAST: {
+      /* A Number while it is exact, else the BigInt, as bun:ffi does:
+       * |v| <= Number.MAX_SAFE_INTEGER. */
+      int64_t v = *(const int64_t*)p;
+
+      return v >= -9007199254740991LL && v <= 9007199254740991LL ? JS_NewInt64(ctx, v) : JS_NewBigInt64(ctx, v);
+    }
+    case K_U64_FAST: {
+      /* bun switches one value earlier for the unsigned type: a Number up to
+       * 2^53 - 2, the BigInt from 2^53 - 1 on. */
+      uint64_t v = *(const uint64_t*)p;
+
+      return v <= 9007199254740990ULL ? JS_NewInt64(ctx, (int64_t)v) : JS_NewBigUint64(ctx, v);
+    }
     case K_F32: return JS_NewFloat64(ctx, *(const float*)p);
     case K_F64: return JS_NewFloat64(ctx, *(const double*)p);
     case K_POINTER: return js_new_pointer(ctx, *(void* const*)p);

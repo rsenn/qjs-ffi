@@ -105,6 +105,56 @@ await tests({
     });
   },
 
+  'i64_fast is a Number while |v| <= 2^53 - 1, an exact BigInt beyond, as in bun'() {
+    const strtol = CFunction({ ptr: libc('strtol'), args: ['cstring', 'pointer', 'i32'], returns: 'i64_fast' });
+    const check = (text, kind) => eq(kind, typeof strtol(text, null, 10));
+
+    for(const text of ['0', '-5', '9007199254740990', '9007199254740991', '-9007199254740991'])
+      check(text, 'number');
+
+    for(const text of ['9007199254740992', '-9007199254740992', '9007199254740993', '-9007199254740993', '9223372036854775807', '-9223372036854775808'])
+      check(text, 'bigint');
+
+    eq(9007199254740991, strtol('9007199254740991', null, 10));
+    eq('-9007199254740993n', strtol('-9007199254740993', null, 10) + 'n');
+    eq('9223372036854775807n', strtol('9223372036854775807', null, 10) + 'n');
+  },
+
+  'u64_fast is a Number up to 2^53 - 2 and an exact BigInt from 2^53 - 1, as in bun'() {
+    const strtoul = CFunction({ ptr: libc('strtoul'), args: ['cstring', 'pointer', 'i32'], returns: 'u64_fast' });
+
+    for(const text of ['0', '5', '4294967296', '9007199254740989', '9007199254740990'])
+      eq('number', typeof strtoul(text, null, 10));
+
+    for(const text of ['9007199254740991', '9007199254740992', '9007199254740993', '18446744073709551615'])
+      eq('bigint', typeof strtoul(text, null, 10));
+
+    eq(9007199254740990, strtoul('9007199254740990', null, 10));
+    eq('9007199254740993n', strtoul('9007199254740993', null, 10) + 'n');
+    eq('18446744073709551615n', strtoul('18446744073709551615', null, 10) + 'n');
+  },
+
+  'the _fast types take a Number or a BigInt as an argument and round-trip exactly'() {
+    const labs = CFunction({ ptr: libc('labs'), args: ['i64_fast'], returns: 'i64_fast' });
+    const llabs = CFunction({ ptr: libc('llabs'), args: ['i64'], returns: 'u64_fast' });
+
+    eq(7, labs(-7));
+    eq(7, labs(-7n));
+    eq('9007199254740993n', labs(-(2n ** 53n + 1n)) + 'n');
+    eq('9007199254740993n', llabs(2n ** 53n + 1n) + 'n');
+  },
+
+  'a JSCallback gets a _fast argument as a Number or, past the limit, a BigInt'() {
+    let seen = [];
+    const cb = new JSCallback((a, b) => { seen.push(typeof a, typeof b); return 0; }, { args: ['i64_fast', 'u64_fast'], returns: 'i32' });
+    const call = CFunction({ ptr: cb.ptr, args: ['i64', 'u64'], returns: 'i32' });
+
+    call(5, 6);
+    call(2n ** 53n, 2n ** 53n - 1n);
+    eq('number,number,bigint,bigint', seen.join());
+    cb.close();
+  },
+
   'C-style aliases behave like the short name they stand for'() {
     const abs = CFunction({ ptr: libc('abs'), args: ['int'], returns: 'int' });
     eq(5, abs(-5));

@@ -88,7 +88,7 @@ types:
 | `"i32"`                 | `int32_t`                         | `number`                                                 |
 | `"u32"`                 | `uint32_t`                        | `number`                                                 |
 | `"i64"`, `"u64"`        | `int64_t`, `uint64_t`             | `bigint` -- exact, no precision loss                     |
-| `"i64_fast"`, `"u64_fast"` | `int64_t`, `uint64_t`          | `number` -- fast to convert, but lossy above 2^53         |
+| `"i64_fast"`, `"u64_fast"` | `int64_t`, `uint64_t`          | `number` while the value is exact, else an exact `bigint`, see [Types and ABI](types.md#i64_fast-and-u64_fast) |
 | `"f32"`                 | `float`                           | `number`                                                 |
 | `"f64"`                 | `double`                          | `number`                                                 |
 | `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise a `number`, or a `bigint` above 2^53 - 1 |
