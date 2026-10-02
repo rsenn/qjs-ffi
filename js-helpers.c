@@ -2,7 +2,6 @@
 #include "js-callback.h"
 #include <cutils.h>
 
-
 /* Narrow SPAN in place to the window RANGE describes: advance data by ofs and
  * clamp size to what remains. RANGE must already be wrapped and ofs within
  * SPAN. */
@@ -29,17 +28,32 @@ js_to_index(JSContext* ctx, int64_t* out, JSValueConst value) {
 }
 
 /* Convert VALUE to a raw address and store it through OUT (a void**, may be
- * NULL to only validate). null maps to 0; anything else goes through
- * JS_ToInt64Ext, so Numbers and BigInts both work. Returns 0 on success, -1
- * (with a TypeError pending) if VALUE isn't convertible. */
+ * NULL to only validate), the way bun:ffi takes a pointer:
+ *   null, undefined  NULL
+ *   Number           truncated; a NaN, an infinity or a value outside int64
+ *                    gives the garbage address 0x8000000000000000, as bun does
+ *   BigInt           modulo 2^64 (-1n and 2n**64n-1n are the same address)
+ *   anything else    TypeError: a boolean, a string, a Symbol, an object (an
+ *                    array, a function, a Number object ...)
+ * Returns 0 on success, -1 (TypeError pending) if VALUE is not convertible. */
 int
 js_to_address(JSContext* ctx, void** out, JSValueConst value) {
-  int64_t addr;
+  int64_t addr = 0;
 
-  if(JS_IsNull(value))
+  if(JS_IsNull(value) || JS_IsUndefined(value)) {
     addr = 0;
-  else if(JS_ToInt64Ext(ctx, &addr, value)) {
-    JS_ThrowTypeError(ctx, "value must be null, Number, BigInt or something convertible");
+  } else if(JS_IsBigInt(ctx, value)) {
+    if(JS_ToInt64Ext(ctx, &addr, value))
+      return -1;
+  } else if(JS_IsNumber(value)) {
+    double d;
+
+    if(JS_ToFloat64(ctx, &d, value))
+      return -1;
+
+    addr = d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (int64_t)d : INT64_MIN;
+  } else {
+    JS_ThrowTypeError(ctx, JS_IsString(value) ? "cannot convert a string to a pointer; encode it as a buffer" : "cannot convert argument to a pointer");
     return -1;
   }
 
@@ -60,7 +74,9 @@ js_to_pointer(JSContext* ctx, void** out, JSValueConst value) {
   ByteSpan span;
   void* p;
 
-  if((cl = js_callback_data(value))) {
+  if(JS_IsNull(value)) {
+    p = NULL;
+  } else if((cl = js_callback_data(value))) {
     if(!cl->code) {
       JS_ThrowTypeError(ctx, "JSCallback is closed");
       return -1;

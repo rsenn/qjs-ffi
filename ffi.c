@@ -343,6 +343,15 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   } else if(copy == -1 && JS_IsString(argv[0])) {
     buf.data = (uint8_t*)JS_ToCStringLen(ctx, &buf.size, argv[0]);
     copy = TRUE;
+  } else if(JS_IsString(argv[0])) {
+    /* the legacy form only: a string with a copy flag is an address, "0x..."
+     * as toPointer() writes it */
+    int64_t addr;
+
+    if(JS_ToInt64Ext(ctx, &addr, argv[0]))
+      return JS_EXCEPTION;
+
+    buf.data = (uint8_t*)(intptr_t)addr;
   } else {
     if(js_to_pointer(ctx, (void**)&buf.data, argv[0]))
       return JS_EXCEPTION;
@@ -513,7 +522,7 @@ js_ptr_address(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   uint8_t* ptr = NULL;
 
   if(argc < 1 || js_to_pointer(ctx, (void**)&ptr, argv[0]))
-    return JS_ThrowTypeError(ctx, "argument 1 must be ArrayBuffer|Number");
+    return JS_EXCEPTION;
 
   if(argc > 1) {
     int64_t ofs = 0;

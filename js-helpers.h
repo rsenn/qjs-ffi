@@ -24,7 +24,7 @@ typedef struct {
 
 /* Resolve negative RANGE.ofs (from the end of a SIZE-byte buffer) and negative
  * RANGE.len (from the end of what remains after the offset), like slice(). */
-static inline  OffsetLength
+static inline OffsetLength
 range_wrap(OffsetLength range, size_t size) {
   int64_t offset = WRAP(range.ofs, size);
 

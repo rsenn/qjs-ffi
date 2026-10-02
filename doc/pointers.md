@@ -24,13 +24,23 @@ Everywhere a pointer is returned (`dlsym()`, a `pointer`-typed result,
 As in bun:ffi a `number` is what you get in practice. Unlike bun's `read.ptr`,
 which rounds to a `number` above 2^53, a pointer is never rounded here.
 
-Where a pointer is taken (a pointer argument, `ptr()`, `read`), a `number`, a
-`bigint`, `null` (NULL), an `ArrayBuffer` or view (its address) or a
-[`JSCallback`](js-callback.md) (its function pointer; a closed one is a
-`TypeError`) is accepted, so a typed array or a
-[generated struct class](gen-bindings.md) can be passed to a `pointer`
-parameter as it is. A string is never read as an address (see
-[`toPointer()`](#topointer)).
+Where a pointer is taken (a pointer argument, `ptr()`, `read`, a library handle),
+the conversion is bun:ffi's:
+
+*   `null` and `undefined` are NULL.
+*   An `ArrayBuffer` or view (a typed array or a `DataView`) is its address, so a
+    typed array or a [generated struct class](gen-bindings.md) can be passed to
+    a `pointer` parameter as it is. A [`JSCallback`](js-callback.md) is its
+    function pointer; a closed one is a `TypeError`.
+*   A `number` is truncated to an integer. A `NaN`, an infinity or a value outside
+    the 64-bit range is not an error: it becomes the garbage address
+    `0x8000000000000000`, as in bun.
+*   A `bigint` is taken modulo 2^64, so `-1n` and `2n ** 64n - 1n` are the same
+    address.
+*   Anything else is a `TypeError`: a boolean, a Symbol, an object (an array, a
+    function, a `Number` object) and a **string**. A string is never an address:
+    encode it as a buffer to pass its bytes (see [`toPointer()`](#topointer);
+    only the legacy `toArrayBuffer(string, size, false)` form still reads one).
 
 ## `ptr()`
 

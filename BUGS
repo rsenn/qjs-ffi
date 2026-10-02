@@ -35,3 +35,8 @@
 
     import { toArrayBuffer } from 'ffi';
     console.log(toArrayBuffer().byteLength);
+
+- offset-conversion-error-swallowed (ffi.c:499): ptr() and toPointer() ignore a failing offset conversion (if(!js_to_index(...)) ptr += ofs), so a Symbol offset returns normally with a TypeError left pending that surfaces later; js_parse_range() does the same by design. found auditing the pointer conversions.
+
+    import { ptr } from 'ffi';
+    ptr(new Uint8Array(4), Symbol('s'));

@@ -38,7 +38,7 @@ js_ffiread(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
   if(!p)
     return JS_ThrowTypeError(ctx, "read: pointer is NULL");
 
-  if(argc > 1 && !JS_IsUndefined(argv[1]) && JS_ToInt64(ctx, &ofs, argv[1]))
+  if(argc > 1 && !JS_IsUndefined(argv[1]) && js_to_index(ctx, &ofs, argv[1]))
     return JS_EXCEPTION;
 
   p += ofs;

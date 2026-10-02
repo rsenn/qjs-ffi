@@ -1,5 +1,5 @@
 import { tests, eq, assert } from './tinytest.js';
-import { dlopen, dlsym, ptr, read, toBuffer, toPointer, CString, CFunction, JSCallback, RTLD_DEFAULT, RTLD_NEXT } from 'ffi';
+import { dlopen, dlsym, ptr, read, toArrayBuffer, toBuffer, toPointer, CString, CFunction, JSCallback, RTLD_DEFAULT, RTLD_NEXT } from 'ffi';
 
 const bytes = str => new Uint8Array(Array.from(str, c => c.charCodeAt(0))).buffer;
 
@@ -34,6 +34,55 @@ await tests({
       try { f(); } catch(x) { e = x; }
       assert(e instanceof TypeError, 'expected TypeError for a closed JSCallback, got ' + e);
     }
+  },
+
+  'a pointer argument follows bun: only null, undefined, a Number, a BigInt, a view or a JSCallback'() {
+    const id = CFunction({ ptr: libc('labs'), args: ['pointer'], returns: 'pointer' });
+    const rejected = [true, false, '', 'abc', '0x1000', {}, [], [5], () => 1, Symbol('s'), new Number(7), { valueOf: () => 9 }];
+
+    for(const v of rejected) {
+      let e;
+      try { id(v); } catch(x) { e = x; }
+      assert(e instanceof TypeError, 'expected TypeError for ' + String(typeof v === 'symbol' ? 'Symbol' : JSON.stringify(v) || typeof v) + ', got ' + e);
+    }
+
+    eq(null, id(undefined));
+    eq(null, id(null));
+    eq(null, id(0));
+  },
+
+  'a Number is truncated; NaN, an infinity and anything outside int64 are the address 2^63, as in bun'() {
+    const id = CFunction({ ptr: libc('labs'), args: ['pointer'], returns: 'pointer' });
+
+    eq(1, id(1.5));
+    eq(1, id(-1.5));
+    eq(9007199254740991, id(9007199254740991));
+
+    for(const v of [NaN, Infinity, -Infinity, 1e300, 2 ** 63, 2 ** 64])
+      eq('9223372036854775808n', id(v) + 'n');
+  },
+
+  'a BigInt is taken modulo 2^64'() {
+    const id = CFunction({ ptr: libc('labs'), args: ['pointer'], returns: 'pointer' });
+
+    eq(5, id(5n));
+    eq(5, id(2n ** 64n + 5n));
+    eq(5, id(2n ** 70n + 5n));
+    eq(null, id(2n ** 64n));
+  },
+
+  'ptr() and read() refuse what is not a pointer'() {
+    for(const f of [() => ptr('abc'), () => ptr({}), () => ptr(true), () => read.u8('0x1000')]) {
+      let e;
+      try { f(); } catch(x) { e = x; }
+      assert(e instanceof TypeError, 'expected TypeError, got ' + e);
+    }
+  },
+
+  'the legacy toArrayBuffer(string address, size, false) still reads an address'() {
+    const buf = new Uint8Array([1, 2, 3, 4]);
+
+    eq('1,2,3', new Uint8Array(toArrayBuffer(toPointer(buf.buffer), 3, false)).join());
   },
 
   'pointer arithmetic works without BigInt'() {
