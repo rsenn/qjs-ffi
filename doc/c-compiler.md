@@ -117,6 +117,18 @@ Libraries to link the C code against, as for `-l` (`"sqlite3"` finds
 `libsqlite3.so`). TinyCC searches its default library paths; add `-L<dir>` to
 [`flags`](#flags) for others.
 
+### `include`
+
+```ts
+type Include = string | string[];
+
+cc({ source: "hello.c", include: ["vendor/include"], symbols: { /* ... */ } });
+```
+
+Directories searched for `#include "..."` and `#include <...>`, as for `-I`
+(`ffi.d.ts` of Bun has it; its docs page does not). Same as `-I<dir>` in
+[`flags`](#flags).
+
 ### `flags`
 
 ```ts

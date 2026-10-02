@@ -84,6 +84,25 @@ if(typeof ffi.cc != 'function') {
       eq(7, cc({ source, flags: ['-DANSWER=3', '-DOTHER=4'], symbols }).symbols.answer());
     },
 
+    'cc honours include (string and array)'() {
+      const dir = tmp + 'cc-include-' + os.getpid() + '/';
+      os.mkdir(dir);
+      const f = std.open(dir + 'answer.h', 'w');
+      f.puts('#define ANSWER 42\n');
+      f.close();
+      try {
+        const source = bytesOf('#include <answer.h>\nint answer(void) { return ANSWER; }');
+        const symbols = { answer: { args: [], returns: 'i32' } };
+        eq(42, cc({ source, include: dir, symbols }).symbols.answer());
+        eq(42, cc({ source, include: ['/nonexistent', dir], symbols }).symbols.answer());
+        assert(assertThrows(() => cc({ source, include: 42, symbols })) instanceof TypeError);
+        assert(assertThrows(() => cc({ source, symbols })) instanceof InternalError);
+      } finally {
+        os.remove(dir + 'answer.h');
+        os.remove(dir);
+      }
+    },
+
     'cc honours library'() {
       const source = bytesOf('#include <math.h>\ndouble f(double x) { return pow(x, 2); }');
       eq(9, cc({ source, library: ['m'], symbols: { f: { args: ['f64'], returns: 'f64' } } }).symbols.f(3));

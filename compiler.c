@@ -202,7 +202,7 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
 #endif
   tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
 
-  if(cc_each_string(ctx, options, "flags", s, tcc_set_options) || cc_define_all(ctx, options, s) || cc_each_string(ctx, options, "library", s, tcc_add_library))
+  if(cc_each_string(ctx, options, "flags", s, tcc_set_options) || cc_each_string(ctx, options, "include", s, tcc_add_include_path) || cc_define_all(ctx, options, s) || cc_each_string(ctx, options, "library", s, tcc_add_library))
     goto fail;
 
   rc = path ? tcc_add_file(s, path) : tcc_compile_string(s, text);
