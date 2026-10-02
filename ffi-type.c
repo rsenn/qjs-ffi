@@ -116,7 +116,7 @@ ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
     case K_U64_FAST: return JS_NewFloat64(ctx, (double)*(const uint64_t*)p);
     case K_F32: return JS_NewFloat64(ctx, *(const float*)p);
     case K_F64: return JS_NewFloat64(ctx, *(const double*)p);
-    case K_POINTER: return js_newptr(ctx, *(void* const*)p);
+    case K_POINTER: return js_new_pointer(ctx, *(void* const*)p);
     case K_CSTRING: {
       const char* s = *(const char* const*)p;
       return s ? JS_NewString(ctx, s) : JS_NULL;
@@ -137,7 +137,9 @@ static ffi_type* value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst v
  */
 static ffi_type*
 struct_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int depth) {
-  int64_t n = js_array_length(ctx, value);
+  int64_t n = 0;
+
+  js_try_get_length(ctx, value, &n);
   ffi_type *st, **elements, **list;
 
   if(depth >= STRUCT_MAX_DEPTH) {
@@ -227,7 +229,7 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
 
   JSValue args_val = JS_GetPropertyStr(ctx, options, "args");
 
-  if((argc = js_array_length(ctx, args_val)) < 0)
+  if(js_try_get_length(ctx, args_val, &argc))
     argc = 0;
 
   if(argc > FFI_MAX_ARGS)

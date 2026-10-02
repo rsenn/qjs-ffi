@@ -61,7 +61,7 @@ js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst
       out->f64 = d;
       break;
 
-    case K_POINTER: js_ptr(ctx, &out->ptr, v); break;
+    case K_POINTER: js_to_pointer(ctx, &out->ptr, v); break;
 
     default: out->i64 = 0; break;
   }
@@ -137,14 +137,18 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
     } else if(cf->sig.arg_kind[i] == K_STRUCT) {
       /* libffi takes the address of the struct's bytes, which must all be
        * there: the argument is an ArrayBuffer or view of at least its size. */
-      ptr_len buf;
+      ByteSpan buf;
 
-      if(js_buf(ctx, &buf, v) || buf.len < cf->sig.arg_types[i]->size) {
-        ret = JS_ThrowTypeError(ctx, "CFunction: argument %d must be an ArrayBuffer of at least %zu bytes (a struct passed by value)", i + 1, cf->sig.arg_types[i]->size);
+      if(js_try_get_bytes(ctx, &buf, v) || buf.size < cf->sig.arg_types[i]->size) {
+        ret = JS_ThrowTypeError(ctx,
+                                "CFunction: argument %d must be an ArrayBuffer of at least %zu "
+                                "bytes (a struct passed by value)",
+                                i + 1,
+                                cf->sig.arg_types[i]->size);
         goto done;
       }
 
-      ptrs[i] = buf.ptr;
+      ptrs[i] = buf.data;
       continue;
     } else {
       js_to_native_arg(ctx, cf->sig.arg_kind[i], &args_storage[i], v);
@@ -230,7 +234,7 @@ js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValu
   JSValue ptr_val = JS_GetPropertyStr(ctx, options, "ptr");
   void* fp;
 
-  if(js_toptr(ctx, &fp, ptr_val) || !fp) {
+  if(js_to_address(ctx, &fp, ptr_val) || !fp) {
     JS_FreeValue(ctx, ptr_val);
     return JS_ThrowTypeError(ctx, "CFunction: options.ptr must be a valid function pointer");
   }

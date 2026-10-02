@@ -2,10 +2,10 @@
 
 #ifdef CONFIG_TCC
 
+#include <cutils.h>
+#include <libtcc.h>
 #include <stdio.h>
 #include <string.h>
-#include <libtcc.h>
-#include <cutils.h>
 
 #include "c-function.h"
 #include "js-helpers.h"
@@ -58,7 +58,7 @@ cc_each_string(JSContext* ctx, JSValueConst options, const char* key, TCCState* 
     return ret;
   }
 
-  if((len = js_array_length(ctx, arr)) < 0) {
+  if(js_try_get_length(ctx, arr, &len)) {
     JS_ThrowTypeError(ctx, "cc: %s must be a string or an array of strings", key);
     ret = -1;
   }
@@ -130,10 +130,10 @@ cc_define_all(JSContext* ctx, JSValueConst options, TCCState* s) {
   return ret;
 }
 
-/* js_buf() covers ArrayBuffer and TypedArrays; a DataView (or any other
- * object exposing buffer/byteOffset/byteLength) is resolved by hand. */
+/* js_try_get_bytes() covers ArrayBuffer and TypedArrays; a DataView (or any
+ * other object exposing buffer/byteOffset/byteLength) is resolved by hand. */
 static int
-cc_view(JSContext* ctx, ptr_len* view, JSValueConst obj) {
+cc_view(JSContext* ctx, ByteSpan* view, JSValueConst obj) {
   JSValue buffer = JS_GetPropertyStr(ctx, obj, "buffer");
   JSValue off = JS_GetPropertyStr(ctx, obj, "byteOffset");
   JSValue len = JS_GetPropertyStr(ctx, obj, "byteLength");
@@ -142,10 +142,9 @@ cc_view(JSContext* ctx, ptr_len* view, JSValueConst obj) {
   uint8_t* base;
   int ret = -1;
 
-  if(!JS_ToUint32(ctx, &o, off) && !JS_ToUint32(ctx, &l, len) && (base = JS_GetArrayBuffer(ctx, &size, buffer)) &&
-     (size_t)o + l <= size) {
-    view->ptr = base + o;
-    view->len = l;
+  if(!JS_ToUint32(ctx, &o, off) && !JS_ToUint32(ctx, &l, len) && (base = JS_GetArrayBuffer(ctx, &size, buffer)) && (size_t)o + l <= size) {
+    view->data = base + o;
+    view->size = l;
     ret = 0;
   }
 
@@ -176,7 +175,9 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   int rc;
 
   if(argc < 1 || !JS_IsObject(argv[0]))
-    return JS_ThrowTypeError(ctx, "cc: expected an options object { source, symbols [, library, flags, define] }");
+    return JS_ThrowTypeError(ctx,
+                             "cc: expected an options object { source, "
+                             "symbols [, library, flags, define] }");
 
   JSValueConst options = argv[0];
 
@@ -195,16 +196,18 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   if(JS_IsString(src)) {
     path = JS_ToCString(ctx, src);
   } else if(!JS_IsException(src)) {
-    ptr_len view;
+    ByteSpan view;
 
-    if(js_buf(ctx, &view, src) == 0 || cc_view(ctx, &view, src) == 0) {
-      text = js_malloc(ctx, view.len + 1);
+    if(js_try_get_bytes(ctx, &view, src) == 0 || cc_view(ctx, &view, src) == 0) {
+      text = js_malloc(ctx, view.size + 1);
       if(text) {
-        memcpy(text, view.ptr, view.len);
-        text[view.len] = 0;
+        memcpy(text, view.data, view.size);
+        text[view.size] = 0;
       }
     } else {
-      JS_ThrowTypeError(ctx, "cc: source must be a file name or an ArrayBuffer/TypedArray/DataView of C code");
+      JS_ThrowTypeError(ctx,
+                        "cc: source must be a file name or an "
+                        "ArrayBuffer/TypedArray/DataView of C code");
     }
   }
   JS_FreeValue(ctx, src);
@@ -226,8 +229,7 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
 #endif
   tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
 
-  if(cc_each_string(ctx, options, "flags", s, tcc_set_options) || cc_define_all(ctx, options, s) ||
-     cc_each_string(ctx, options, "library", s, tcc_add_library))
+  if(cc_each_string(ctx, options, "flags", s, tcc_set_options) || cc_define_all(ctx, options, s) || cc_each_string(ctx, options, "library", s, tcc_add_library))
     goto fail;
 
   rc = path ? tcc_add_file(s, path) : tcc_compile_string(s, text);

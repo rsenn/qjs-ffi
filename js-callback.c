@@ -160,7 +160,8 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   cl->exception = JS_UNDEFINED;
   cl->func = JS_DupValue(ctx, func_obj);
 
-  if(!(cl->closure = ffi_closure_alloc(sizeof(ffi_closure), &cl->code)) || ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->sig.argc, cl->sig.ret_type, cl->sig.arg_types) != FFI_OK || ffi_prep_closure_loc(cl->closure, &cl->cif, js_callback_handler, cl, cl->code) != FFI_OK) {
+  if(!(cl->closure = ffi_closure_alloc(sizeof(ffi_closure), &cl->code)) || ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->sig.argc, cl->sig.ret_type, cl->sig.arg_types) != FFI_OK ||
+     ffi_prep_closure_loc(cl->closure, &cl->cif, js_callback_handler, cl, cl->code) != FFI_OK) {
     JS_FreeValue(ctx, cl->func);
     js_callback_release(ctx, cl);
     js_free(ctx, cl);
@@ -283,7 +284,7 @@ js_callback_get(JSContext* ctx, JSValueConst this_val, int magic) {
       return ret;
     }
 
-    case PROP_PTR: return js_newptr(ctx, cl->code);
+    case PROP_PTR: return js_new_pointer(ctx, cl->code);
     case PROP_CALLED: return JS_NewInt32(ctx, cl->called);
     case PROP_FUNCOBJ: return JS_DupValue(ctx, cl->func);
     case PROP_EXCEPTION: return JS_DupValue(ctx, cl->exception);
@@ -332,9 +333,9 @@ static const JSCFunctionListEntry js_callback_static_funcs[] = {
     JS_CGETSET_MAGIC_DEF("list", js_callback_get, 0, PROP_LIST),
 };
 
-/* proto[Symbol.dispose] = close, for `using`: the engine's Symbol.dispose, or if
- * it has none (QuickJS does not yet) the registered Symbol.for("Symbol.dispose"),
- * which is what the usual polyfills install. */
+/* proto[Symbol.dispose] = close, for `using`: the engine's Symbol.dispose, or
+ * if it has none (QuickJS does not yet) the registered
+ * Symbol.for("Symbol.dispose"), which is what the usual polyfills install. */
 static void
 js_callback_define_dispose(JSContext* ctx, JSValueConst proto) {
   JSValue global = JS_GetGlobalObject(ctx);

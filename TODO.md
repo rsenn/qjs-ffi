@@ -372,7 +372,7 @@ Ordered roughly by how likely bun code is to trip over it.
 5. `CFunction(...).close()`: `ffi.d.ts` declares it (frees the wrapper).
 6. `JSCallback` instance as a `function`/`ptr` argument (the docs pass it
    directly, `.ptr` being only "slightly faster"): currently converts to 0, so
-   the C side gets NULL. `js_ptr()` should unwrap a `JSCallback`.
+   the C side gets NULL. `js_to_pointer()` should unwrap a `JSCallback`.
 7. **Postponed** (low value: bun's `viewSource` is for debugging its own C code
    generator, and there is none here). `viewSource(symbols[, false])` /
    `viewSource(fn, true)`: bun returns the C it generates for a binding
@@ -436,7 +436,7 @@ Ordered roughly by how likely bun code is to trip over it.
    neither `byteOffset` nor `byteLength`. (bun-types types it as `string`; the
    object form with `.ptr` is what older Bun gave.) In bun's own dump it is a
    native function of arity 3, not a class.
-4. **Done** (`js_newptr()` in `js-helpers.h`, `__ptrOut()` in `tools/gen-bindings/structs.js`,
+4. **Done** (`js_new_pointer()` in `js-helpers.h`, `__ptrOut()` in `tools/gen-bindings/structs.js`,
    `tests/test-pointer-helpers.js`). Pointers: bun hands out a `number` (to 2^53); ours are `bigint` once past 32
    bits, so `ptr(u8)`, `JSCallback.ptr` and a `malloc()` result are all
    `bigint`. Anything doing `ptr + 8` throws a mixed-type error.
@@ -447,12 +447,12 @@ Ordered roughly by how likely bun code is to trip over it.
    `bigint` is accepted as a pointer argument and by `toArrayBuffer`. bun's
    `read.ptr` is always a `number`, rounded above 2^53 (`0xffffffffffffffff`
    gives `18446744073709552000`); ours stays exact instead. Plan: in
-   `js_newptr()` (`js-helpers.h`) return `JS_NewInt64` up to `2^53 - 1`, else
+   `js_new_pointer()` (`js-helpers.h`) return `JS_NewInt64` up to `2^53 - 1`, else
    `JS_NewBigUint64` (it is `JS_NewBigInt64` now, which makes an address of
    2^63 or more negative); `__ptrOut()` of the generated modules
    (`tools/gen-bindings/structs.js`) gets the same rule; update the tests that
    expect a `bigint` and the "number if it fits in 32 bits" wording in
-   `doc/pointers.md`, `doc/c-function.md` and `doc/types.md`. `js_toptr()`
+   `doc/pointers.md`, `doc/c-function.md` and `doc/types.md`. `js_to_address()`
    already takes both. Breaking for code doing `p + 8n`.
 5. **Done** (`FFI_TYPE_LIST` in `ffi-type.h`, `tests/test-ffitype.js`: 61
    members, numbers and the reverse mapping, signatures take a name or a

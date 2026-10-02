@@ -38,13 +38,13 @@ js_cstring_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValu
   int64_t ofs = 0, len = -1;
   JSValue proto, obj;
 
-  if(argc < 1 || js_ptr(ctx, &p, argv[0]))
+  if(argc < 1 || js_to_pointer(ctx, (void**)&p, argv[0]))
     return JS_ThrowTypeError(ctx, "CString: argument 1 must be a pointer");
 
-  if(argc > 1 && js_index(ctx, &ofs, argv[1]))
+  if(argc > 1 && js_to_index(ctx, &ofs, argv[1]))
     return JS_EXCEPTION;
 
-  if(argc > 2 && js_index(ctx, &len, argv[2]))
+  if(argc > 2 && js_to_index(ctx, &len, argv[2]))
     return JS_EXCEPTION;
 
   proto = JS_GetPropertyStr(ctx, new_target, "prototype");
@@ -73,7 +73,7 @@ js_cstring_get(JSContext* ctx, JSValueConst this_val, int magic) {
     return JS_EXCEPTION;
 
   switch(magic) {
-    case 0: return js_newptr(ctx, (void*)cs->ptr);
+    case 0: return js_new_pointer(ctx, (void*)cs->ptr);
     case 1: return JS_NewInt64(ctx, js_cstring_length(cs));
   }
 

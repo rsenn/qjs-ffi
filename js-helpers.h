@@ -1,8 +1,8 @@
 #ifndef QJSFFI_JS_HELPERS_H
 #define QJSFFI_JS_HELPERS_H
 
-#include <stddef.h>
 #include <quickjs.h>
+#include <stddef.h>
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -17,106 +17,28 @@
 #define WRAP(index, size) ((index) < 0 ? ((index) + (size)) : (index))
 #endif
 
+/* An (offset, length) pair; either may be negative until range_wrap(). */
 typedef struct {
   int64_t ofs, len;
-} ofs_len;
+} OffsetLength;
 
-typedef struct buf {
-  uint8_t* ptr;
-  size_t len;
-} ptr_len;
+/* A pointer to bytes and how many there are. */
+typedef struct {
+  uint8_t* data;
+  size_t size;
+} ByteSpan;
 
-int js_toptr(JSContext*, void*, JSValueConst);
-int js_offsetlength(JSContext*, ofs_len*, int, JSValueConst[]);
-int js_buf(JSContext*, ptr_len*, JSValueConst);
-int js_buf_arguments(JSContext*, ptr_len*, int, JSValueConst[]);
-int64_t js_array_length(JSContext*, JSValueConst);
-
-static inline ofs_len
-offset_length_wrap(ofs_len ol, size_t size) {
-  int64_t offset = WRAP(ol.ofs, size);
-
-  size -= offset;
-
-  return (ofs_len){
-      offset,
-      WRAP(ol.len, size),
-  };
-}
-
-static inline void
-offset_length_apply(ofs_len ol, ptr_len* buf) {
-  buf->ptr += ol.ofs;
-  int64_t remain = buf->len - ol.ofs;
-  buf->len = MIN(remain, ol.len);
-}
-
-static inline int
-js_index(JSContext* ctx, int64_t* pval, JSValueConst value) {
-  int64_t ofs = 0;
-
-  if(JS_ToInt64Ext(ctx, &ofs, value))
-    return -1;
-
-  if(pval)
-    *pval = ofs;
-
-  return 0;
-}
-
-/* A pointer as bun:ffi hands it out: null for NULL, a Number up to 2^53 - 1
- * (Number.MAX_SAFE_INTEGER, exact; every user-space address on 64-bit Linux
- * and Windows is below 2^47), else an exact unsigned BigInt. */
-static inline JSValue
-js_newptr(JSContext* ctx, void* ptr) {
-  uintptr_t addr = (uintptr_t)ptr;
-
-  if(!addr)
-    return JS_NULL;
-
-  if(addr <= (uintptr_t)9007199254740991ULL)
-    return JS_NewInt64(ctx, (int64_t)addr);
-
-  return JS_NewBigUint64(ctx, addr);
-}
-
-static inline uint8_t*
-js_ptrlen(JSContext* ctx, size_t* p_len, JSValueConst obj) {
-  ptr_len buf;
-
-  if(js_buf(ctx, &buf, obj))
-    return 0;
-
-  if(p_len)
-    *p_len = buf.len;
-
-  return buf.ptr;
-}
-
-static inline int
-js_ptr(JSContext* ctx, void* pptr, JSValueConst value) {
-  void* p;
-
-  if(!(p = js_ptrlen(ctx, NULL, value)))
-    if(js_toptr(ctx, &p, value))
-      return 1;
-
-  if(pptr)
-    *(void**)pptr = p;
-
-  return 0;
-}
-
-/* Function.prototype, fetched the same way qjs-lws's js_function_prototype()
- * does (js-utils.c:9-15): a throwaway JS_NewCFunction exists only to read
- * its [[Prototype]] off of.
- */
-static inline JSValue
-js_function_prototype(JSContext* ctx) {
-  JSValue fn = JS_NewCFunction(ctx, NULL, "", 0);
-  JSValue proto = JS_GetPrototype(ctx, fn);
-  JS_FreeValue(ctx, fn);
-  return proto;
-}
+/* All int-returning helpers below return 0 on success and -1 on failure. A
+ * js_to_* helper leaves an exception pending on failure; a js_try_* helper
+ * never does, so it can be used as a silent probe. */
+int js_to_index(JSContext*, int64_t*, JSValueConst value);
+int js_to_address(JSContext*, void** out, JSValueConst);
+int js_to_pointer(JSContext*, void** out, JSValueConst);
+JSValue js_new_pointer(JSContext*, void*);
+int js_try_get_bytes(JSContext*, ByteSpan* out, JSValueConst);
+int js_try_get_length(JSContext*, JSValueConst, int64_t*);
+int js_parse_range(JSContext*, OffsetLength*, int, JSValueConst[]);
+int js_parse_span_args(JSContext*, ByteSpan*, int, JSValueConst[]);
+JSValue js_function_prototype(JSContext*);
 
 #endif /* defined(QJSFFI_JS_HELPERS_H) */

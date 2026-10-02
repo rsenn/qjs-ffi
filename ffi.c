@@ -30,26 +30,26 @@
 
 #define _GNU_SOURCE
 #include <assert.h>
+#include <dlfcn.h>
+#include <errno.h>
+#include <ffi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <ffi.h>
-#include <dlfcn.h>
 
-#include <quickjs.h>
 #include <cutils.h>
+#include <quickjs.h>
 
-#include "js-helpers.h"
-#include "compiler.h"
 #include "c-string.h"
+#include "compiler.h"
+#include "js-helpers.h"
 
 #define countof(x) (sizeof(x) / sizeof((x)[0]))
 
-#include "js-callback.h"
 #include "c-function.h"
 #include "ffi-read.h"
 #include "ffi-type.h"
+#include "js-callback.h"
 
 /* debug() */
 static JSValue
@@ -93,7 +93,7 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) 
   if(res == NULL)
     return JS_NULL;
 
-  return js_newptr(ctx, res);
+  return js_new_pointer(ctx, res);
 }
 
 /* s = dlerror() */
@@ -109,7 +109,7 @@ static JSValue
 js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   void* ptr;
 
-  if(js_toptr(ctx, &ptr, argv[0]))
+  if(js_to_address(ctx, &ptr, argv[0]))
     return JS_EXCEPTION;
 
   if(ptr == NULL)
@@ -124,7 +124,7 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   void* ptr;
   const char* s;
 
-  if(js_toptr(ctx, &ptr, argv[0]))
+  if(js_to_address(ctx, &ptr, argv[0]))
     return JS_EXCEPTION;
 
   if(!(s = JS_ToCString(ctx, argv[1])))
@@ -138,7 +138,7 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   if(res == NULL)
     return JS_NULL;
 
-  return js_newptr(ctx, res);
+  return js_new_pointer(ctx, res);
 }
 
 /* n = dlopen(path, symbolSpecs).close() -- frees the dlopen() handle, passed
@@ -152,7 +152,7 @@ js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   if(JS_IsUndefined(data[0]))
     return JS_NewInt32(ctx, 0);
 
-  if(!js_toptr(ctx, &ptr, data[0]))
+  if(!js_to_address(ctx, &ptr, data[0]))
     ret = JS_NewInt32(ctx, dlclose(ptr));
 
   JS_FreeValue(ctx, data[0]);
@@ -189,7 +189,7 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
 
     if(linked && JS_IsObject(spec)) {
       JSValue ptr_val = JS_GetPropertyStr(ctx, spec, "ptr");
-      int bad = !JS_IsUndefined(ptr_val) && (js_toptr(ctx, &fp, ptr_val) || !fp);
+      int bad = !JS_IsUndefined(ptr_val) && (js_to_address(ctx, &fp, ptr_val) || !fp);
 
       JS_FreeValue(ctx, ptr_val);
 
@@ -266,7 +266,7 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
     return symbols;
   }
 
-  JSValue close_data = js_newptr(ctx, handle);
+  JSValue close_data = js_new_pointer(ctx, handle);
   JSValue close_fn = JS_NewCFunctionData(ctx, js_dlopen_symbols_close, 0, 0, 1, &close_data);
   JS_FreeValue(ctx, close_data);
 
@@ -299,21 +299,21 @@ js_linksymbols(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
 /* s = toString(BUF[, ofs, len] or PTR[, len]) */
 static JSValue
 js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
-  ptr_len buf;
+  ByteSpan buf;
 
-  if(!js_buf_arguments(ctx, &buf, argc, argv)) {
-    ofs_len ol = {0, INT64_MAX};
+  if(!js_parse_span_args(ctx, &buf, argc, argv)) {
+    OffsetLength ol = {0, INT64_MAX};
 
-    if(!js_offsetlength(ctx, &ol, argc, argv))
+    if(!js_parse_range(ctx, &ol, argc, argv))
       return JS_ThrowTypeError(ctx, "argument 1 must be ArrayBuffer|Number|string");
 
-    buf.ptr = (void*)(ptrdiff_t)ol.ofs;
-    buf.len = argc == 1 || ol.len == INT64_MAX ? SIZE_MAX : ol.len;
+    buf.data = (void*)(ptrdiff_t)ol.ofs;
+    buf.size = argc == 1 || ol.len == INT64_MAX ? SIZE_MAX : ol.len;
   }
 
-  const char* str = (const char*)buf.ptr;
+  const char* str = (const char*)buf.data;
 
-  return str ? (buf.len != SIZE_MAX && buf.len < INT64_MAX) ? JS_NewStringLen(ctx, str, buf.len) : JS_NewString(ctx, str) : JS_NULL;
+  return str ? (buf.size != SIZE_MAX && buf.size < INT64_MAX) ? JS_NewStringLen(ctx, str, buf.size) : JS_NewString(ctx, str) : JS_NULL;
 }
 
 static void
@@ -328,7 +328,7 @@ free_objptr(JSRuntime* rt, void* opaque, void* ptr) {
  * form, still used for a buffer or string source (not valid in bun:ffi). */
 static JSValue
 js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
-  ptr_len buf = {0, SIZE_MAX};
+  ByteSpan buf = {0, SIZE_MAX};
   void* opaque = 0;
   int copy = -1;
 
@@ -337,32 +337,32 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
     argc--;
   }
 
-  if(!js_buf(ctx, &buf, argv[0])) {
+  if(!js_try_get_bytes(ctx, &buf, argv[0])) {
     if(!copy)
       opaque = JS_VALUE_GET_PTR(JS_DupValue(ctx, argv[0]));
   } else if(copy == -1 && JS_IsString(argv[0])) {
-    buf.ptr = (uint8_t*)JS_ToCStringLen(ctx, &buf.len, argv[0]);
+    buf.data = (uint8_t*)JS_ToCStringLen(ctx, &buf.size, argv[0]);
     copy = TRUE;
   } else {
-    if(js_ptr(ctx, &buf.ptr, argv[0]))
+    if(js_to_pointer(ctx, (void**)&buf.data, argv[0]))
       return JS_EXCEPTION;
   }
 
   if(argc > 1) {
     int64_t len;
 
-    if(js_index(ctx, &len, argv[1]))
+    if(js_to_index(ctx, &len, argv[1]))
       return JS_EXCEPTION;
 
-    if(buf.len) {
-      len = WRAP(len, buf.len);
-      len = CLAMP(len, 0, buf.len);
+    if(buf.size) {
+      len = WRAP(len, buf.size);
+      len = CLAMP(len, 0, buf.size);
     }
 
-    buf.len = len;
+    buf.size = len;
   }
 
-  return copy ? JS_NewArrayBufferCopy(ctx, buf.ptr, buf.len) : JS_NewArrayBuffer(ctx, buf.ptr, buf.len, &free_objptr, opaque, FALSE);
+  return copy ? JS_NewArrayBufferCopy(ctx, buf.data, buf.size) : JS_NewArrayBuffer(ctx, buf.data, buf.size, &free_objptr, opaque, FALSE);
 }
 
 /* Deallocator of an ArrayBuffer made by toArrayBuffer(): the native
@@ -397,10 +397,11 @@ js_cptr(JSContext* ctx, void** pptr, JSValueConst v, const char* what) {
     return -1;
   }
 
-  return js_toptr(ctx, pptr, v) ? -1 : 0;
+  return js_to_address(ctx, pptr, v) ? -1 : 0;
 }
 
-/* b = toArrayBuffer(ptr[, byteOffset[, byteLength[, deallocatorContext], jsTypedArrayBytesDeallocator]])
+/* b = toArrayBuffer(ptr[, byteOffset[, byteLength[, deallocatorContext],
+ * jsTypedArrayBytesDeallocator]])
  *
  * bun:ffi's form, for a pointer (Number, BigInt): an ArrayBuffer over the
  * memory itself (not a copy) from ptr + byteOffset, NUL-terminated when
@@ -418,9 +419,12 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
 
   for(int i = 1; i < argc; i++)
     if(JS_IsBool(argv[i]))
-      return JS_ThrowTypeError(ctx, "toArrayBuffer: argument %d must not be a boolean (the copy flag exists only for an ArrayBuffer or string source)", i + 1);
+      return JS_ThrowTypeError(ctx,
+                               "toArrayBuffer: argument %d must not be a boolean (the copy flag "
+                               "exists only for an ArrayBuffer or string source)",
+                               i + 1);
 
-  if(js_toptr(ctx, &p, argv[0]))
+  if(js_to_address(ctx, (void**)&p, argv[0]))
     return JS_EXCEPTION;
 
   if(!p)
@@ -478,13 +482,13 @@ static JSValue
 js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* ptr = NULL;
 
-  if(js_ptr(ctx, &ptr, argv[0]))
+  if(js_to_pointer(ctx, (void**)&ptr, argv[0]))
     return JS_EXCEPTION;
 
   if(argc > 1) {
     int64_t ofs = 0;
 
-    if(!js_index(ctx, &ofs, argv[1]))
+    if(!js_to_index(ctx, &ofs, argv[1]))
       ptr += ofs;
   }
 
@@ -500,23 +504,23 @@ static JSValue
 js_ptr_address(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* ptr = NULL;
 
-  if(argc < 1 || js_ptr(ctx, &ptr, argv[0]))
+  if(argc < 1 || js_to_pointer(ctx, (void**)&ptr, argv[0]))
     return JS_ThrowTypeError(ctx, "argument 1 must be ArrayBuffer|Number");
 
   if(argc > 1) {
     int64_t ofs = 0;
 
-    if(!js_index(ctx, &ofs, argv[1]))
+    if(!js_to_index(ctx, &ofs, argv[1]))
       ptr += ofs;
   }
 
-  return js_newptr(ctx, ptr);
+  return js_new_pointer(ctx, ptr);
 }
 
 /* p = JSContext() */
 static JSValue
 js_context(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
-  return js_newptr(ctx, ctx);
+  return js_new_pointer(ctx, ctx);
 }
 
 static const JSCFunctionListEntry js_funcs[] = {

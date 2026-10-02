@@ -19,7 +19,12 @@ enum {
   READ_F64,
 };
 
-#define LOAD(type, p) ({ type v_; memcpy(&v_, (p), sizeof(v_)); v_; })
+#define LOAD(type, p) \
+  ({ \
+    type v_; \
+    memcpy(&v_, (p), sizeof(v_)); \
+    v_; \
+  })
 
 /* v = read.<kind>(ptr[, byteOffset]) */
 static JSValue
@@ -27,7 +32,7 @@ js_ffiread(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
   const uint8_t* p = NULL;
   int64_t ofs = 0;
 
-  if(argc < 1 || js_ptr(ctx, &p, argv[0]))
+  if(argc < 1 || js_to_pointer(ctx, (void**)&p, argv[0]))
     return JS_ThrowTypeError(ctx, "read: argument 1 must be a pointer");
 
   if(!p)
@@ -39,7 +44,7 @@ js_ffiread(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
   p += ofs;
 
   switch(magic) {
-    case READ_PTR: return js_newptr(ctx, LOAD(void*, p));
+    case READ_PTR: return js_new_pointer(ctx, LOAD(void*, p));
     case READ_INTPTR: return JS_NewInt64(ctx, LOAD(intptr_t, p));
     case READ_I8: return JS_NewInt32(ctx, LOAD(int8_t, p));
     case READ_I16: return JS_NewInt32(ctx, LOAD(int16_t, p));
