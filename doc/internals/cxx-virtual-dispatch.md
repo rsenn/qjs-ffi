@@ -158,11 +158,17 @@ function __virtual(slot, spec) {
 | destructors | deleting through `Animal` runs `Dog`'s; `Bird`'s inherited one runs; a deleted object cannot be called |
 | `--api=define` | no `__virtual(` in the output |
 
-## 6. Open
+## 6. Remaining work
 
-- A second `clang` run is not needed: the probes ride on the layout dump, which
-  runs once per source and is cached; only the compile goes from
-  `-fsyntax-only` to code generation when a polymorphic class exists.
-- The per-call JS cost (4) and a native fast path are undecided.
-- A virtual method that cannot be matched keeps its symbol silently. A warning
-  in `ir.skipped`, or an error, would make it visible.
+Not done, in the order worth doing them. Each is independent.
+
+| # | Step | Verify |
+| --- | --- | --- |
+| 1 | **Say when a virtual method is left on its symbol.** In `assignVtableSlots()` a method whose class has a vtable dump (or an overrider that the AST flags `virtual`/`pure`) but gets no slot is pushed to `ir.skipped`-style warnings, printed by `main.js` and noted in the generated file, as a polymorphic class with no dump (a `final` one) already could be. Decide first: warning (planned) or hard error | a fixture with two overloads that normalize to the same parameter text (a typedef and its target) gives the warning, and the other methods still bind |
+| 2 | **IR slots equal the compiler's.** A test that compiles `virt.cpp` with `-fdump-vtable-layouts` itself and compares every `vtableSlot` in the IR with the row the dump gives (the check the original plan wanted, so a change in clang's output or in `methodOf()` fails loudly) | the test fails if `assignVtableSlots()` is made to add 1 |
+| 3 | **`--api=define`.** `define()` registers by name, so `__virtual()` needs a synthetic unique name per call target (`mangledName + "@" + target`) and a `define()` per target at run time. Only worth it if someone uses `--api=define` with C++ virtuals | `virt.hpp` generated with `--api=define` passes the tests of section 5 |
+| 4 | **Native fast path.** `CFunction({ vtableIndex: n, args, returns })` in `ffi.c` reads `this->vptr[n]` on every call and reuses one `cif`, dropping the per-call `toArrayBuffer` view and the `Map`. Needs a benchmark first (10^6 calls of `legs()` through `__virtual()` against a plain `CFunction`); a change to the C module, so its own review and tests in `tests/test-c-function.js` | the benchmark shows a difference worth the extra API |
+| 5 | **Multiple inheritance.** A secondary base's slots point at `this`-adjusting thunks and need the subobject pointer (`BaseOffsets`, TODO.md "C++ gaps" item 1). The vtable dump already lists those slots | out of scope until the base offsets are captured |
+
+Not planned: calling `Base::f()` explicitly from a subclass wrapper (the old,
+non-virtual behavior); if it is wanted, as `Class.prototype.f.nonVirtual`.
