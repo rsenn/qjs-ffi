@@ -56,3 +56,8 @@
 - test-js-free-of-string (test.js:134): strdup is defined with a char * return, which the legacy API gives as a js string, and that string is then passed to free(), which aborts with invalid pointer (same before legacy.js). found porting the legacy clients.
 
     qjsm test.js
+
+- to-array-buffer-no-pointer (ffi.c:330): toArrayBuffer() and toBuffer() called with no pointer, undefined or an object return an empty ArrayBuffer instead of throwing (the legacy-form fallback treats the argument as address 0); bun throws. found comparing the api with bun.
+
+    import { toArrayBuffer } from 'ffi';
+    console.log(toArrayBuffer().byteLength);

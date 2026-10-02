@@ -526,17 +526,17 @@ static const JSCFunctionListEntry js_funcs[] = {
     JS_CFUNC_DEF("dlclose", 1, js_dlclose),
     JS_CFUNC_DEF("dlsym", 2, js_dlsym),
     JS_CFUNC_DEF("toString", 1, js_tostring),
-    JS_CFUNC_DEF("toArrayBuffer", 2, js_toarraybuffer),
+    JS_CFUNC_DEF("toArrayBuffer", 1, js_toarraybuffer),
     JS_CFUNC_DEF("toPointer", 1, js_topointer),
-    JS_CFUNC_DEF("ptr", 1, js_ptr_address),
+    JS_CFUNC_DEF("ptr", 2, js_ptr_address),
 #ifdef RTLD_DEFAULT
     JS_CFUNC_DEF("linkSymbols", 1, js_linksymbols),
 #endif
-    JS_CFUNC_DEF("toBuffer", 2, js_toarraybuffer),
+    JS_CFUNC_DEF("toBuffer", 1, js_toarraybuffer),
     JS_CFUNC_DEF("errno", 0, js_errno),
     JS_CFUNC_DEF("JSContext", 0, js_context),
 #ifdef CONFIG_TCC
-    JS_CFUNC_DEF("cc", 2, js_compiler_cc),
+    JS_CFUNC_DEF("cc", 1, js_compiler_cc),
 #endif
 #ifdef RTLD_LAZY
     JS_PROP_INT32_DEF("RTLD_LAZY", RTLD_LAZY, JS_PROP_CONFIGURABLE),

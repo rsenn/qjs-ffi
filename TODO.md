@@ -373,6 +373,22 @@ Ordered roughly by how likely bun code is to trip over it.
 6. `JSCallback` instance as a `function`/`ptr` argument (the docs pass it
    directly, `.ptr` being only "slightly faster"): currently converts to 0, so
    the C side gets NULL. `js_ptr()` should unwrap a `JSCallback`.
+7. `viewSource(symbols[, false])` / `viewSource(fn, true)`: bun's view of the C
+   code it generates for a binding (`string[]` / `string`). Here a binding is a
+   libffi `cif`, so there is no source to show; return the signature as text
+   (`int add(int, int)` per symbol), or leave it out and say so.
+8. `read.intptr(ptr, byteOffset)`: bun has it next to `read.ptr` (a pointer
+   read as a signed integer, `bigint`); `ffi-read.c` has no entry for it.
+9. A default export: bun's `import ffi from "bun:ffi"` gets an object with
+   `CFunction`, `CString`, `JSCallback`, `dlopen`, `linkSymbols`, `ptr`,
+   `read`, `suffix`, `toArrayBuffer`, `toBuffer`, `viewSource`, `FFIType`, `cc`
+   (and an internal `native`). The native module has no `default`, so such an
+   import fails. Add it in `js_init` (`JS_SetModuleExport(ctx, m, "default",
+   ...)` with the object of the other exports).
+10. `JSCallback.prototype[Symbol.dispose]` (and `Symbol.toPrimitive`, which gives
+    the pointer): `using cb = new JSCallback(...)` closes the callback at the end
+    of the block in bun; here `close()` has to be called by hand. `Symbol.dispose`
+    can be the `close` function.
 
 ### 5.2 Different shape
 
@@ -392,7 +408,8 @@ Ordered roughly by how likely bun code is to trip over it.
    or without `new`, a falsy `ptr` gives `""`, and the result is a string. Ours
    needs `new`, returns an object with `.ptr`/`.length`/`.toString()` and
    neither `byteOffset` nor `byteLength`. (bun-types types it as `string`; the
-   object form with `.ptr` is what older Bun gave.)
+   object form with `.ptr` is what older Bun gave.) In bun's own dump it is a
+   native function of arity 3, not a class.
 4. Pointers: bun hands out a `number` (to 2^53); ours are `bigint` once past 32
    bits, so `ptr(u8)`, `JSCallback.ptr` and a `malloc()` result are all
    `bigint`. Anything doing `ptr + 8` throws a mixed-type error. Decision
@@ -400,8 +417,23 @@ Ordered roughly by how likely bun code is to trip over it.
    Linux/Windows user-space addresses always do), `bigint` only above.
 5. `FFIType.*` are strings here and numbers in bun (`FFIType.i32 === 5`,
    `buffer_length === 21`); code that compares or indexes by the number
-   differs. Also `suffix` has no `"dylib"` (macOS is not a target).
-6. Errors: bun's `dlopen` failure is an `Error` with `code:
+   differs. From a dump of the two modules (`describe-module.sh --json`): bun's
+   `FFIType` has 61 members, ours 35, and every one of ours exists in bun's.
+   bun's table is `char` 0, `i8` 1, `u8` 2, `i16` 3, `u16` 4, `i32`/`int`/`c_int`
+   5, `u32`/`c_uint` 6, `i64`/`isize` 7, `u64`/`usize` 8, `f64`/`double` 9,
+   `f32`/`float` 10, `bool` 11, `ptr`/`pointer`/`"void*"`/`"char*"` 12, `void`
+   13, `cstring` 14, `i64_fast` 15, `u64_fast` 16, `function`/`callback`/`fn`
+   17, `napi_env` 18, `napi_value` 19, `buffer` 20, `buffer_length`/
+   `buffer_bytelength` 21; each number is also a key, so `FFIType[5]` is 5.
+   Missing here: the numbers and that reverse mapping, `c_int`, `c_uint`,
+   `"char*"`, `"void*"`, `napi_env`, `napi_value`, `buffer_length`,
+   `buffer_bytelength`. Making the members numbers means `ffi-type.c` must also
+   take a number wherever it takes a name. Also `suffix` has no `"dylib"`
+   (macOS is not a target).
+6. **Done**: the declared lengths of the native functions: `cc` 1, `ptr` 2,
+   `toArrayBuffer` and `toBuffer` 1 (as bun's), where they were 2, 1, 2 and 2.
+   They were only cosmetic (`fn.length`); argument handling goes by `argc`.
+7. Errors: bun's `dlopen` failure is an `Error` with `code:
    "ERR_DLOPEN_FAILED"`; ours is a `TypeError`. A missing symbol is a
    `TypeError` in both.
 
@@ -503,4 +535,5 @@ symbols.counter = 7;  // writes it (TypeError if readonly)
     `doc/c-compiler.md`, add to `doc/dlopen.md`/`doc/types.md`.
 
 Order of work: ~~5.1.1 (`read`)~~ (done), ~~5.2.1 + 5.3~~ (done),
-5.2.4, 5.1.2, 5.1.6, 5.2.2/3, 5.1.4/5, the variables of 5.4, 5.1.3 last.
+5.2.4 (with 5.2.5, both change what a pointer and a type are), 5.1.9 (default
+export), 5.1.8 (`read.intptr`), 5.1.10 (`Symbol.dispose`), 5.1.7, 5.1.2, 5.1.6, 5.2.2/3, 5.1.4/5, the variables of 5.4, 5.1.3 last.
