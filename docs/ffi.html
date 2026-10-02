@@ -129,8 +129,8 @@ an address, <code>new CString(ptr)</code> decodes it, and <code>toString(ptr, le
 an exact number of bytes. A <code>char *</code> type spelled that way is a plain pointer.
 See <a href="pointers.html#cstring">Pointers and memory</a>.</p>
 <h2 id="pointers"><a class="anchor" href="#pointers" aria-hidden="true">#</a>Pointers</h2>
-<p>A pointer is <code>null</code>, a <code>number</code> when it fits in a signed 32-bit integer, and a
-<code>bigint</code> otherwise. <code>ptr()</code> takes the address of an <code>ArrayBuffer</code> or typed
+<p>A pointer is <code>null</code>, a <code>number</code> (exact up to 2^53 - 1, which every user-space
+address is), and a <code>bigint</code> above that. <code>ptr()</code> takes the address of an <code>ArrayBuffer</code> or typed
 array, <code>toArrayBuffer()</code> makes an <code>ArrayBuffer</code> over memory at an address, and
 <code>read</code> reads a value straight from an address:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">ptr</span>, <span class="t-id">read</span>, <span class="t-id">toArrayBuffer</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
@@ -181,8 +181,6 @@ builds compile but are untested.</li>
 <p>This module follows bun:ffi but is not a drop-in replacement yet. The open
 items are tracked in <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies" target="_blank" rel="noopener">TODO.md</a>:</p>
 <ul>
-<li>Pointers from <code>ptr()</code>, <code>JSCallback.ptr</code> and <code>malloc()</code> are <code>bigint</code> above
-2^31, where bun gives a <code>number</code>.</li>
 <li><code>CString</code> needs <code>new</code>, and is an object with <code>.ptr</code> and <code>.length</code>.</li>
 <li><code>new CFunction(...)</code> is not supported, call <code>CFunction(...)</code>; there is no
 <code>CFunction().close()</code>.</li>

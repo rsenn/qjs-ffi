@@ -41,9 +41,13 @@ turn buffers into addresses and addresses into buffers, values or strings.</p>
 <code>ptr()</code>, <code>JSCallback.ptr</code>) it is</p>
 <ul>
 <li><code>null</code> for NULL,</li>
-<li>a <code>number</code> if the address fits in a signed 32-bit integer,</li>
-<li>a <code>bigint</code> otherwise.</li>
+<li>a <code>number</code> up to 2^53 - 1 (<code>Number.MAX_SAFE_INTEGER</code>), which is exact and
+covers every user-space address on 64-bit Linux and Windows (they are below
+2^47), so pointer arithmetic is plain (<code>ptr(buf) + 8</code>),</li>
+<li>an exact, unsigned <code>bigint</code> above that.</li>
 </ul>
+<p>As in bun:ffi a <code>number</code> is what you get in practice. Unlike bun's <code>read.ptr</code>,
+which rounds to a <code>number</code> above 2^53, a pointer is never rounded here.</p>
 <p>Everywhere a pointer is taken, a <code>number</code>, a <code>bigint</code>, <code>null</code> (NULL) or an
 <code>ArrayBuffer</code> or view (its address) is accepted, so a typed array or a
 <a href="gen-bindings.html">generated struct class</a> can be passed to a <code>pointer</code>
