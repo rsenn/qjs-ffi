@@ -1,5 +1,6 @@
 #include "c-function.h"
 #include "ffi-type.h"
+#include "js-callback.h"
 #include "js-helpers.h"
 #include <cutils.h>
 #include <ffi.h>
@@ -205,6 +206,24 @@ js_cfunction_finalizer(JSRuntime* rt, JSValue val) {
     js_cfunction_data_free(rt, cf);
 }
 
+/* fn.close(): frees the signature early; the function throws a TypeError
+ * after that, as in invoke. Idempotent. */
+static JSValue
+js_cfunction_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  CFunctionData* cf = JS_GetOpaque2(ctx, this_val, js_cfunction_class_id);
+
+  if(!cf)
+    return JS_GetClassID(this_val) == js_cfunction_class_id ? JS_UNDEFINED : JS_EXCEPTION;
+
+  js_cfunction_data_free(JS_GetRuntime(ctx), cf);
+  JS_SetOpaque(this_val, NULL);
+  return JS_UNDEFINED;
+}
+
+static const JSCFunctionListEntry js_cfunction_proto_funcs[] = {
+    JS_CFUNC_DEF("close", 0, js_cfunction_close),
+};
+
 static JSClassDef js_cfunction_class = {
     .class_name = "CFunction",
     .finalizer = js_cfunction_finalizer,
@@ -218,9 +237,7 @@ js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec) {
   if(!(cf = js_cfunction_new(ctx, fp, spec)))
     return JS_EXCEPTION;
 
-  JSValue func_proto = js_function_prototype(ctx);
-  JSValue func_obj = JS_NewObjectProtoClass(ctx, func_proto, js_cfunction_class_id);
-  JS_FreeValue(ctx, func_proto);
+  JSValue func_obj = JS_NewObjectClass(ctx, js_cfunction_class_id);
 
   if(JS_IsException(func_obj)) {
     js_cfunction_data_free(JS_GetRuntime(ctx), cf);
@@ -262,6 +279,15 @@ int
 js_cfunction_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClassID(&js_cfunction_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cfunction_class_id, &js_cfunction_class);
+
+  /* The class prototype inherits Function.prototype (call, apply, bind) and adds close(). */
+  JSValue func_proto = js_function_prototype(ctx);
+  JSValue proto = JS_NewObjectProto(ctx, func_proto);
+
+  JS_FreeValue(ctx, func_proto);
+  JS_SetPropertyFunctionList(ctx, proto, js_cfunction_proto_funcs, countof(js_cfunction_proto_funcs));
+  js_callback_define_dispose(ctx, proto);
+  JS_SetClassProto(ctx, js_cfunction_class_id, proto);
 
   JSValue ctor = JS_NewCFunction2(ctx, js_cfunction_constructor, "CFunction", 1, JS_CFUNC_constructor_or_func, 0);
 

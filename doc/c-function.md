@@ -53,6 +53,16 @@ arguments passed at call time are ignored; missing ones are treated as
 `undefined` (and converted per the declared type, e.g. `0`/`NaN`-like for
 numeric types).
 
+## close()
+
+`fn.close()` frees the function's signature (the libffi `cif`) early, without
+waiting for the garbage collector. It returns `undefined` and may be called
+more than once; calling the function afterwards is a `TypeError`. The native
+code it pointed at is untouched. `fn[Symbol.dispose]` is the same method (see
+[`JSCallback`](js-callback.md) for how the symbol is found), so `using fn =
+CFunction(...)` works. The functions of `dlopen()`, `linkSymbols()` and `cc()`
+have it too.
+
 ## Types
 
 Signatures are written with the names in [Types and ABI](types.md): `"i32"`,

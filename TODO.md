@@ -126,8 +126,7 @@ Ordered roughly by how likely bun code is to trip over it.
 
 1. `JSCallback` option `threadsafe`: accepted and ignored. Needs a hop to the
    JS thread (job queue/`os` message), or a clear `TypeError` until then.
-2. `CFunction(...).close()`: `ffi.d.ts` declares it (frees the wrapper).
-3. **Postponed** (low value: bun's `viewSource` is for debugging its own C code
+2. **Postponed** (low value: bun's `viewSource` is for debugging its own C code
    generator, and there is none here). `viewSource(symbols[, false])` /
    `viewSource(fn, true)`: bun returns the C it generates for a binding
    (`string[]` / `string`). A binding here is a libffi `cif`, so the plan is to
@@ -214,6 +213,5 @@ symbols.counter = 7;  // writes it (TypeError if readonly)
 *   Docs: replace the "Only functions can be exposed" paragraph in
     `doc/c-compiler.md`, add to `doc/dlopen.md`/`doc/types.md`.
 
-Order of work: 5.1.2 (`CFunction().close()`), the variables of 5.3, then
-5.1.3 (`viewSource`, postponed), and 5.1.1
-(`threadsafe`) last.
+Order of work: the variables of 5.3, then 5.1.2 (`viewSource`, postponed),
+and 5.1.1 (`threadsafe`) last.

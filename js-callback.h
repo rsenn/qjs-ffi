@@ -36,6 +36,9 @@ extern JSClassID js_callback_class_id;
 /* `defaults`, if an object, also gets JSCallback (the module's default export). */
 int js_callback_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 
+/* proto[Symbol.dispose] = proto.close, where the engine or a polyfill has it. */
+void js_callback_define_dispose(JSContext*, JSValueConst proto);
+
 static inline JSCallback*
 js_callback_data(JSValueConst value) {
   return JS_GetOpaque(value, js_callback_class_id);

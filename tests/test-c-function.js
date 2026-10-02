@@ -316,4 +316,34 @@ await tests({
     eq(true, fn());
     cbRet.close();
   },
+
+  'close() frees the function: a later call is a TypeError, close() is idempotent'() {
+    const abs = CFunction({ ptr: libc('abs'), args: ['i32'], returns: 'i32' });
+
+    eq(4, abs(-4));
+    eq(undefined, abs.close());
+    assert(assertThrows(() => abs(-4)) instanceof TypeError);
+    eq(undefined, abs.close());
+    eq('function', typeof abs);
+    eq(1, abs.length);
+  },
+
+  'a CFunction still has Function.prototype, and close() rejects other objects'() {
+    const abs = CFunction({ ptr: libc('abs'), args: ['i32'], returns: 'i32' });
+
+    assert(abs instanceof Function);
+    eq(4, abs.call(null, -4));
+    eq(4, abs.bind(null)(-4));
+    assert(assertThrows(() => abs.close.call({})) instanceof TypeError);
+    abs.close();
+  },
+
+  'close() is also on the functions of dlopen()'() {
+    const lib = dlopen(null, { abs: { args: ['i32'], returns: 'i32' } });
+
+    eq(4, lib.symbols.abs(-4));
+    lib.symbols.abs.close();
+    assert(assertThrows(() => lib.symbols.abs(-4)) instanceof TypeError);
+    lib.close();
+  },
 });

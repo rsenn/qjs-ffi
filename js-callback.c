@@ -344,7 +344,7 @@ static const JSCFunctionListEntry js_callback_static_funcs[] = {
 /* proto[Symbol.dispose] = close, for `using`: the engine's Symbol.dispose, or
  * if it has none (QuickJS does not yet) the registered
  * Symbol.for("Symbol.dispose"), which is what the usual polyfills install. */
-static void
+void
 js_callback_define_dispose(JSContext* ctx, JSValueConst proto) {
   JSValue global = JS_GetGlobalObject(ctx);
   JSValue Symbol = JS_GetPropertyStr(ctx, global, "Symbol");
