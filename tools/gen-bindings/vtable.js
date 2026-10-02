@@ -116,7 +116,7 @@ function methodOf(text, cls) {
  */
 export function assignVtableSlots(cls, entries, sigs) {
   const methods = entries.map(e => ({ ...methodOf(e.text, cls.name), index: e.index })).filter(m => m.name);
-  const key = m => m.name + '/' + m.arity + '/' + !!m.const;
+  const key = m => m.name + '/' + (m.args ? m.args.length : m.arity) + '/' + !!m.const;
   const own = cls.methods.filter(m => !m.static);
   const dtor = entries.find(e => e.text.includes('::~') && /\[complete\]\s*$/.test(e.text));
 

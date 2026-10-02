@@ -35,8 +35,8 @@ export function jsDoc(head, entries, known, indent, returns = true) {
     const types = paramTypes(e);
 
     if(multi) lines.push('@overload');
-    e.params.forEach((_, i) => lines.push('@param {' + jsDocType(types[i], known, false) + '} ' + names[i] + ' - ' + types[i]));
-    if(returns) lines.push('@returns {' + jsDocType(e.returnType || 'void', known, true) + '}' + (e.returnType && e.returnType !== 'void' ? ' - ' + e.returnType : ''));
+    e.args.forEach((_, i) => lines.push('@param {' + jsDocType(types[i], known, false) + '} ' + names[i] + ' - ' + types[i]));
+    if(returns) lines.push('@returns {' + jsDocType(e.returns || 'void', known, true) + '}' + (e.returns && e.returns !== 'void' ? ' - ' + e.returns : ''));
   }
 
   return indent + '/**\n' + lines.map(l => indent + ' * ' + l + '\n').join('') + indent + ' */\n';

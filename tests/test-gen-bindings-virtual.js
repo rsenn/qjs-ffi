@@ -33,7 +33,7 @@ await tests({
 
     const ir = JSON.parse(std.loadFile(file));
     const cls = n => ir.classes.find(c => c.name === n);
-    const slot = (c, name, arity) => cls(c).methods.find(x => x.name === name && x.arity === arity).vtableSlot;
+    const slot = (c, name, arity) => cls(c).methods.find(x => x.name === name && x.args.length === arity).vtableSlot;
 
     eq(slot('Animal', 'legs', 0), slot('Dog', 'legs', 0));
     eq(slot('Animal', 'legs', 1), slot('Dog', 'legs', 1));

@@ -78,7 +78,7 @@ export function generateCFunction(ir, opts) {
   for(const fn of functions) {
     const args = paramTypes(fn).map(t => cfType(t, opts));
     const ident = safeIdent(fn.name);
-    const impl = wrapReturn(fn.returnType, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(fn.returnType, opts) + '})', opts);
+    const impl = wrapReturn(fn.returns, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(fn.returns, opts) + '})', opts);
 
     const doc = opts.jsdoc ? jsDoc([fn.name], [fn], new Set(classes.map(c => c.name)), '') : '';
 

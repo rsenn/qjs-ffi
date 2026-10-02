@@ -414,9 +414,8 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
     return {
       isConst: split.isConst,
-      arity: params.length,
-      params: params.map(p => p.name + ': ' + p.type.cf),
-      returnType: retMap.cf,
+      args: params.map(p => p.name + ': ' + p.type.cf),
+      returns: retMap.cf,
       defTypes: { returnType: retMap.def, params: params.map(p => p.type.def) },
       enums: [...new Set(used)].map(id => idPrefix + id),
       ...(byValue.length ? { byValue } : {}),
@@ -535,7 +534,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
             if(child.virtual) entry.virtual = true;
             if(child.pure) entry.pure = true;
           } else {
-            delete description.returnType;
+            delete description.returns;
             delete description.defTypes.returnType;
           }
 
@@ -564,49 +563,100 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
 /* --- intermediate format (IR) --------------------------------------------- */
 
-/* Shaped like describeObject() output (qjs-modules lib/describe-object.js):
- *   methods   kind:"function" entries: `arity`, `params` ("name: type" in
- *             TypeScript style, type being an FFIType name), `returnType`;
- *             plus `defTypes` (legacy define() type names) and `enums` (ids
- *             of the enums the signature uses). A function with C++ linkage
- *             has its qualified `name` ("ns::fn") and the `mangledName` to
- *             dlsym(); overloads are separate entries
- *   fields    exported variables/constants: { name, type, value?, const? }
- *   enums     { id, name, kind:"enum", fields:[{ name, type:"number", value }] }
- *   structs   { name, type:"struct"|"union", size, align (bytes), line,
- *             methods:[], getters:[], setters:[], fields, prototypeChain:[] },
- *             describeObject()-shaped, plus packed? and typedefs? (names that
- *             alias it). `size`, `align` and `line` are null where unknown.
- *             Each field is { name, type, offset, size, ffi }: `type` is the C
- *             type as written ("size_t", "char[4096]", "int (*)()"),
- *             `offset`/`size` are bytes (null where clang gave no layout, e.g.
- *             after a member of incomplete type) and `ffi` is what the field
- *             maps to for the ffi module ("u64", "struct node *"; the C type
- *             again when unsupported). A bitfield also has `bits`, its
- *             `offset`/`size` are those of its storage unit (the declared
- *             type) and its `bitOffset` counts from that unit's first bit.
- *             Sizes/offsets come from clang's record layouts (see
- *             runLayoutDump()), else from the type
- *   typedefs  typedef / using aliases: { name (qualified), kind:"typedef"|
- *             "using", type (FFIType name, else the C type), cType (as
- *             written), resolved? (canonical, when it differs), record? (the
- *             struct it names), size? (bytes) }
- *   skipped   { name, reason } for declarations that could not be bound
- * `source` records how the IR was produced, for the generated file's header.
- *   classes   C++ classes (and structs with methods or bases), shaped like
- *             structs: { name (qualified, "ns::Class"), type:"class"|"struct",
- *             size, align, line, abstract?, polymorphic?, bases:[{ name, access,
- *             virtual? }], fields (as `structs`, plus static:true and
- *             mangledName for static members, which have no offset/size),
- *             constructors, methods,
- *             destructor?:{ mangledName, virtual? } }. Only public members.
- *             `prototypeChain` lists the ancestors (first base each), see
- *             linkPrototypeChains().
- *             A method is a `methods`-style entry plus `mangledName` (the
- *             dlsym() name), `static`, `const?`, `virtual?`, `pure?`; its
- *             `params` do not list `this`. A constructor is the same with
- *             kind:"constructor" and the complete-object (C1) mangledName;
- *             an abstract class has none.
+/* the IR: what the clang AST is condensed to, and all generators read.
+ * shaped like describeObject() output (qjs-modules lib/describe-object.js).
+ *
+ *   key       holds
+ *   methods   functions, one entry per overload
+ *   fields    exported variables and constants
+ *   enums     enums with their constants
+ *   structs   C structs and unions
+ *   classes   C++ classes, and structs with methods or bases
+ *   typedefs  typedef and using aliases
+ *   skipped   declarations that could not be bound: { name, reason }
+ *   byValue   struct name -> member types, for structs passed by value
+ *   source    how the IR was made, for the generated file's header
+ *
+ * `methods`: the spelling of args and returns is that of the symbol specs
+ * of dlopen() and CFunction.
+ *
+ * ```js
+ * { name: "geom_move", kind: "function",
+ *   args: ["s: shape *", "dx: f64"],  // "name: type", an FFIType name
+ *   returns: "i32",
+ *   defTypes: { returnType: "sint32", params: [...] },  // for define()
+ *   enums: ["0:0x5e10..."] }          // ids of the enums it uses
+ * ```
+ *
+ * `arity` is only there when `args` is missing or empty and the arity is
+ * above 0. the generator always lists `args`, so it never writes it.
+ *
+ * `fields`: variables and constants.
+ *
+ * ```js
+ * { name: "pi", type: "f64", cType: "const double", const: true,
+ *   value: 3.14 }  // value only for constants that have one
+ * ```
+ *
+ * `enums`: { id, name, kind: "enum", fields: [{ name, type: "number",
+ * value }] }
+ *
+ * `typedefs`: typedef and using aliases.
+ *
+ *   name      qualified
+ *   kind      "typedef" or "using"
+ *   type      the FFIType name, else the C type
+ *   cType     as written
+ *   resolved  the canonical type, when it differs
+ *   record    the struct it names
+ *   size      in bytes
+ *
+ * `structs`: describeObject()-shaped, for structs and unions.
+ *
+ *   name, type   type is "struct" or "union"
+ *   size, align  in bytes; null where unknown
+ *   line         source line; null where unknown
+ *   methods, getters, setters, prototypeChain   empty lists
+ *   fields       see below
+ *   packed?      the struct is packed
+ *   typedefs?    names that alias it
+ *
+ * a field of a struct or class:
+ *
+ * ```js
+ * { name: "len", type: "size_t",  // the C type as written
+ *   offset: 8, size: 8,           // bytes; null without a clang layout
+ *   ffi: "u64" }                  // what the ffi module makes of it
+ * ```
+ *
+ * a bitfield also has `bits`; its `offset` and `size` are those of the
+ * storage unit, and `bitOffset` counts from that unit's first bit.
+ * sizes and offsets come from clang's record layouts (runLayoutDump()).
+ *
+ * `classes`: like `structs`, plus:
+ *
+ *   name            qualified, "ns::Class"
+ *   type            "class" or "struct"
+ *   abstract?       has a pure virtual method
+ *   polymorphic?    has a vtable
+ *   bases           [{ name, access, virtual? }]
+ *   constructors    kind "constructor", the complete-object (C1)
+ *                   mangledName, no `returns`; none if abstract
+ *   methods         see below
+ *   destructor?     { mangledName, virtual?, vtableSlot? }
+ *   prototypeChain  the ancestors, first base each (linkPrototypeChains())
+ *
+ * only public members are listed. a static field has `static: true` and
+ * a `mangledName` instead of an offset and size.
+ *
+ * a method of a class is a `methods` entry plus:
+ *
+ *   mangledName  what dlsym() needs
+ *   static       no `this`
+ *   const?, virtual?, pure?
+ *   vtableSlot?  vptr[n], see doc/internals/cxx-virtual-dispatch.md
+ *
+ * its `args` do not list `this`.
  */
 export function newIR() {
   return { name: 'bindings', type: 'object', version: 1, methods: [], fields: [], getters: [], setters: [], enums: [], structs: [], classes: [], typedefs: [], skipped: [], prototypeChain: [] };

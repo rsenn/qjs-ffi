@@ -132,14 +132,14 @@ export function bindable(ir, opts) {
 }
 
 export function paramTypes(fn) {
-  return fn.params.map(p => p.slice(p.indexOf(': ') + 2));
+  return fn.args.map(p => p.slice(p.indexOf(': ') + 2));
 }
 
 /* --describe: the parameter names of an IR entry as JS identifiers. */
 export function paramNames(fn) {
   const seen = new Set();
 
-  return fn.params.map((p, i) => {
+  return fn.args.map((p, i) => {
     let n = safeIdent(p.slice(0, p.indexOf(': ')) || 'arg' + i);
 
     if(n === 'arguments' || n === 'eval' || seen.has(n)) n += '_' + i;
@@ -151,7 +151,7 @@ export function paramNames(fn) {
 /* --describe: the overload with the most parameters, whose names a shared
  * JS signature then uses. */
 export function widest(entries) {
-  return entries.reduce((a, b) => (b.params.length > a.params.length ? b : a));
+  return entries.reduce((a, b) => (b.args.length > a.args.length ? b : a));
 }
 
 /* JSON, except that keys which are identifiers are left unquoted and strings
@@ -207,7 +207,7 @@ export function structTypesCode(ir, used, opts) {
 export function usedStructs(entries) {
   const used = new Set();
 
-  for(const e of entries) for(const t of [e.returnType, ...paramTypes(e)]) if(isByValue(t)) used.add(t.slice('struct '.length));
+  for(const e of entries) for(const t of [e.returns, ...paramTypes(e)]) if(isByValue(t)) used.add(t.slice('struct '.length));
 
   return used;
 }

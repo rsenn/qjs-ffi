@@ -156,7 +156,7 @@ await tests({
     eq('f32,f32,f32|f32,f32,f32', ir.byValue.seg.map(e => e.join()).join('|'));
     eq('i8,u8,i16', ir.byValue.packed.join());
     eq('u64,u64,i64', ir.byValue.wide.join());
-    assert(ir.methods.some(m => m.name === 'vec3_add' && m.returnType === 'struct vec3'), 'vec3_add is bound');
+    assert(ir.methods.some(m => m.name === 'vec3_add' && m.returns === 'struct vec3'), 'vec3_add is bound');
 
     assert(/libffi would put b at 8, not 1/.test(reason('pk_make')), reason('pk_make'));
     assert(/union is not supported/.test(reason('un_make')), reason('un_make'));

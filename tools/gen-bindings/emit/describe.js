@@ -6,7 +6,7 @@ export function sigCode(target, entries) {
   const sigs = entries.map(e => {
     const types = paramTypes(e);
 
-    return { params: paramNames(e).map((n, i) => n + ': ' + types[i]), returnType: e.returnType, arity: e.arity };
+    return { params: paramNames(e).map((n, i) => n + ': ' + types[i]), returnType: e.returns, arity: e.args.length };
   });
 
   return '__sig(' + target + ', ' + jsLiteral(sigs) + ');\n';

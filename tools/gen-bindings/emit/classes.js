@@ -173,14 +173,14 @@ function classFn(symbol, entry, thisType, opts, slot) {
 
   if(opts.api === 'define') return '__bind(' + jsLiteral(symbol) + ',' + jsLiteral(entry.defTypes.returnType || 'void') + def.map(t => ',' + jsLiteral(t)).join('') + ')';
 
-  const types = 'args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returnType || 'void', opts);
+  const types = 'args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returns || 'void', opts);
 
-  return wrapReturn(entry.returnType, virtual ? '__virtual(' + slot + ',{' + types + '})' : 'CFunction({ptr:__sym(' + jsLiteral(symbol) + '),' + types + '})', opts);
+  return wrapReturn(entry.returns, virtual ? '__virtual(' + slot + ',{' + types + '})' : 'CFunction({ptr:__sym(' + jsLiteral(symbol) + '),' + types + '})', opts);
 }
 
 /* `const NAME = [ { n, t, f }, ... ];`, one element per overload. */
 function overloadList(name, entries, thisType, opts) {
-  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.arity + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts, e.vtableSlot) + ')},\n').join('') + '];\n';
+  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.args.length + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts, e.vtableSlot) + ')},\n').join('') + '];\n';
 }
 
 /* With every class listed after the class it extends. A class extends its
@@ -281,7 +281,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
     if(opts.describe && c.constructors.length) sigs.push(sigCode(id, c.constructors));
     out += sigs.join('');
 
-    const dtor = c.destructor && (c.destructor.mangledName || c.destructor.vtableSlot !== undefined) ? '__lazy(()=>' + classFn(c.destructor.mangledName, { params: [], defTypes: { params: [] } }, thisType, opts, c.destructor.vtableSlot) + ')' : 'null';
+    const dtor = c.destructor && (c.destructor.mangledName || c.destructor.vtableSlot !== undefined) ? '__lazy(()=>' + classFn(c.destructor.mangledName, { args: [], defTypes: { params: [] } }, thisType, opts, c.destructor.vtableSlot) + ')' : 'null';
     const zeroInit = !c.constructors.length && !c.abstract && !c.polymorphic;
     out += id + '.__info = { size: ' + c.size + ', ctors: ' + (c.constructors.length ? prefix + 'ctor' : 'null') + ', dtor: ' + dtor + (zeroInit ? ', zeroInit: true' : '') + ' };\n';
 

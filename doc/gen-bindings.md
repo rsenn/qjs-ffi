@@ -269,13 +269,13 @@ A function becomes an entry of `methods`, its C types mapped to `ffi` type
 names:
 
 ```json
-{ "name": "geom_abs", "kind": "function", "arity": 1,
-  "params": ["v: i32"], "returnType": "i32",
+{ "name": "geom_abs", "kind": "function",
+  "args": ["v: i32"], "returns": "i32",
   "defTypes": { "returnType": "sint32", "params": ["sint32"] }, "enums": [] }
-{ "name": "geom_move", "kind": "function", "arity": 3,
-  "params": ["s: shape *", "dx: f64", "dy: f64"], "returnType": "i32", "enums": ["0:0x5e1031dee5d0"], ... }
-{ "name": "geom_find", "kind": "function", "arity": 1,
-  "params": ["name: cstring"], "returnType": "shape *", ... }
+{ "name": "geom_move", "kind": "function",
+  "args": ["s: shape *", "dx: f64", "dy: f64"], "returns": "i32", "enums": ["0:0x5e1031dee5d0"], ... }
+{ "name": "geom_find", "kind": "function",
+  "args": ["name: cstring"], "returns": "shape *", ... }
 ```
 
 `types.js` does the mapping, one C type at a time (`typedef`s are resolved
@@ -339,9 +339,9 @@ method and the destructor its `vtableSlot`:
   "fields": [{ "name": "id", "type": "int", "offset": 8, "size": 4, "ffi": "i32" }],
   "methods": [
     { "name": "area", "mangledName": "_ZNK3geo5Shape4areaEv", "virtual": true, "pure": true, "const": true,
-      "arity": 0, "params": [], "returnType": "f64", "vtableSlot": 2 },
-    { "name": "setScale", "mangledName": "_ZN3geo5Shape8setScaleEd", "arity": 1, "params": ["s: f64"], "returnType": "void" },
-    { "name": "count", "mangledName": "_ZN3geo5Shape5countEv", "static": true, "arity": 0, "returnType": "i32", ... } ],
+      "args": [], "returns": "f64", "vtableSlot": 2 },
+    { "name": "setScale", "mangledName": "_ZN3geo5Shape8setScaleEd", "args": ["s: f64"], "returns": "void" },
+    { "name": "count", "mangledName": "_ZN3geo5Shape5countEv", "static": true, "args": [], "returns": "i32", ... } ],
   "destructor": { "mangledName": "_ZN3geo5ShapeD1Ev", "virtual": true, "vtableSlot": 0 } }
 ```
 

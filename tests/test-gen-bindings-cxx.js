@@ -88,7 +88,8 @@ await tests({
     const area = find(shape.methods, 'area');
     eq(true, area.const);
     eq(false, area.static);
-    eq(0, area.arity);
+    same([], area.args);
+    eq(undefined, area.arity);
     eq(true, find(shape.methods, 'count').static);
     eq(true, find(base.methods, 'area').pure);
     eq(true, base.abstract);
@@ -96,10 +97,10 @@ await tests({
   },
 
   'constructors keep each overload (none for an abstract class); references become typed pointers'() {
-    same(['w: i32', 'h: f64'], shape.constructors[0].params);
-    same(['other: Shape *'], shape.constructors[1].params);
+    same(['w: i32', 'h: f64'], shape.constructors[0].args);
+    same(['other: Shape *'], shape.constructors[1].args);
     eq('_ZN3geo5ShapeC1Eid', shape.constructors[0].mangledName);
-    eq(undefined, shape.constructors[0].returnType);
+    eq(undefined, shape.constructors[0].returns);
     eq(0, base.constructors.length);
   },
 
@@ -110,7 +111,7 @@ await tests({
 
   'enum-typed parameters resolve through the qualified enum name'() {
     const setKind = find(shape.methods, 'setKind');
-    same(['k: i32'], setKind.params);
+    same(['k: i32'], setKind.args);
     eq(1, setKind.enums.length);
   },
 

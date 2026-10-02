@@ -181,7 +181,7 @@ export function resolveByValue(ir, opts) {
     if(!entry.byValue) return null;
 
     for(const b of entry.byValue) {
-      const where = b.at < 0 ? 'return type' : 'parameter ' + entry.params[b.at].slice(0, entry.params[b.at].indexOf(': '));
+      const where = b.at < 0 ? 'return type' : 'parameter ' + entry.args[b.at].slice(0, entry.args[b.at].indexOf(': '));
       const name = recordOf(b.name, index);
       const rec = name && index.structs.get(name);
 
@@ -195,8 +195,8 @@ export function resolveByValue(ir, opts) {
 
       ir.byValue[name] = r.elements;
 
-      if(b.at < 0) entry.returnType = 'struct ' + name;
-      else entry.params[b.at] = entry.params[b.at].slice(0, entry.params[b.at].indexOf(': ') + 2) + 'struct ' + name;
+      if(b.at < 0) entry.returns = 'struct ' + name;
+      else entry.args[b.at] = entry.args[b.at].slice(0, entry.args[b.at].indexOf(': ') + 2) + 'struct ' + name;
     }
 
     delete entry.byValue;

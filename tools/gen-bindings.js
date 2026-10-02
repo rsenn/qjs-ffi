@@ -9,9 +9,8 @@
  *      the top-level, externally visible functions, enums, structs/unions and
  *      variables are extracted into an IR shaped like describeObject() /
  *      describeClass() output (qjs-modules lib/describe-*.js): `methods` holds
- *      kind:"function" entries with `arity`, `params` ("name: type") and
- *      `returnType`, `fields` holds variables, `enums`/`structs` the compound
- *      types.
+ *      kind:"function" entries with `args` ("name: type") and `returns`,
+ *      `fields` holds variables, `enums`/`structs` the compound types.
  *   2. IR -> JS:     the IR alone (no clang) is turned into a JS module.
  *
  * The JS module emitted is either:
