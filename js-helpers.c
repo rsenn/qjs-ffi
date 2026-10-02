@@ -12,14 +12,26 @@ span_slice(ByteSpan* span, OffsetLength range) {
   span->size = MIN(remain, range.len);
 }
 
+/* Drop the exception a failed conversion left behind: the js_to_* helpers
+ * report failure through their return value only. */
+static void
+clear_exception(JSContext* ctx) {
+  if(JS_HasException(ctx))
+    JS_FreeValue(ctx, JS_GetException(ctx));
+}
+
 /* Convert VALUE to an int64 index/offset into *OUT (may be NULL). Returns 0
- * on success, -1 (exception pending) if the conversion fails. */
+ * on success, -1 if the conversion fails (a Symbol, say, or a valueOf() that
+ * throws). Never leaves an exception pending, and leaves *OUT alone on
+ * failure, which js_parse_range() relies on. */
 int
 js_to_index(JSContext* ctx, int64_t* out, JSValueConst value) {
   int64_t ofs = 0;
 
-  if(JS_ToInt64Ext(ctx, &ofs, value))
+  if(JS_ToInt64Ext(ctx, &ofs, value)) {
+    clear_exception(ctx);
     return -1;
+  }
 
   if(out)
     *out = ofs;
@@ -33,9 +45,10 @@ js_to_index(JSContext* ctx, int64_t* out, JSValueConst value) {
  *   Number           truncated; a NaN, an infinity or a value outside int64
  *                    gives the garbage address 0x8000000000000000, as bun does
  *   BigInt           modulo 2^64 (-1n and 2n**64n-1n are the same address)
- *   anything else    TypeError: a boolean, a string, a Symbol, an object (an
+ *   anything else    failure: a boolean, a string, a Symbol, an object (an
  *                    array, a function, a Number object ...)
- * Returns 0 on success, -1 (TypeError pending) if VALUE is not convertible. */
+ * Returns 0 on success, -1 on failure. Never leaves an exception pending, and
+ * leaves *OUT alone on failure: the caller throws, see js_throw_pointer_error(). */
 int
 js_to_address(JSContext* ctx, void** out, JSValueConst value) {
   int64_t addr = 0;
@@ -43,17 +56,20 @@ js_to_address(JSContext* ctx, void** out, JSValueConst value) {
   if(JS_IsNull(value) || JS_IsUndefined(value)) {
     addr = 0;
   } else if(JS_IsBigInt(ctx, value)) {
-    if(JS_ToInt64Ext(ctx, &addr, value))
+    if(JS_ToInt64Ext(ctx, &addr, value)) {
+      clear_exception(ctx);
       return -1;
+    }
   } else if(JS_IsNumber(value)) {
     double d;
 
-    if(JS_ToFloat64(ctx, &d, value))
+    if(JS_ToFloat64(ctx, &d, value)) {
+      clear_exception(ctx);
       return -1;
+    }
 
     addr = d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (int64_t)d : INT64_MIN;
   } else {
-    JS_ThrowTypeError(ctx, JS_IsString(value) ? "cannot convert a string to a pointer; encode it as a buffer" : "cannot convert argument to a pointer");
     return -1;
   }
 
@@ -65,22 +81,21 @@ js_to_address(JSContext* ctx, void** out, JSValueConst value) {
 
 /* Get an address from VALUE into *OUT (a void**, may be NULL):
  * the data of an ArrayBuffer/TypedArray/DataView if it is one, the function
- * pointer of a JSCallback (a closed one is a TypeError), else
- * null/Number/BigInt via js_to_address().
- * Returns 0 on success, -1 (TypeError pending) otherwise. */
+ * pointer of a live JSCallback, else null/undefined/Number/BigInt via
+ * js_to_address(). Returns 0 on success, -1 on failure (a closed JSCallback
+ * included). Never leaves an exception pending, and leaves *OUT alone on
+ * failure. */
 int
 js_to_pointer(JSContext* ctx, void** out, JSValueConst value) {
   JSCallback* cl;
   ByteSpan span;
   void* p;
 
-  if(JS_IsNull(value)) {
+  if(JS_IsNull(value) || JS_IsUndefined(value)) {
     p = NULL;
   } else if((cl = js_callback_data(value))) {
-    if(!cl->code) {
-      JS_ThrowTypeError(ctx, "JSCallback is closed");
+    if(!cl->code)
       return -1;
-    }
 
     p = cl->code;
   } else if(!js_try_get_bytes(ctx, &span, value))
@@ -92,6 +107,21 @@ js_to_pointer(JSContext* ctx, void** out, JSValueConst value) {
     *out = p;
 
   return 0;
+}
+
+/* Throw the TypeError that says why js_to_pointer() or js_to_address() refused
+ * VALUE; returns JS_EXCEPTION, to be returned by the caller. */
+JSValue
+js_throw_pointer_error(JSContext* ctx, JSValueConst value) {
+  JSCallback* cl = js_callback_data(value);
+
+  if(cl && !cl->code)
+    return JS_ThrowTypeError(ctx, "JSCallback is closed");
+
+  if(JS_IsString(value))
+    return JS_ThrowTypeError(ctx, "cannot convert a string to a pointer; encode it as a buffer");
+
+  return JS_ThrowTypeError(ctx, "cannot convert argument to a pointer");
 }
 
 /* A pointer as bun:ffi hands it out: null for NULL, a Number up to 2^53 - 1

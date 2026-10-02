@@ -12,14 +12,14 @@ js_cstring_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
   int64_t ofs = 0, len = -1;
 
   if(argc > 0 && js_to_pointer(ctx, (void**)&p, argv[0]))
-    return JS_EXCEPTION;
+    return JS_ThrowRangeError(ctx, "CString: argument 1 must be a pointer");
 
   if(argc > 1 && !JS_IsUndefined(argv[1]) && js_to_index(ctx, &ofs, argv[1]))
-    return JS_EXCEPTION;
+    return JS_ThrowRangeError(ctx, "CString: argument 2 must be BigInt | Number");
 
   if(argc > 2 && !JS_IsUndefined(argv[2])) {
     if(js_to_index(ctx, &len, argv[2]))
-      return JS_EXCEPTION;
+      return JS_ThrowRangeError(ctx, "CString: argument 3 must be BigInt | Number");
 
     if(len < 0)
       return JS_ThrowRangeError(ctx, "CString: byteLength must not be negative");

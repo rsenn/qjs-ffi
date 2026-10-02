@@ -1,3 +1,5 @@
+import * as std from 'std';
+import * as os from 'os';
 import { tests, eq, assert } from './tinytest.js';
 import { dlopen, dlsym, ptr, read, toArrayBuffer, toBuffer, toPointer, CString, CFunction, JSCallback, RTLD_DEFAULT, RTLD_NEXT } from 'ffi';
 
@@ -83,6 +85,53 @@ await tests({
     const buf = new Uint8Array([1, 2, 3, 4]);
 
     eq('1,2,3', new Uint8Array(toArrayBuffer(toPointer(buf.buffer), 3, false)).join());
+  },
+
+  'a bad offset or pointer throws at once and leaves no exception behind'() {
+    const buf = new Uint8Array(8);
+    const sym = Symbol('s');
+    const cases = [
+      () => ptr(buf, sym),
+      () => toPointer(buf.buffer, sym),
+      () => read.u8(ptr(buf), sym),
+      () => CString(ptr(buf), sym),
+      () => CString(ptr(buf), 0, sym),
+      () => toArrayBuffer(ptr(buf), sym),
+      () => toArrayBuffer(ptr(buf), 0, sym),
+      () => ptr(sym),
+      () => toPointer(sym),
+    ];
+
+    for(const f of cases) {
+      let e;
+      try { f(); } catch(x) { e = x; }
+      assert(e instanceof TypeError || e instanceof RangeError, 'expected a TypeError (or RangeError) for ' + f + ', got ' + e);
+    }
+
+    // After all that, a good call must work, and the script must end clean:
+    // a leaked pending exception would be reported when the script exits.
+    eq(8, ptr(buf, 8) - ptr(buf));
+  },
+
+  'a failed conversion leaves no pending exception when the script ends'() {
+    const dir = scriptArgs[0].replace(/[^/]*$/, '');
+    const child = dir + '../.tmp/test-pointer-helpers.child.js';
+
+    os.mkdir(dir + '../.tmp');
+
+    const f = std.open(child, 'w');
+    f.puts(`import { ptr, read, CString, toArrayBuffer, toPointer } from 'ffi';
+const buf = new Uint8Array(8), sym = Symbol('s');
+for(const f of [() => ptr(buf, sym), () => ptr('x'), () => read.u8(ptr(buf), sym), () => CString({}), () => toArrayBuffer(ptr(buf), sym), () => toPointer(buf.buffer, sym)])
+  try { f(); } catch(e) {}
+console.log('clean');
+`);
+    f.close();
+
+    const p = std.popen('qjsm ' + child + ' 2>&1', 'r');
+    const out = p.readAsString();
+    p.close();
+    eq('clean\n', out);
   },
 
   'pointer arithmetic works without BigInt'() {

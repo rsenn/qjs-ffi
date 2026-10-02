@@ -61,8 +61,6 @@ js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst
       out->f64 = d;
       break;
 
-    case K_POINTER: js_to_pointer(ctx, &out->ptr, v); break;
-
     default: out->i64 = 0; break;
   }
 }
@@ -137,7 +135,7 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
     } else if(cf->sig.arg_kind[i] == K_POINTER) {
       /* An address, a view, or a JSCallback (its function pointer). */
       if(js_to_pointer(ctx, &args_storage[i].ptr, v)) {
-        ret = JS_EXCEPTION;
+        ret = js_throw_pointer_error(ctx, v);
         goto done;
       }
     } else if(cf->sig.arg_kind[i] == K_BUFFER_LENGTH) {

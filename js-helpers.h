@@ -42,12 +42,15 @@ typedef struct {
   size_t size;
 } ByteSpan;
 
-/* All int-returning helpers below return 0 on success and -1 on failure. A
- * js_to_* helper leaves an exception pending on failure; a js_try_* helper
- * never does, so it can be used as a silent probe. */
+/* All int-returning helpers below return 0 on success and -1 on failure, and
+ * none of them leaves an exception pending (or touches its output) when it
+ * fails: the caller decides whether to throw, and with what message. The
+ * js_to_* helpers convert a JS value, the js_try_* helpers probe it;
+ * js_throw_pointer_error() is the TypeError for a refused pointer. */
 int js_to_index(JSContext*, int64_t*, JSValueConst value);
 int js_to_address(JSContext*, void** out, JSValueConst);
 int js_to_pointer(JSContext*, void** out, JSValueConst);
+JSValue js_throw_pointer_error(JSContext*, JSValueConst value);
 JSValue js_new_pointer(JSContext*, void*);
 int js_try_get_bytes(JSContext*, ByteSpan* out, JSValueConst);
 int js_try_get_length(JSContext*, JSValueConst, int64_t*);

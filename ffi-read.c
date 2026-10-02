@@ -39,7 +39,7 @@ js_ffiread(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
     return JS_ThrowTypeError(ctx, "read: pointer is NULL");
 
   if(argc > 1 && !JS_IsUndefined(argv[1]) && js_to_index(ctx, &ofs, argv[1]))
-    return JS_EXCEPTION;
+    return JS_ThrowTypeError(ctx, "read: argument 2 must be BigInt | Number");
 
   p += ofs;
 

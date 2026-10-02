@@ -110,7 +110,7 @@ js_dlclose(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[])
   void* ptr;
 
   if(js_to_address(ctx, &ptr, argv[0]))
-    return JS_EXCEPTION;
+    return JS_ThrowTypeError(ctx, "argument 1 must be BigInt | Number");
 
   if(ptr == NULL)
     return JS_ThrowTypeError(ctx, "argument 1 must be a non-NULL pointer");
@@ -125,7 +125,7 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   const char* s;
 
   if(js_to_address(ctx, &ptr, argv[0]))
-    return JS_EXCEPTION;
+    return JS_ThrowTypeError(ctx, "argument 1 must be BigInt | Number");
 
   if(!(s = JS_ToCString(ctx, argv[1])))
     return JS_EXCEPTION;
@@ -354,14 +354,14 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
     buf.data = (uint8_t*)(intptr_t)addr;
   } else {
     if(js_to_pointer(ctx, (void**)&buf.data, argv[0]))
-      return JS_EXCEPTION;
+      return js_throw_pointer_error(ctx, argv[0]);
   }
 
   if(argc > 1) {
     int64_t len;
 
     if(js_to_index(ctx, &len, argv[1]))
-      return JS_EXCEPTION;
+    return JS_ThrowTypeError(ctx, "argument 2 must be BigInt | Number");
 
     if(buf.size) {
       len = WRAP(len, buf.size);
@@ -406,7 +406,12 @@ js_cptr(JSContext* ctx, void** pptr, JSValueConst v, const char* what) {
     return -1;
   }
 
-  return js_to_address(ctx, pptr, v) ? -1 : 0;
+  if(js_to_address(ctx, pptr, v)) {
+    JS_ThrowTypeError(ctx, "toArrayBuffer: %s must be a C pointer (Number or BigInt)", what);
+    return -1;
+  }
+
+  return 0;
 }
 
 /* b = toArrayBuffer(ptr[, byteOffset[, byteLength[, deallocatorContext],
@@ -434,7 +439,7 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
                                i + 1);
 
   if(js_to_address(ctx, (void**)&p, argv[0]))
-    return JS_EXCEPTION;
+    return JS_ThrowTypeError(ctx, "toArrayBuffer: argument 1 must be BigInt | Number");
 
   if(!p)
     return JS_ThrowTypeError(ctx, "toArrayBuffer: pointer is NULL");
@@ -444,8 +449,8 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
   int given = argc > 2 && !JS_IsUndefined(argv[2]) ? 2 : argc > 1 && !JS_IsUndefined(argv[1]) ? 1 : 0;
   int parsed = js_parse_range(ctx, &range, given, argv + 1);
 
-  if(JS_HasException(ctx))
-    return JS_EXCEPTION;
+  if(parsed < given)
+    return JS_ThrowTypeError(ctx, "toArrayBuffer: byteOffset and byteLength must be BigInt | Number");
 
   if(parsed < 2) {
     /* No byteLength: the memory is the C string at ptr, so a negative
@@ -500,13 +505,15 @@ js_topointer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[
   uint8_t* ptr = NULL;
 
   if(js_to_pointer(ctx, (void**)&ptr, argv[0]))
-    return JS_EXCEPTION;
+    return js_throw_pointer_error(ctx, argv[0]);
 
-  if(argc > 1) {
+  if(argc > 1 && !JS_IsUndefined(argv[1])) {
     int64_t ofs = 0;
 
-    if(!js_to_index(ctx, &ofs, argv[1]))
-      ptr += ofs;
+    if(js_to_index(ctx, &ofs, argv[1]))
+      return JS_ThrowTypeError(ctx, "toPointer: argument 2 must be BigInt | Number");
+
+    ptr += ofs;
   }
 
   char str[64];
@@ -521,14 +528,19 @@ static JSValue
 js_ptr_address(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   uint8_t* ptr = NULL;
 
-  if(argc < 1 || js_to_pointer(ctx, (void**)&ptr, argv[0]))
-    return JS_EXCEPTION;
+  if(argc < 1)
+    return JS_ThrowTypeError(ctx, "ptr: argument 1 must be a pointer");
 
-  if(argc > 1) {
+  if(js_to_pointer(ctx, (void**)&ptr, argv[0]))
+    return js_throw_pointer_error(ctx, argv[0]);
+
+  if(argc > 1 && !JS_IsUndefined(argv[1])) {
     int64_t ofs = 0;
 
-    if(!js_to_index(ctx, &ofs, argv[1]))
-      ptr += ofs;
+    if(js_to_index(ctx, &ofs, argv[1]))
+      return JS_ThrowTypeError(ctx, "ptr: argument 2 must be BigInt | Number");
+
+    ptr += ofs;
   }
 
   return js_new_pointer(ctx, ptr);
