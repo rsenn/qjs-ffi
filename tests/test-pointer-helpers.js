@@ -1,9 +1,65 @@
 import { tests, eq, assert } from './tinytest.js';
-import { dlopen, ptr, toBuffer, toPointer, CString } from 'ffi';
+import { dlopen, dlsym, ptr, read, toBuffer, toPointer, CString, CFunction, JSCallback, RTLD_DEFAULT, RTLD_NEXT } from 'ffi';
 
 const bytes = str => new Uint8Array(Array.from(str, c => c.charCodeAt(0))).buffer;
 
+const libc = name => dlsym(RTLD_DEFAULT, name);
+
 await tests({
+  'a pointer is a Number: ptr(), dlsym(), JSCallback.ptr and a malloc() result'() {
+    const malloc = CFunction({ ptr: libc('malloc'), args: ['u64'], returns: 'pointer' });
+    const free = CFunction({ ptr: libc('free'), args: ['pointer'], returns: 'void' });
+    const cb = new JSCallback(() => 0, { returns: 'i32' });
+    const p = malloc(16);
+
+    eq('number', typeof ptr(new Uint8Array(4)));
+    eq('number', typeof libc('abs'));
+    eq('number', typeof cb.ptr);
+    eq('number', typeof p);
+    assert(Number.isSafeInteger(p) && p > 0xffffffff, 'expected a user-space address above 2^32, got ' + p);
+    free(p);
+    cb.close();
+  },
+
+  'pointer arithmetic works without BigInt'() {
+    const buf = new Uint8Array(32);
+
+    eq(8, ptr(buf, 8) - ptr(buf));
+    eq(ptr(buf) + 16, ptr(buf, 16));
+    eq(7, read.u8(ptr(buf) + 3, 4) + 7);
+  },
+
+  'read.ptr: a Number up to 2^53 - 1, an exact unsigned BigInt above'() {
+    const cell = new BigUint64Array([0x7fffffffffffn, (1n << 53n) - 1n, 1n << 53n, (1n << 53n) + 1n, 0x7fffffffffffffffn, 0xffffffffffffffffn, 0n]);
+    const at = i => read.ptr(ptr(cell), i * 8);
+
+    eq(140737488355327, at(0));
+    eq(9007199254740991, at(1));
+    eq('number', typeof at(1));
+    eq('9007199254740992n', at(2) + 'n');
+    eq('bigint', typeof at(2));
+    eq('9007199254740993n', at(3) + 'n');
+    eq('9223372036854775807n', at(4) + 'n');
+    eq('18446744073709551615n', at(5) + 'n');
+    eq(null, at(6));
+  },
+
+  'a pointer comes back through a call as a Number, a large one as a BigInt'() {
+    const id = CFunction({ ptr: libc('labs'), args: ['pointer'], returns: 'pointer' });
+
+    eq(1234, id(1234));
+    eq(9007199254740991, id(9007199254740991));
+    eq('9007199254740992n', id(1n << 53n) + 'n');
+    eq('9223372036854775807n', id(0x7fffffffffffffffn) + 'n');
+  },
+
+  'a BigInt or a Number is taken as a pointer, including one of 2^63 and more'() {
+    // dlsym(RTLD_NEXT, ...) is dlsym((void*)-1, ...): the same handle as a BigInt
+    eq(dlsym(RTLD_NEXT, 'abs'), dlsym(0xffffffffffffffffn, 'abs'));
+    eq(libc('abs'), dlsym(RTLD_DEFAULT, 'abs'));
+    eq(BigInt(ptr(new Uint8Array(1))) > 0n, true);
+  },
+
   'ptr() returns the same address as toPointer()'() {
     const buf = new Uint8Array([1, 2, 3]).buffer;
     eq(toPointer(buf), '0x' + BigInt(ptr(buf)).toString(16));

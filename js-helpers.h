@@ -64,17 +64,20 @@ js_index(JSContext* ctx, int64_t* pval, JSValueConst value) {
   return 0;
 }
 
+/* A pointer as bun:ffi hands it out: null for NULL, a Number up to 2^53 - 1
+ * (Number.MAX_SAFE_INTEGER, exact; every user-space address on 64-bit Linux
+ * and Windows is below 2^47), else an exact unsigned BigInt. */
 static inline JSValue
 js_newptr(JSContext* ctx, void* ptr) {
-  intptr_t addr = (intptr_t)ptr;
+  uintptr_t addr = (uintptr_t)ptr;
 
   if(!addr)
     return JS_NULL;
 
-  if((int64_t)addr == (int32_t)addr)
-    return JS_NewInt32(ctx, addr);
+  if(addr <= (uintptr_t)9007199254740991ULL)
+    return JS_NewInt64(ctx, (int64_t)addr);
 
-  return JS_NewBigInt64(ctx, addr);
+  return JS_NewBigUint64(ctx, addr);
 }
 
 static inline uint8_t*

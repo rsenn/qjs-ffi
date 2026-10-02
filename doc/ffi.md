@@ -161,8 +161,8 @@ See [Pointers and memory](pointers.md#cstring).
 
 ## Pointers
 
-A pointer is `null`, a `number` when it fits in a signed 32-bit integer, and a
-`bigint` otherwise. `ptr()` takes the address of an `ArrayBuffer` or typed
+A pointer is `null`, a `number` (exact up to 2^53 - 1, which every user-space
+address is), and a `bigint` above that. `ptr()` takes the address of an `ArrayBuffer` or typed
 array, `toArrayBuffer()` makes an `ArrayBuffer` over memory at an address, and
 `read` reads a value straight from an address:
 
@@ -226,8 +226,6 @@ pointer outlives nothing. In particular
 This module follows bun:ffi but is not a drop-in replacement yet. The open
 items are tracked in [TODO.md](../TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies):
 
-*   Pointers from `ptr()`, `JSCallback.ptr` and `malloc()` are `bigint` above
-    2^31, where bun gives a `number`.
 *   `CString` needs `new`, and is an object with `.ptr` and `.length`.
 *   `new CFunction(...)` is not supported, call `CFunction(...)`; there is no
     `CFunction().close()`.

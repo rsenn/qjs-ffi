@@ -16,8 +16,13 @@ Everywhere a pointer is returned (`dlsym()`, a `pointer`-typed result,
 `ptr()`, `JSCallback.ptr`) it is
 
 *   `null` for NULL,
-*   a `number` if the address fits in a signed 32-bit integer,
-*   a `bigint` otherwise.
+*   a `number` up to 2^53 - 1 (`Number.MAX_SAFE_INTEGER`), which is exact and
+    covers every user-space address on 64-bit Linux and Windows (they are below
+    2^47), so pointer arithmetic is plain (`ptr(buf) + 8`),
+*   an exact, unsigned `bigint` above that.
+
+As in bun:ffi a `number` is what you get in practice. Unlike bun's `read.ptr`,
+which rounds to a `number` above 2^53, a pointer is never rounded here.
 
 Everywhere a pointer is taken, a `number`, a `bigint`, `null` (NULL) or an
 `ArrayBuffer` or view (its address) is accepted, so a typed array or a

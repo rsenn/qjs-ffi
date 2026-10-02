@@ -373,10 +373,34 @@ Ordered roughly by how likely bun code is to trip over it.
 6. `JSCallback` instance as a `function`/`ptr` argument (the docs pass it
    directly, `.ptr` being only "slightly faster"): currently converts to 0, so
    the C side gets NULL. `js_ptr()` should unwrap a `JSCallback`.
-7. `viewSource(symbols[, false])` / `viewSource(fn, true)`: bun's view of the C
-   code it generates for a binding (`string[]` / `string`). Here a binding is a
-   libffi `cif`, so there is no source to show; return the signature as text
-   (`int add(int, int)` per symbol), or leave it out and say so.
+7. **Postponed** (low value: bun's `viewSource` is for debugging its own C code
+   generator, and there is none here). `viewSource(symbols[, false])` /
+   `viewSource(fn, true)`: bun returns the C it generates for a binding
+   (`string[]` / `string`). A binding here is a libffi `cif`, so the plan is to
+   return the C declaration it stands for, in bun's shapes:
+
+   ```js
+   viewSource({ add: { args: ["i32", "i32"], returns: "i32" } })
+   // ["int32_t add(int32_t a0, int32_t a1);"]
+   viewSource({ args: ["pointer", "f64"], returns: "void" }, true)
+   // "void (*)(void *a0, double a1)"
+   ```
+
+   *   `ffi-type.c`: a function giving the C spelling of a type spec (name,
+       alias, `FFIType` number or struct array, recursively: `struct { float f0;
+       float f1; }`), from `ffi_resolve_type()`/`ffi_resolve_type_id()` and a
+       kind-to-C-type table (`K_I8` `int8_t`, `K_POINTER` `void *`, `K_CSTRING`
+       `const char *`, ...). An unresolved type falls back as a call would: `i32`
+       as an argument, `void` as a return.
+   *   `ffi.c`: `js_viewsource()`, in `js_funcs` as `viewSource` (2); keys in
+       order; it never calls `dlsym()` and ignores `ptr`; a non-object argument
+       is a `TypeError`. The default export gets it with the rest.
+   *   `tests/test-view-source.js` (scalars, aliases, numbers, struct and nested
+       struct, callback form, unknown types, key order, errors); a section in
+       `doc/ffi.md` saying that it shows declarations, not generated code.
+   *   Open decision: bun's shapes (array / string), as above, or an object
+       keyed by symbol name. Bun's shapes are the plan, so that code indexing
+       the array works.
 8. **Done** (`ffi-read.c`, `tests/test-read.js`). `read.intptr(ptr, byteOffset)`: bun has it next to `read.ptr` (a pointer
    read as a signed integer, `bigint`); `ffi-read.c` has no entry for it.
 9. **Done** (`js_init` in `ffi.c`, `tests/test-default-export.js`). A default export: bun's `import ffi from "bun:ffi"` gets an object with
@@ -412,11 +436,24 @@ Ordered roughly by how likely bun code is to trip over it.
    neither `byteOffset` nor `byteLength`. (bun-types types it as `string`; the
    object form with `.ptr` is what older Bun gave.) In bun's own dump it is a
    native function of arity 3, not a class.
-4. Pointers: bun hands out a `number` (to 2^53); ours are `bigint` once past 32
+4. **Done** (`js_newptr()` in `js-helpers.h`, `__ptrOut()` in `tools/gen-bindings/structs.js`,
+   `tests/test-pointer-helpers.js`). Pointers: bun hands out a `number` (to 2^53); ours are `bigint` once past 32
    bits, so `ptr(u8)`, `JSCallback.ptr` and a `malloc()` result are all
-   `bigint`. Anything doing `ptr + 8` throws a mixed-type error. Decision
-   needed: return `number` when it fits in 2^53 (what bun does, and 64-bit
-   Linux/Windows user-space addresses always do), `bigint` only above.
+   `bigint`. Anything doing `ptr + 8` throws a mixed-type error.
+   **Decided**: a `number` up to 2^53, a `bigint` above. Checked against bun
+   1.4.2: `ptr(view)` is a `number`; a `"ptr"` return is a `number` up to
+   2^53-1 (`Number.MAX_SAFE_INTEGER`) and an exact `bigint` from 2^53 up
+   (`0x20000000000000` came back as `9007199254740992n`), never a string; a
+   `bigint` is accepted as a pointer argument and by `toArrayBuffer`. bun's
+   `read.ptr` is always a `number`, rounded above 2^53 (`0xffffffffffffffff`
+   gives `18446744073709552000`); ours stays exact instead. Plan: in
+   `js_newptr()` (`js-helpers.h`) return `JS_NewInt64` up to `2^53 - 1`, else
+   `JS_NewBigUint64` (it is `JS_NewBigInt64` now, which makes an address of
+   2^63 or more negative); `__ptrOut()` of the generated modules
+   (`tools/gen-bindings/structs.js`) gets the same rule; update the tests that
+   expect a `bigint` and the "number if it fits in 32 bits" wording in
+   `doc/pointers.md`, `doc/c-function.md` and `doc/types.md`. `js_toptr()`
+   already takes both. Breaking for code doing `p + 8n`.
 5. **Done** (`FFI_TYPE_LIST` in `ffi-type.h`, `tests/test-ffitype.js`: 61
    members, numbers and the reverse mapping, signatures take a name or a
    number; `napi_*` and `buffer_length` are members but not usable types, see
@@ -539,6 +576,9 @@ symbols.counter = 7;  // writes it (TypeError if readonly)
 *   Docs: replace the "Only functions can be exposed" paragraph in
     `doc/c-compiler.md`, add to `doc/dlopen.md`/`doc/types.md`.
 
-Order of work: ~~5.1.1 (`read`)~~ (done), ~~5.2.1 + 5.3~~ (done),
-5.2.4 (with 5.2.5, both change what a pointer and a type are), 5.1.9 (default
-export), 5.1.8 (`read.intptr`), 5.1.10 (`Symbol.dispose`), 5.1.7, 5.1.2, 5.1.6, 5.2.2/3, 5.1.4/5, the variables of 5.4, 5.1.3 last.
+Order of work: ~~5.1.1 (`read`)~~, ~~5.2.1 + 5.3~~, ~~5.1.8~~, ~~5.1.9~~,
+~~5.1.10~~ and ~~5.2.5~~ are done. Next: 5.2.4 (pointers as numbers: it changes
+what a pointer is everywhere), 5.1.2 (`buffer_length`), 5.1.6 (a `JSCallback` as
+an argument), 5.2.2/3 (`new CFunction`, `CString`), 5.1.4/5 (`cc` `include`,
+`CFunction().close()`), the variables of 5.4, then 5.1.7 (`viewSource`,
+postponed), and 5.1.3 (`threadsafe`) last.

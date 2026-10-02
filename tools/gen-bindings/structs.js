@@ -148,7 +148,7 @@ function __dv(o) {
 }
 
 function __ptrOut(v) {
-  return v === 0n ? null : v <= 0xffffffffn ? Number(v) : v;
+  return v === 0n ? null : v <= 0x1fffffffffffffn ? Number(v) : v;
 }
 
 function __ptrIn(v) {
