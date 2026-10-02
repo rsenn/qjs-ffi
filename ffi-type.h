@@ -1,8 +1,8 @@
 #ifndef QJSFFI_FFI_TYPE_H
 #define QJSFFI_FFI_TYPE_H
 
-#include <quickjs.h>
 #include <ffi.h>
+#include <quickjs.h>
 
 #define FFI_MAX_ARGS 32
 
@@ -27,6 +27,7 @@ enum {
   K_POINTER,
   K_CSTRING,
   K_STRUCT,
+  K_BUFFER_LENGTH, /* the byte length of the view passed for this argument */
 };
 
 /* X(name, libffi type, kind): the single source for the FFIType export, the
@@ -68,28 +69,28 @@ enum {
   X("char", ffi_type_sint8, K_I8, 0) \
   X("buffer", ffi_type_pointer, K_POINTER, 20) \
   X("fn", ffi_type_pointer, K_POINTER, 17) \
-  X("callback", ffi_type_pointer, K_POINTER, 17)
+  X("callback", ffi_type_pointer, K_POINTER, 17) \
+  X("buffer_length", ffi_type_uint64, K_BUFFER_LENGTH, 21) \
+  X("buffer_bytelength", ffi_type_uint64, K_BUFFER_LENGTH, 21)
 
-/* Names bun:ffi has that do not resolve to a type here: aliases of types above
- * with a name that is not a valid identifier, and the types only the C compiler
- * of bun or an argument pair can use (napi_env and napi_value have no meaning
- * outside Node-API; buffer_length is not implemented, see TODO.md). They are
- * FFIType members so that code using them gets bun's numbers, and in a signature
- * they are unknown names like any other (an argument becomes "i32"). */
+/* Names bun:ffi has that are FFIType members only: aliases of types above with
+ * a name that is not a valid identifier, and napi_env and napi_value, which have
+ * no meaning outside Node-API. In a signature they are unknown names like any
+ * other (an argument becomes "i32").
+ */
 #define FFI_TYPE_EXTRA(X) \
   X("c_int", 5) \
   X("c_uint", 6) \
   X("char*", 12) \
   X("void*", 12) \
   X("napi_env", 18) \
-  X("napi_value", 19) \
-  X("buffer_length", 21) \
-  X("buffer_bytelength", 21)
+  X("napi_value", 19)
 
 /* bun's FFIType also maps each of the numbers 0 to 17 to itself ("5": 5). */
 #define FFI_TYPE_INDEX(X) \
-  X("0", 0) X("1", 1) X("2", 2) X("3", 3) X("4", 4) X("5", 5) X("6", 6) X("7", 7) X("8", 8) \
-  X("9", 9) X("10", 10) X("11", 11) X("12", 12) X("13", 13) X("14", 14) X("15", 15) X("16", 16) X("17", 17)
+  X("0", 0) \
+  X("1", 1) \
+  X("2", 2) X("3", 3) X("4", 4) X("5", 5) X("6", 6) X("7", 7) X("8", 8) X("9", 9) X("10", 10) X("11", 11) X("12", 12) X("13", 13) X("14", 14) X("15", 15) X("16", 16) X("17", 17)
 
 #define FFI_TYPE_COUNT_ONE(name, type, kind, id) +1
 #define FFI_TYPE_COUNT_PAIR(name, id) +1
@@ -97,8 +98,8 @@ enum {
 
 /* FFIType: name -> number, as bun's: `FFIType.i32` is 5, and every member can
  * be written where a CFunction/JSCallback `args`/`returns` type is expected,
- * as the name ("i32") or as the number (FFIType.i32). Meant to be spliced into a
- * JSCFunctionListEntry list via JS_OBJECT_DEF("FFIType", js_ffitype_funcs,
+ * as the name ("i32") or as the number (FFIType.i32). Meant to be spliced into
+ * a JSCFunctionListEntry list via JS_OBJECT_DEF("FFIType", js_ffitype_funcs,
  * FFI_TYPE_COUNT, ...).
  */
 extern const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT];
@@ -111,7 +112,7 @@ int ffi_is_pointer_name(const char* name);
 
 /* The type a number stands for (bun's FFIType values: 5 is i32, 12 a pointer),
  * or NULL (leaving *kind untouched) for a number that is no type or that this
- * module does not implement (napi_env, napi_value, buffer_length). */
+ * module does not implement (napi_env, napi_value). */
 ffi_type* ffi_resolve_type_id(int id, int* kind);
 
 /* Looks up a type name; a name for which ffi_is_pointer_name() holds is

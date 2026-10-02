@@ -40,6 +40,12 @@ cb = new JSCallback(fn, { args, returns })
 Throws if `ffi_closure_alloc()`/`ffi_prep_cif()`/`ffi_prep_closure_loc()`
 fail (e.g. the platform is out of executable closure trampoline memory).
 
+A `JSCallback` can be passed itself where a pointer is taken: a `CFunction`
+argument declared `"pointer"`, `"function"` or `"T *"`, `ptr()` and `read`. `cb`
+and `cb.ptr` are the same there, and a closed callback is a `TypeError`.
+(`toArrayBuffer()` wants an address, not a callback.) The
+`buffer_length` type is not supported in a callback (`TypeError`).
+
 ## Properties
 
 | Property    | Type      | Description                                                                 |

@@ -147,6 +147,14 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
     return NULL;
   }
 
+  for(int i = 0; i < cl->sig.argc; i++)
+    if(cl->sig.arg_kind[i] == K_BUFFER_LENGTH) {
+      JS_ThrowTypeError(ctx, "JSCallback: buffer_length is not supported in a callback");
+      ffi_sig_free(JS_GetRuntime(ctx), &cl->sig);
+      js_free(ctx, cl);
+      return NULL;
+    }
+
   if(ffi_sig_has_struct(&cl->sig)) {
     JS_ThrowTypeError(ctx, "JSCallback: a struct passed or returned by value is not supported");
     ffi_sig_free(JS_GetRuntime(ctx), &cl->sig);

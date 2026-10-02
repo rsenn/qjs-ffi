@@ -3,12 +3,11 @@
 
 #include <quickjs.h>
 
-/* CString: a C string at a pointer, decoded on demand.
+/* CString: the C string at a pointer, as a JavaScript string (bun:ffi's).
  *
- *   const s = new CString(ptr[, byteOffset[, byteLength]]);
- *   s.ptr, s.length (bytes), s.toString()
+ *   const s = CString(ptr[, byteOffset[, byteLength]]);   // or new CString(...)
  *
- * Without byteLength the string ends at the first NUL byte.
+ * NULL gives "". Without byteLength the string ends at the first NUL byte.
  */
 
 /* `defaults`, if an object, also gets CString (the module's default export). */

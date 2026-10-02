@@ -21,6 +21,21 @@ await tests({
     cb.close();
   },
 
+  'ptr() and read take a JSCallback as its function pointer, a closed one is a TypeError'() {
+    const cb = new JSCallback(() => 0, { returns: 'i32' });
+
+    eq(Number(cb.ptr), ptr(cb));
+    eq(Number(cb.ptr) + 4, ptr(cb, 4));
+    eq(read.u8(cb.ptr, 1), read.u8(cb, 1));
+    cb.close();
+
+    for(const f of [() => ptr(cb), () => read.u8(cb)]) {
+      let e;
+      try { f(); } catch(x) { e = x; }
+      assert(e instanceof TypeError, 'expected TypeError for a closed JSCallback, got ' + e);
+    }
+  },
+
   'pointer arithmetic works without BigInt'() {
     const buf = new Uint8Array(32);
 
@@ -78,28 +93,55 @@ await tests({
 
   'CString reads a NUL-terminated string'() {
     const buf = bytes('hello\0world');
-    const s = new CString(ptr(buf));
-    eq('hello', s.toString());
-    eq(5, s.length);
+
+    eq('hello', CString(ptr(buf)));
+    eq('string', typeof CString(ptr(buf)));
+  },
+
+  'CString is a string with or without new'() {
+    const buf = bytes('abc\0');
+
+    eq('abc', new CString(ptr(buf)));
+    eq('string', typeof new CString(ptr(buf)));
   },
 
   'CString honours byteOffset and byteLength'() {
     const buf = bytes('hello world\0');
-    const s = new CString(ptr(buf), 6, 3);
-    eq('wor', s.toString());
-    eq(3, s.length);
+
+    eq('wor', CString(ptr(buf), 6, 3));
+    eq('world', CString(ptr(buf), 6));
+    eq('', CString(ptr(buf), 6, 0));
   },
 
-  'CString.ptr is the pointer it wraps'() {
+  'CString of NULL, nothing or a view'() {
     const buf = bytes('abc\0');
-    eq(Number(ptr(buf)), Number(new CString(ptr(buf)).ptr));
+
+    eq('', CString(null));
+    eq('', CString(0));
+    eq('', CString());
+    eq('abc', CString(buf));
+    eq('abc', CString(new Uint8Array(buf)));
+    eq('abc', CString(BigInt(ptr(buf))));
+  },
+
+  'CString copies: it stays valid after the memory changes'() {
+    const view = new Uint8Array(bytes('abc\0'));
+    const s = CString(ptr(view));
+
+    view[0] = 122;
+    eq('abc', s);
+  },
+
+  'CString throws RangeError for a negative byteLength'() {
+    let e;
+    try { CString(ptr(bytes('abc\0')), 0, -1); } catch(x) { e = x; }
+    assert(e instanceof RangeError, 'expected RangeError, got ' + e);
   },
 
   'CString wraps a pointer returned from native code'() {
     const lib = dlopen(null, { strdup: { args: ['cstring'], returns: 'ptr' } });
-    const s = new CString(lib.symbols.strdup('from libc'));
-    eq('from libc', s.toString());
-    eq(9, s.length);
+
+    eq('from libc', CString(lib.symbols.strdup('from libc')));
     lib.close();
   },
 });

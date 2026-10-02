@@ -62,7 +62,7 @@ const qsort = CFunction({
 });
 
 const numbers = new Int32Array([5, 3, 9, 1]);
-qsort(numbers, numbers.length, 4n, compare.ptr);
+qsort(numbers, numbers.length, 4n, compare);
 console.log(numbers); // 1, 3, 5, 9
 
 compare.close();

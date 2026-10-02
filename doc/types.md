@@ -101,8 +101,30 @@ Each of the numbers 0 to 17 is also a key that maps to itself (`FFIType[5] ===
 5`), as in bun, which has 61 members in all.
 
 Not every member can be used in a signature. `napi_env` and `napi_value` only
-mean something in Node-API, and `buffer_length` is not implemented yet: they are
-unknown types, which an argument reads as `i32` and a return as `void`.
+mean something in Node-API: they are unknown types, which an argument reads as
+`i32` and a return as `void`.
+
+### `buffer_length`
+
+An argument whose value is the byte length of a view, as in bun:ffi. Pass the
+*same* view for it as for the `buffer` parameter before it; the pointer and the
+length are then read off one object, so they always agree (unlike passing
+`view.byteLength` yourself), and a typed-array view or a `DataView` over a
+part of a buffer gives the length of that part:
+
+```js
+const { symbols } = dlopen(null, {
+  memchr: { args: ["buffer", "i32", "buffer_length"], returns: "pointer" },
+});
+
+const buf = Uint8Array.from("abcdef", c => c.charCodeAt(0));
+symbols.memchr(buf, 100, buf) - ptr(buf); // 3: 'd' is the fourth byte
+```
+
+The function takes three arguments (`memchr.length` is 3). The argument must be a
+typed array, `DataView` or `ArrayBuffer`, else `TypeError`. `buffer_length` is
+argument-only: as a `returns`, in a struct or in a `JSCallback` it is a
+`TypeError`.
 
 ## ABI
 

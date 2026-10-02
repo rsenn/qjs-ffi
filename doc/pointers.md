@@ -24,8 +24,10 @@ Everywhere a pointer is returned (`dlsym()`, a `pointer`-typed result,
 As in bun:ffi a `number` is what you get in practice. Unlike bun's `read.ptr`,
 which rounds to a `number` above 2^53, a pointer is never rounded here.
 
-Everywhere a pointer is taken, a `number`, a `bigint`, `null` (NULL) or an
-`ArrayBuffer` or view (its address) is accepted, so a typed array or a
+Where a pointer is taken (a pointer argument, `ptr()`, `read`), a `number`, a
+`bigint`, `null` (NULL), an `ArrayBuffer` or view (its address) or a
+[`JSCallback`](js-callback.md) (its function pointer; a closed one is a
+`TypeError`) is accepted, so a typed array or a
 [generated struct class](gen-bindings.md) can be passed to a `pointer`
 parameter as it is. A string is never read as an address (see
 [`toPointer()`](#topointer)).
@@ -166,32 +168,29 @@ read.u32(ptr(mem), 4); // 0x12345678
 ## `CString`
 
 ```js
-const s = new CString(ptr[, byteOffset[, byteLength]]);
+const s = CString(ptr[, byteOffset[, byteLength]]);
 ```
 
-A C string at `ptr + byteOffset`. Without `byteLength` it ends at the first NUL
-byte. It decodes when asked, so it follows the memory it is made on; call
-`toString()` for a JavaScript string that stays valid after the memory is
-freed.
-
-| Member | Description |
-| ------ | ----------- |
-| `s.ptr` | The address of the first byte. |
-| `s.length` | The length in bytes (the length to the NUL, if none was given). |
-| `s.toString()` | The text, decoded as UTF-8. NULL gives `null`. |
+The C string at `ptr + byteOffset`, decoded as UTF-8 into a JavaScript string.
+Without `byteLength` it ends at the first NUL byte. It is a string, not an
+object, so it stays valid after the memory is freed; NULL (or no argument)
+gives `""`. As in bun:ffi it may be called with `new`, which also gives a string.
+`ptr` may be an address or an `ArrayBuffer` or view.
 
 ```js
 import { CString, ptr } from "ffi";
 
 const bytes = Uint8Array.from("hello\0world", c => c.charCodeAt(0));
-const s = new CString(ptr(bytes));
 
-console.log(s.toString(), s.length); // hello 5
-console.log(new CString(ptr(bytes), 6, 5).toString()); // world
+console.log(CString(ptr(bytes))); // hello
+console.log(CString(ptr(bytes), 6, 5)); // world
+console.log(CString(ptr(bytes), 6)); // world
+console.log(CString(null) === ""); // true
 ```
 
-`CString` must be called with `new`. To get a string from a function that
-returns `char *`, declare the return type `"cstring"` and it arrives decoded.
+A negative `byteLength` is a `RangeError`. (bun refuses a `byteLength` of 0;
+here it gives `""`.) To get a string from a function that returns `char *`,
+declare the return type `"cstring"` and it arrives decoded.
 
 ## `toString()`
 

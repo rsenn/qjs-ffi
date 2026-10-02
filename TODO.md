@@ -21,19 +21,11 @@
   `ffi.c:456-484`) — real 64-bit ints/pointers above 2^53 are not
   representable.
 - No varargs, no arrays. Documented as YAGNI in the existing README
-  `TODO`/`Limitations` sections. (Struct-by-value has since been added, see
-  "Done: struct by value".)
+  `TODO`/`Limitations` sections.
 - Assumes little-endian.
 - `dlopen`/`dlsym`/`dlclose`/`dlerror`/`errno` are thin 1:1 libdl/libc wrappers
   — these map cleanly onto bun:ffi's internal use of dlopen and don't need to
   change shape, just visibility (bun:ffi hides them behind `dlopen(path, symbols)`).
-
-### `CallClosure` / `opaque-call.[ch]` (native callback support)
-
-Done — rebuilt as `JSCallback` (`js-callback.c`/`js-callback.h`), a real
-`ffi_closure`-based trampoline that marshals actual inbound native
-arguments/return value per a declared `(args, returns)` signature. See
-[`doc/js-callback.md`](doc/js-callback.md).
 
 ### Build/test surface
 
@@ -79,7 +71,7 @@ lib.close();
   quickjs; out of scope.
 - Bun's JIT'd fast-path (`tryCall`) internals — irrelevant, that's a V8/JSC
   engine-specific optimization we can't replicate in a libffi-backed module.
-  Our equivalent optimization is simply: don't do string lookups (done, see
+  Our equivalent optimization is simply: don't do string lookups (see
   `CFunction` in [`doc/c-function.md`](doc/c-function.md)).
 
 ## 3. Migration Plan
@@ -89,50 +81,6 @@ and be exercised by a runnable `.js` test under `qjsm` before moving to the
 next phase. Do not start a phase until the previous one's tests pass.
 New/changed tests get the 5x flakiness check per
 `.claude/rules/check-tests-for-flakiness.md`.
-
-Phase 2 (`dlopen(path, symbolSpecs)`, bun-shaped) is done: `js_dlopen()` in
-`ffi.c` dispatches to `js_dlopen_symbols()` when `argv[1]` is an object
-(overload by argument shape, resolving the naming-collision decision point —
-legacy `dlopen(path, flags)` is untouched for the number-flags call shape).
-It `dlsym()`s each key in `symbolSpecs`, builds a `CFunction` per symbol via
-the exported `js_cfunction_create()` (`c-function.h`), and returns
-`{ symbols: { ...name: CFunction }, close() }` where `close()` `dlclose()`s
-the handle. Verified in `tests/test-dlopen-symbols.js` (legacy form still
-works, symbol-not-found and bad-path both throw `TypeError`, `close()`
-actually releases the handle).
-
-Phase 4 (pointer/buffer helper parity) is done: `toBuffer` aliases
-`toArrayBuffer`; `ptr(buffer[, offset])` is its own small function
-(`js_ptr_address` in `ffi.c`) rather than an alias of `toPointer`, because
-`toPointer` returns a `"0x..."` string and `toArrayBuffer` reads a string
-argument as content, so the round trip needs a Number/BigInt address.
-`CString(ptr[, byteOffset[, byteLength]])` has `.ptr`, `.length` and
-`.toString()`; it decodes on demand. Verified in
-`tests/test-pointer-helpers.js`.
-
-Phase 5 (`linkSymbols`, `suffix`) is done: `suffix` is a compile-time
-`"so"`/`"dll"` string. `linkSymbols(symbolSpecs)` returns `{ symbols }` (no
-`close()`, nothing is opened) and resolves each spec from its own `ptr` (bun
-shape) or else `dlsym(RTLD_DEFAULT, name)`. It shares `js_build_symbols()` in
-`ffi.c` with the `dlopen(path, symbolSpecs)` path. Verified in
-`tests/test-link-symbols.js`.
-
-### Phase 6 — remove legacy `define`/`call`/`function_s`: done
-
-`define()` and `call()` are gone from `ffi.c` (`function_s`, `define_function`,
-`call_function`, the `ffi_type_head` list and its `strcmp` lookups with them).
-[`legacy.js`](legacy.js), a JavaScript module, implements them on top of
-`CFunction`: `define()` builds a `CFunction` per name, `call()` converts the
-arguments the way the old C code did (a string is copied with its NUL, an
-`ArrayBuffer` passed by address, a `JSCallback` by its `.ptr`, booleans as 1/0)
-and the result to a number. Kept as they were: the number results, the 30
-parameters, a name defined twice keeps the first. Changed: `call()` of an
-unknown name throws, `longdouble` is refused (no `CFunction` type), `size_t`
-is 64 bits (it was `uint`). The in-tree clients import it (`lib/posix/socket.js`,
-`examples/portmidi.js`, `util.mjs`, `test.js`, the tests), and
-`gen-bindings --api=define` output imports `define` and `call` from
-`legacy.js`; CMake copies it next to `ffi.so` in the build directory and
-installs it into the C module directory. Tests: `tests/test-legacy.js`.
 
 ### Phase 7 — docs/examples pass
 
@@ -144,199 +92,19 @@ installs it into the C module directory. Tests: `tests/test-legacy.js`.
 
 ## 4. `tools/gen-bindings.js`: intermediate JSON (IR) and C++ support
 
-### Done
-
-- clang's JSON AST is condensed while parsing (`AstCondenser`, `json.JsonParser`)
-  and cached in `.tmp/gen-bindings/` (`--cache-dir`, `--no-cache`); a cached AST
-  is reused until one of the files it was built from is newer.
-- Phase 1 (clang -> IR, `--emit-ir=<file>`) and phase 2 (IR -> JS,
-  `--from-ir=<file>`) are separate runs. The IR follows `describeObject()`:
-  `methods` (kind `function`, `arity`, `params` as `"name: type"`, `returnType`),
-  `fields` (extern/const variables), plus `enums`, `structs`, `skipped`.
-
 ### Next: `ffi.c` loader
 
 A loader in the `ffi` module that builds `CFunction`s (and constants) straight
 from the IR JSON, so no generated `.js` is needed. Needs: the IR `source`/
 library name, `dlopen` handling, and a decision on how `structs` map to
-libffi struct types (CFunction takes them as arrays now, see "Done: struct by
-value").
-
-- Struct/union layouts (size, align, field byte offsets, bitfield bit offsets)
-  come from clang's `-fdump-record-layouts-simple`, forced by a probe
-  translation unit (`runLayoutDump()`), and are stored in the IR and the AST
-  cache. `--structs` emits them as ArrayBuffer classes (the `gen-structs.js`
-  ones, see "Done: one generator" below), plus `{ ptr, value }` accessors for
-  extern variables (resolved on first use). Off by default so existing
-  generated output does not change.
-
-### Next: struct accessors beyond scalars
-
-Bitfield, array and nested-struct members only have a layout entry. Add
-accessors for them (done since, and struct-by-value too, see "Done: struct by
-value").
-
-### Done: C++ classes and methods
-
-`--c++` / `--std=` (or a `.cc/.cpp/.cxx/.hh/.hpp/.hxx` source) run clang as
-C++; the IR gets `classes` (see `newIR()` in `tools/gen-bindings.js` for the
-shape) with each public constructor, method, field and the destructor,
-carrying clang's `mangledName`, plus bases, size/align and field offsets.
-Namespaces and `extern "C"` blocks are descended, and enum-typed parameters
-resolve by qualified name; `T&` maps to `pointer`; a struct with no methods or
-bases stays in `structs` (qualified name).
-
-Each class is emitted (`classesCode()`) as `export class ns_Name`: `new`
-allocates `size` bytes and runs the complete constructor (`C1`), `.delete()`
-runs the destructor (`D1`), `Class.from(ptr)` wraps without owning, public
-fields are accessors, static members are class properties. Overloads dispatch
-by arity, then argument type; a wrapped object passed as an argument becomes
-its pointer. Symbols bind on first call, as inline members often have none.
-A class extends its first public, non-virtual base when that sits at offset 0.
-`tests/test-gen-bindings-cxx.js` checks every IR `mangledName` against
-`nm -D` of a compiled fixture, then runs the generated module against it.
-
-Constructors of an abstract class are omitted: the compiler emits only the
-base-object constructor (`C2`) for it, so there is no `C1` to `dlsym()`. A
-pure virtual method has no symbol either.
-
-### Done: field sizes, typedefs, describeObject() shape
-
-Struct and class IR entries are `describeObject()`-shaped (`type: "object"`,
-`methods`/`getters`/`setters`/`fields`/`prototypeChain`; a class's
-`prototypeChain` lists its ancestors) and every field carries a byte `offset`
-and `size` (a bitfield has `bits`/`bitOffset` instead). Sizes come from the
-layout probe (`char[sizeof(field)]` records, see `runLayoutDump()`), limited to
-the files being collected. `typedef` and `using` aliases are collected into
-`ir.typedefs` (qualified name, `type`, `cType`, `resolved?`, `record?`,
-`size?`), including those nested in classes. JS output is unchanged: nothing
-emits `typedefs` or field sizes yet.
-
-### Done: typed pointers
-
-The ffi module reads any type name ending in `*` as a pointer (`ffi_is_pointer_name()`
-in `ffi-type.c`, for `CFunction`/`JSCallback` and for the legacy `define()`),
-and `tools/gen-bindings.js` now writes `"<type> *"` where it wrote `"pointer"`
-(a C++ `T&` becomes `"T *"`, a class's `this` `"ns::Class *"`). `char *`
-stays `cstring`. Generated modules need an `ffi` with this change: an older one
-reads `"int *"` as an unknown name and silently falls back to `i32`.
-
-### Done: reads through ffi's read()
-
-Generated modules read struct members, extern variables and vtable slots with
-`read.*` (imported as `__rd`) instead of a DataView; writes still use a
-DataView (`__dv`), as `ffi` has no write counterpart. Needs an `ffi` with
-`read` (5.1.1), like the `toArrayBuffer` change; `lib/*.js` are older output and
-were not regenerated.
-
-### Done: --describe
-
-`--describe` gives every bound function, method and constructor a JS signature
-with the C parameter names, and sets `fn[Symbol.for('describe')]` to
-`[{ params: ["name: type"], returnType, arity }, ...]` (one entry per overload),
-so `describeObject()`/`describeClass()` (qjs-modules `lib/describe-*.js`, which
-merge it as `signatures` / `constructorSignatures`) report them. Overloads share
-the widest overload's names. Without the flag the output is unchanged. Plain C
-functions become a named wrapper around the `CFunction` (one extra call).
-Default arguments are not in the IR, so none are reported. The struct and union
-wrappers (`tools/gen-bindings/structs.js`, also `gen-structs.js --describe`) get
-`__sig` signatures on their constructor and `at()` and the `Name.size/align/fields`
-layout, where `fields` holds each member's ffi type and offset.
-
-### Done: --jsdoc
-
-`--jsdoc` puts a JSDoc block before every bound function, method and class:
-`@param {type} name - ffi type` and `@returns {type} - ffi type`, one
-`@overload` group per overload, `@extends` on a class and its constructors'
-`@param`s in the class block. JS types follow the ffi table (`number`,
-`bigint`, `boolean`, `string`); a pointer is `number|bigint|null|object`, plus
-the class when it points to a bound one. Independent of `--describe`. Struct,
-union and C++ class blocks also list a `@property {type} name - C type, offset N`
-per member, typed by what its getter returns (`Int32Array` for an array,
-the wrapper class for a nested struct, `bigint` for 64-bit integers).
-
-### Done: one generator, ArrayBuffer wrappers
-
-`tools/gen-bindings.js` is a small entry script over `tools/gen-bindings/`
-(args, clang + AST cache, condenser, IR collection, `emit/*`), and
-`tools/gen-structs.js` a thin CLI over `tools/gen-bindings/structs.js`, which
-`--structs` and the C++ class output now share. Structs, unions and bound C++
-classes are all classes extending `ArrayBuffer` (C++ ones through a common
-`__CxxObject`), so an instance is passed to a `CFunction` pointer argument as it
-is; `.ptr`, `at(ptr)` (`from(ptr)` for C++ classes) and `delete()` stay.
-Breaking for generated code: `struct_<name>.alloc()/view(p)` became
-`new Name()` / `Name.at(p)`, and C++ instances no longer have `__ptr`/`__buf`.
-Installed, the tools live in `share/qjs-ffi/tools` (qjsm resolves a script's
-imports against the path it is run as, not a symlink's target), with
-`qjs-ffi-genbindings`/`qjs-ffi-genstructs` as wrappers in `bin/`. `lib/` still
-holds output of the previous generator; `regen.sh` brings it up to date.
-
-### Done: struct by value
-
-`CFunction` takes an array as a type: the struct's members in memory order
-(`['f32','f32','f32']`, nested arrays for nested structs), which `ffi-type.c`
-turns into a libffi struct type owned by the signature. An argument is an
-ArrayBuffer (or view) of at least the struct's size, the result a new
-ArrayBuffer; `JSCallback` rejects struct types. libffi derives the layout and
-registers from the list alone, so a wrong list is silently wrong:
-`tools/gen-bindings/by-value.js` lays it out the way libffi does and binds a
-function only if every member lands on the IR's offset and the size matches
-(packed structs fail this). A bitfield is covered by integer pieces. An
-anonymous struct or union member, which the IR does not describe, is filled
-with integers, which is sound only for structs over 16 bytes (passed in memory
-on x86-64 SysV, aarch64 and win64 whatever they hold), so smaller ones stay
-skipped. Left out: unions and C++ classes by value (a class with a non-trivial
-copy constructor is passed by hidden reference, which libffi does not know),
-`--api=define`, structs in `JSCallback`, 32-bit targets (the layout check
-assumes 8-byte alignment of 64-bit members). Needs the new `ffi` module
-installed (`tests/test-struct-by-value.js`).
-
-### Done: virtual dispatch
-
-A virtual method is called through the object's vtable (`__virtual(slot, spec)`
-in the generated module: the slot of the vtable its first word points to, a
-`CFunction` per target), so an object wrapped by a base class
-(`Base.at(ptr)`, e.g. what a factory returns) runs its real class's override,
-a pure virtual method is callable, and `.delete()` through a base runs the
-derived destructor (also an implicit one that inherits a virtual destructor).
-The slots come from clang: `runLayoutDump()` adds a probe per polymorphic
-class (a call of the destructor, and the address of a virtual method) and
-compiles with `-S -emit-llvm -fdump-vtable-layouts`, whose `VTable indices`
-blocks `vtable.js` parses; `ir.js` matches each class's own methods to them by
-name, number of parameters and constness, as the AST flags no overrider as
-virtual. A method that does not match exactly one entry (two overloads equal in
-those three) keeps its own symbol, as does everything with `--api=define`.
-Needs codegen for the probe, so a header with polymorphic classes takes a bit
-longer. Not covered: an overrider in a class whose destructor is non-virtual and
-no method is declared `virtual` (nothing triggers its layout), multiple and
-virtual inheritance (below).
-
-### Done: --finalize
-
-`--finalize` (opt-in, `--api=cfunction`) also destroys an object made with
-`new` when it is garbage collected: its destructor runs and its memory is
-freed, where without it only `.delete()` runs the destructor. A
-FinalizationRegistry callback gets what was registered, not the object, whose
-memory would be gone, so the object lives in `calloc`'d memory that the
-wrapper only views (an external ArrayBuffer, the constructor returning it), and
-the callback runs the destructor on a view of its own, through the vtable for a
-virtual one, then `free`s it. `.delete()` still destroys at once and marks the
-record, so the collector does not destroy it twice; it keeps the memory until
-collection, so a field read after it stays valid. An object wrapped with
-`at(ptr)` is never registered. Limits: the callback runs on a later turn of the
-event loop, not inside the collection (`std.gc()` then an `os.setTimeout` turn);
-an object still alive at exit is not destroyed; a destructor runs at an
-arbitrary time, which is why it is not the default. Checked in
-`tests/test-gen-bindings-finalize.js`, also under valgrind.
+libffi struct types (CFunction takes them as arrays).
 
 ### Next: C++ gaps
 
 1. Multiple and virtual inheritance: the `this` adjustment needs base offsets
    (`BaseOffsets` in the record layout dump, not captured yet). Extra bases
    are only noted in a comment.
-2. Free functions with C++ linkage are bound (`geo::add` is exported as
-   `geo_add`, overloads dispatched like methods, symbols bound on first call).
-   Still missing: default arguments (every argument must be passed), and the
+2. Free functions with C++ linkage: still missing default arguments (every argument must be passed), and the
    by-value class types (`Point`, `Size`, `Mat`, `Scalar`, `Ptr<T>`) most
    OpenCV signatures use.
 3. A class without declared constructors is zero-filled on `new` (only when
@@ -356,24 +124,13 @@ Ordered roughly by how likely bun code is to trip over it.
 
 ### 5.1 Missing
 
-1. **Done** (`ffi-read.[ch]`, `tests/test-read.js`).
-   `read.{ptr,i8,i16,i32,i64,u8,u16,u32,u64,f32,f64}(ptr, byteOffset)`: straight
-   reads from an address, no DataView.
-2. `buffer_length` argument type (`FFIType.buffer_length`, bun enum value 21): a
-   `buffer` argument followed by its byte length, filled in from the same
-   object at call time. Not implemented: the name is unknown, so it silently
-   becomes `i32` and the call gets the wrong arity. Argument-only; as a
-   `returns` it must throw ("buffer_length is an argument-only type").
-3. `JSCallback` option `threadsafe`: accepted and ignored. Needs a hop to the
+1. `JSCallback` option `threadsafe`: accepted and ignored. Needs a hop to the
    JS thread (job queue/`os` message), or a clear `TypeError` until then.
-4. `cc()` option `include` (`string | string[]`, `-I`), from `ffi.d.ts` (the docs
+2. `cc()` option `include` (`string | string[]`, `-I`), from `ffi.d.ts` (the docs
    page only lists `flags`/`define`). Bun's default `flags` are
    `-std=c11 -Wl,--export-all-symbols -g -O2`.
-5. `CFunction(...).close()`: `ffi.d.ts` declares it (frees the wrapper).
-6. `JSCallback` instance as a `function`/`ptr` argument (the docs pass it
-   directly, `.ptr` being only "slightly faster"): currently converts to 0, so
-   the C side gets NULL. `js_to_pointer()` should unwrap a `JSCallback`.
-7. **Postponed** (low value: bun's `viewSource` is for debugging its own C code
+3. `CFunction(...).close()`: `ffi.d.ts` declares it (frees the wrapper).
+4. **Postponed** (low value: bun's `viewSource` is for debugging its own C code
    generator, and there is none here). `viewSource(symbols[, false])` /
    `viewSource(fn, true)`: bun returns the C it generates for a binding
    (`string[]` / `string`). A binding here is a libffi `cif`, so the plan is to
@@ -401,130 +158,14 @@ Ordered roughly by how likely bun code is to trip over it.
    *   Open decision: bun's shapes (array / string), as above, or an object
        keyed by symbol name. Bun's shapes are the plan, so that code indexing
        the array works.
-8. **Done** (`ffi-read.c`, `tests/test-read.js`). `read.intptr(ptr, byteOffset)`: bun has it next to `read.ptr` (a pointer
-   read as a signed integer, `bigint`); `ffi-read.c` has no entry for it.
-9. **Done** (`js_init` in `ffi.c`, `tests/test-default-export.js`). A default export: bun's `import ffi from "bun:ffi"` gets an object with
-   `CFunction`, `CString`, `JSCallback`, `dlopen`, `linkSymbols`, `ptr`,
-   `read`, `suffix`, `toArrayBuffer`, `toBuffer`, `viewSource`, `FFIType`, `cc`
-   (and an internal `native`). The native module has no `default`, so such an
-   import fails. Add it in `js_init` (`JS_SetModuleExport(ctx, m, "default",
-   ...)` with the object of the other exports).
-10. **Done** (`js-callback.c`, `tests/test-js-callback.js`; QuickJS has no
-    `Symbol.dispose`, so the method is under `Symbol.for("Symbol.dispose")`
-    there). `JSCallback.prototype[Symbol.dispose]` (and `Symbol.toPrimitive`, which gives
-    the pointer): `using cb = new JSCallback(...)` closes the callback at the end
-    of the block in bun; here `close()` has to be called by hand. `Symbol.dispose`
-    can be the `close` function.
 
 ### 5.2 Different shape
 
-1. **Done** (see 5.3; callers ported, `tests/test-to-array-buffer.js`).
-   `toArrayBuffer`/`toBuffer`: bun is `(ptr, byteOffset?, byteLength?,
-   [deallocatorContext,] jsTypedArrayBytesDeallocator?)`, with a NUL-terminated
-   read when `byteLength` is omitted; ours is the legacy
-   `(ArrayBuffer|number|string, size, copy)` (`js_toarraybuffer`, `ffi.c`), so
-   `toArrayBuffer(p, 1, 3)` yields 1 byte. See 5.3. Breaking for every caller of
-   the legacy form (`lib/*.js`, `tools/gen-bindings/emit/*`, `README.md`,
-   `test-ffi.js`, `tests/test-pointer-helpers.js`).
-   `toBuffer` returns an ArrayBuffer (QuickJS has no Node `Buffer`); keep.
-2. `new CFunction({ ptr, args, returns })`: docs use `new`; ours is a factory
-   that throws "CFunction is not a constructor" with `new` (and `CFunction(...)`
-   is what `doc/c-function.md` documents). Accept both.
-3. `CString`: bun's `CString(ptr[, byteOffset[, byteLength]])` is callable with
-   or without `new`, a falsy `ptr` gives `""`, and the result is a string. Ours
-   needs `new`, returns an object with `.ptr`/`.length`/`.toString()` and
-   neither `byteOffset` nor `byteLength`. (bun-types types it as `string`; the
-   object form with `.ptr` is what older Bun gave.) In bun's own dump it is a
-   native function of arity 3, not a class.
-4. **Done** (`js_new_pointer()` in `js-helpers.h`, `__ptrOut()` in `tools/gen-bindings/structs.js`,
-   `tests/test-pointer-helpers.js`). Pointers: bun hands out a `number` (to 2^53); ours are `bigint` once past 32
-   bits, so `ptr(u8)`, `JSCallback.ptr` and a `malloc()` result are all
-   `bigint`. Anything doing `ptr + 8` throws a mixed-type error.
-   **Decided**: a `number` up to 2^53, a `bigint` above. Checked against bun
-   1.4.2: `ptr(view)` is a `number`; a `"ptr"` return is a `number` up to
-   2^53-1 (`Number.MAX_SAFE_INTEGER`) and an exact `bigint` from 2^53 up
-   (`0x20000000000000` came back as `9007199254740992n`), never a string; a
-   `bigint` is accepted as a pointer argument and by `toArrayBuffer`. bun's
-   `read.ptr` is always a `number`, rounded above 2^53 (`0xffffffffffffffff`
-   gives `18446744073709552000`); ours stays exact instead. Plan: in
-   `js_new_pointer()` (`js-helpers.h`) return `JS_NewInt64` up to `2^53 - 1`, else
-   `JS_NewBigUint64` (it is `JS_NewBigInt64` now, which makes an address of
-   2^63 or more negative); `__ptrOut()` of the generated modules
-   (`tools/gen-bindings/structs.js`) gets the same rule; update the tests that
-   expect a `bigint` and the "number if it fits in 32 bits" wording in
-   `doc/pointers.md`, `doc/c-function.md` and `doc/types.md`. `js_to_address()`
-   already takes both. Breaking for code doing `p + 8n`.
-5. **Done** (`FFI_TYPE_LIST` in `ffi-type.h`, `tests/test-ffitype.js`: 61
-   members, numbers and the reverse mapping, signatures take a name or a
-   number; `napi_*` and `buffer_length` are members but not usable types, see
-   5.1.2). `FFIType.*` were strings here and are numbers in bun (`FFIType.i32 === 5`,
-   `buffer_length === 21`); code that compares or indexes by the number
-   differs. From a dump of the two modules (`describe-module.sh --json`): bun's
-   `FFIType` has 61 members, ours 35, and every one of ours exists in bun's.
-   bun's table is `char` 0, `i8` 1, `u8` 2, `i16` 3, `u16` 4, `i32`/`int`/`c_int`
-   5, `u32`/`c_uint` 6, `i64`/`isize` 7, `u64`/`usize` 8, `f64`/`double` 9,
-   `f32`/`float` 10, `bool` 11, `ptr`/`pointer`/`"void*"`/`"char*"` 12, `void`
-   13, `cstring` 14, `i64_fast` 15, `u64_fast` 16, `function`/`callback`/`fn`
-   17, `napi_env` 18, `napi_value` 19, `buffer` 20, `buffer_length`/
-   `buffer_bytelength` 21; each number is also a key, so `FFIType[5]` is 5.
-   Missing here: the numbers and that reverse mapping, `c_int`, `c_uint`,
-   `"char*"`, `"void*"`, `napi_env`, `napi_value`, `buffer_length`,
-   `buffer_bytelength`. Making the members numbers means `ffi-type.c` must also
-   take a number wherever it takes a name. Also `suffix` has no `"dylib"`
-   (macOS is not a target).
-6. **Done**: the declared lengths of the native functions: `cc` 1, `ptr` 2,
-   `toArrayBuffer` and `toBuffer` 1 (as bun's), where they were 2, 1, 2 and 2.
-   They were only cosmetic (`fn.length`); argument handling goes by `argc`.
-7. Errors: bun's `dlopen` failure is an `Error` with `code:
+1. Errors: bun's `dlopen` failure is an `Error` with `code:
    "ERR_DLOPEN_FAILED"`; ours is a `TypeError`. A missing symbol is a
    `TypeError` in both.
 
-### 5.3 toArrayBuffer/toBuffer deallocator arguments: research (implemented)
-
-Read from Bun's `FFIObject.rs` (`to_array_buffer`/`to_buffer`):
-
-*   Both extra arguments are **raw C addresses** (`number | bigint`), not
-    JavaScript functions. `jsTypedArrayBytesDeallocator` is the address of a
-    native `void (*)(void *bytes, void *deallocatorContext)`
-    (JSC's `JSTypedArrayBytesDeallocator`), transmuted from the number;
-    `deallocatorContext` is an address handed back to it untouched. Anything
-    else throws "Expected callback to be a C pointer (number or BigInt)".
-*   Forms: `(ptr, off, len, dealloc)` (4th is the function) and `(ptr, off,
-    len, ctx, dealloc)`; `ctx` may be `null`/`undefined`. With a dealloc but no
-    ctx it is called with NULL.
-*   No deallocator: the memory is borrowed, never freed (`toBuffer` installs a
-    no-op deallocator for the same reason).
-*   A `JSCallback.ptr` is a number too, so it is *accepted*, but the docs warn
-    the callback "may execute on garbage-collector threads and must not call
-    JavaScript". It is not the intended use.
-*   Typical use: `toArrayBuffer(p, 0, n, dlsym(RTLD_DEFAULT, "free"))`; `free`
-    ignores the second argument, which is fine on the SysV x86-64 and aarch64
-    ABIs.
-
-Implemented as below in `js_toarraybuffer()` (`ffi.c`): a null/Number/BigInt
-first argument takes bun's form, anything else the legacy
-`js_toarraybuffer_legacy()`. A boolean among the later arguments of the bun form
-throws, so a missed `(p, n, false)` caller fails loudly; a missed
-`(p, n)` caller does not (it now means byteOffset), the one silent break. The
-in-tree callers (`lib/*.js`, `tools/gen-bindings`, `examples/`, tests) were
-ported: `(p, n, false)` became `(p, 0, n)`, and the copying `(p, n)` became
-`(p, 0, n).slice(0)`. `toArrayBuffer(ptr, off, len, dealloc)` takes an address only.
-
-Plan for QuickJS: `JS_NewArrayBuffer(ctx, ptr + off, len, free_func, opaque,
-FALSE)` takes `void (*)(JSRuntime*, void *opaque, void *ptr)`, a different
-signature, so `opaque` is a small malloc'd `{ fn, ctx }` and `free_func` calls
-`fn(ptr, ctx)` then frees `opaque`. No deallocator: `free_func = NULL`
-(borrow). QuickJS runs it synchronously on the JS thread, when the last
-reference is dropped or the runtime is freed (not on a GC thread), so a
-`JSCallback.ptr` would re-enter the interpreter in the middle of a
-finalization: reject a `JSCallback` instance with a `TypeError` and accept only
-numbers/bigints. Open decision: legacy `toArrayBuffer(ptr, size)` and bun's
-`toArrayBuffer(ptr, byteOffset)` collide for a numeric first argument with two
-arguments. Proposed: bun's meaning for number/bigint/null first arguments,
-and keep the legacy meaning only for an `ArrayBuffer`/string first argument
-(not valid in bun), then port the callers listed in 5.2.1.
-
-### 5.4 Plan: exposing variables (data symbols)
+### 5.3 Plan: exposing variables (data symbols)
 
 What bun does: nothing. Its docs prose for `cc()` says "functions and
 variables", but `symbols` is typed `Record<string, FFIFunction>` and the
@@ -576,9 +217,6 @@ symbols.counter = 7;  // writes it (TypeError if readonly)
 *   Docs: replace the "Only functions can be exposed" paragraph in
     `doc/c-compiler.md`, add to `doc/dlopen.md`/`doc/types.md`.
 
-Order of work: ~~5.1.1 (`read`)~~, ~~5.2.1 + 5.3~~, ~~5.1.8~~, ~~5.1.9~~,
-~~5.1.10~~ and ~~5.2.5~~ are done. Next: 5.2.4 (pointers as numbers: it changes
-what a pointer is everywhere), 5.1.2 (`buffer_length`), 5.1.6 (a `JSCallback` as
-an argument), 5.2.2/3 (`new CFunction`, `CString`), 5.1.4/5 (`cc` `include`,
-`CFunction().close()`), the variables of 5.4, then 5.1.7 (`viewSource`,
-postponed), and 5.1.3 (`threadsafe`) last.
+Order of work: 5.1.2 (`cc` `include`) and 5.1.3 (`CFunction().close()`), the
+variables of 5.3, then 5.1.4 (`viewSource`, postponed), and 5.1.1
+(`threadsafe`) last.

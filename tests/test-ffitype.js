@@ -80,7 +80,7 @@ await tests({
   },
 
   'a number that is no usable type is an unknown type: i32 as an argument, void as a return'() {
-    for(const unknown of [FFIType.napi_env, FFIType.napi_value, FFIType.buffer_length, 99, -1]) {
+    for(const unknown of [FFIType.napi_env, FFIType.napi_value, 99, -1]) {
       const abs = CFunction({ ptr: libc('abs'), args: [unknown], returns: FFIType.i32 });
       const nothing = CFunction({ ptr: libc('abs'), args: [FFIType.i32], returns: unknown });
 

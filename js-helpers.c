@@ -1,4 +1,5 @@
 #include "js-helpers.h"
+#include "js-callback.h"
 #include <cutils.h>
 
 /* Resolve negative RANGE.ofs (from the end of a SIZE-byte buffer) and negative
@@ -62,15 +63,24 @@ js_to_address(JSContext* ctx, void** out, JSValueConst value) {
 }
 
 /* Get an address from VALUE into *OUT (a void**, may be NULL):
- * the data of an ArrayBuffer/TypedArray if it is one,
- * else null/Number/BigInt viajs_to_address().
+ * the data of an ArrayBuffer/TypedArray/DataView if it is one, the function
+ * pointer of a JSCallback (a closed one is a TypeError), else
+ * null/Number/BigInt via js_to_address().
  * Returns 0 on success, -1 (TypeError pending) otherwise. */
 int
 js_to_pointer(JSContext* ctx, void** out, JSValueConst value) {
+  JSCallback* cl;
   ByteSpan span;
   void* p;
 
-  if(!js_try_get_bytes(ctx, &span, value))
+  if((cl = js_callback_data(value))) {
+    if(!cl->code) {
+      JS_ThrowTypeError(ctx, "JSCallback is closed");
+      return -1;
+    }
+
+    p = cl->code;
+  } else if(!js_try_get_bytes(ctx, &span, value))
     p = span.data;
   else if(js_to_address(ctx, &p, value))
     return -1;
@@ -97,9 +107,42 @@ js_new_pointer(JSContext* ctx, void* ptr) {
   return JS_NewBigUint64(ctx, addr);
 }
 
-/* Get the bytes behind OBJ into OUT: an ArrayBuffer, or a TypedArray (OUT is
- * then narrowed to that view's byteOffset/byteLength).
- * Returns 0 on success, -1 if OBJ is neither. Never leaves an exception
+/* A DataView, which JS_GetTypedArrayBuffer() does not know, by its `buffer`,
+ * `byteOffset` and `byteLength`. Never leaves an exception pending. */
+static int
+try_get_view_bytes(JSContext* ctx, ByteSpan* out, JSValueConst obj) {
+  JSValue buffer, offset, length;
+  uint32_t ofs = 0, len = 0;
+  size_t size;
+  uint8_t* data = NULL;
+
+  if(!JS_IsObject(obj))
+    return -1;
+
+  buffer = JS_GetPropertyStr(ctx, obj, "buffer");
+  offset = JS_GetPropertyStr(ctx, obj, "byteOffset");
+  length = JS_GetPropertyStr(ctx, obj, "byteLength");
+
+  if(JS_IsObject(buffer) && !JS_ToUint32(ctx, &ofs, offset) && !JS_ToUint32(ctx, &len, length) && (data = JS_GetArrayBuffer(ctx, &size, buffer)) && (size_t)ofs + len <= size) {
+    out->data = data + ofs;
+    out->size = len;
+  } else {
+    data = NULL;
+  }
+
+  JS_FreeValue(ctx, buffer);
+  JS_FreeValue(ctx, offset);
+  JS_FreeValue(ctx, length);
+
+  if(!data)
+    JS_FreeValue(ctx, JS_GetException(ctx));
+
+  return data ? 0 : -1;
+}
+
+/* Get the bytes behind OBJ into OUT: an ArrayBuffer, a TypedArray or a
+ * DataView (OUT is then narrowed to that view's byteOffset/byteLength).
+ * Returns 0 on success, -1 if OBJ is none of them. Never leaves an exception
  * pending. */
 int
 js_try_get_bytes(JSContext* ctx, ByteSpan* out, JSValueConst obj) {
@@ -120,10 +163,11 @@ js_try_get_bytes(JSContext* ctx, ByteSpan* out, JSValueConst obj) {
 
   JS_FreeValue(ctx, buffer);
 
-  if(!out->data)
-    JS_FreeValue(ctx, JS_GetException(ctx));
+  if(out->data)
+    return 0;
 
-  return out->data ? 0 : -1;
+  JS_FreeValue(ctx, JS_GetException(ctx));
+  return try_get_view_bytes(ctx, out, obj);
 }
 
 /* Store OBJ.length in *OUT. Returns 0 on success, -1 (leaving *OUT alone) if

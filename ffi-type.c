@@ -177,7 +177,7 @@ struct_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int depth) {
     if(kind < 0)
       return NULL;
 
-    if(!t || kind == K_VOID) {
+    if(!t || kind == K_VOID || kind == K_BUFFER_LENGTH) {
       JS_ThrowTypeError(ctx, "struct type element %" PRId64 " is not a type name or a struct", i);
       return NULL;
     }
@@ -259,6 +259,11 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
   if(!JS_IsUndefined(ret_val)) {
     int kind;
     ffi_type* t = value_to_type(ctx, sig, ret_val, &kind, 0);
+
+    if(t && kind == K_BUFFER_LENGTH) {
+      JS_ThrowTypeError(ctx, "buffer_length is an argument-only type; it cannot be a return type");
+      kind = -1;
+    }
 
     if(kind < 0) {
       JS_FreeValue(ctx, ret_val);

@@ -26,8 +26,8 @@ const strdup = CFunction({
 console.log(strdup("hello")); // "hello"
 ```
 
-`CFunction()` is a factory function, not a constructor -- call it directly,
-without `new`.
+`CFunction()` may be called with or without `new`, as in bun:ffi: either way it
+returns the callable function.
 
 ```js
 fn = CFunction({ ptr, args, returns, abi })
@@ -97,9 +97,12 @@ free(p);
 
 `CFunction` and [`JSCallback`](js-callback.md) are mirror images: `CFunction`
 lets JS call into native code, `JSCallback` lets native code call into JS.
-Passing a `JSCallback`'s `.ptr` as a `CFunction` argument (declared
-`"pointer"`) is how you hand a JS-backed callback to a native API expecting
-a function pointer.
+Passing a `JSCallback` as a `CFunction` argument (declared `"pointer"`,
+`"function"` or `"T *"`) is how you hand a JS-backed callback to a native API
+expecting a function pointer. It passes the callback's function pointer, so
+`cb` and `cb.ptr` are the same; a closed callback is a `TypeError`. (Any
+function that takes a pointer, such as `ptr()` or `read`, unwraps a
+`JSCallback` the same way.)
 
 ## See also
 

@@ -551,7 +551,7 @@ shape.fields = {id:{type:'i32',offset:0},name:{type:'cstring',offset:8},origin:{
 *   A pointer member gives `null`, a `number` or a `bigint` and takes those, a
     class instance or a buffer. A pointer to a struct of a known class gives a
     live instance of that class (`null` for NULL). `const char *` is a plain
-    pointer here: decode it with `new CString(s.name)`.
+    pointer here: decode it with `CString(s.name)`.
 *   A bitfield is read and written through its storage unit, `bitOffset` bits up.
 *   A nested struct is a view of the same memory (`s.origin` above), an array
     member a typed-array view, an array of pointers a `Proxy` over a
@@ -580,7 +580,7 @@ const sum = geom.geom_add(a, a);
 console.log(sum instanceof geom.vec2, sum.x, sum.y); // true 6 8
 
 const s = geom.shape.at(geom.geom_find('circle'));
-console.log(s.id, new CString(s.name).toString(), s.origin.x, s.visible); // 1 circle 0 1
+console.log(s.id, CString(s.name), s.origin.x, s.visible); // 1 circle 0 1
 console.log(geom.geom_move(s, 2, 3), s.origin.x, s.origin.y); // 0 2 3
 console.log(geom.geom_count.value); // 2  (geom_count.ptr is its address)
 console.log(geom.GEOM_BAD_ARG, geom.shape.size); // -1 32

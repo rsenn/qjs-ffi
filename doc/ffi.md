@@ -140,7 +140,7 @@ const compare = new JSCallback((a, b) => read.i32(a) - read.i32(b), {
 const qsort = CFunction({ ptr: dlsym(RTLD_DEFAULT, "qsort"), args: ["pointer", "u64", "u64", "pointer"], returns: "void" });
 
 const numbers = new Int32Array([5, 3, 9, 1]);
-qsort(numbers, numbers.length, 4n, compare.ptr);
+qsort(numbers, numbers.length, 4n, compare);
 console.log(numbers); // 1, 3, 5, 9
 
 compare.close();
@@ -155,7 +155,7 @@ the function.
 `cstring` converts at the boundary: a JavaScript string argument is encoded as
 a NUL-terminated UTF-8 string for the duration of the call, and a `cstring`
 result is decoded into a new JavaScript string. For a `char *` that you hold as
-an address, `new CString(ptr)` decodes it, and `toString(ptr, length)` decodes
+an address, `CString(ptr)` decodes it, and `toString(ptr, length)` decodes
 an exact number of bytes. A `char *` type spelled that way is a plain pointer.
 See [Pointers and memory](pointers.md#cstring).
 
@@ -226,12 +226,9 @@ pointer outlives nothing. In particular
 This module follows bun:ffi but is not a drop-in replacement yet. The open
 items are tracked in [TODO.md](../TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies):
 
-*   `CString` needs `new`, and is an object with `.ptr` and `.length`.
-*   `new CFunction(...)` is not supported, call `CFunction(...)`; there is no
-    `CFunction().close()`.
+*   There is no `CFunction().close()`.
 *   `toBuffer()` returns an `ArrayBuffer` (QuickJS has no `Buffer`).
-*   Not implemented: the `buffer_length` type, `JSCallback`'s `threadsafe`
-    option, passing a `JSCallback` object (instead of its `.ptr`) as an
-    argument, and variables in `cc()` symbols (bun has none either).
+*   Not implemented: `JSCallback`'s `threadsafe` option, `cc()`'s `include`
+    option, and `viewSource`. Variables in `cc()` symbols are not in bun either.
 *   `dlopen()` failures are a `TypeError`, not an `Error` with
     `code: "ERR_DLOPEN_FAILED"`.

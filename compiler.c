@@ -130,33 +130,6 @@ cc_define_all(JSContext* ctx, JSValueConst options, TCCState* s) {
   return ret;
 }
 
-/* js_try_get_bytes() covers ArrayBuffer and TypedArrays; a DataView (or any
- * other object exposing buffer/byteOffset/byteLength) is resolved by hand. */
-static int
-cc_view(JSContext* ctx, ByteSpan* view, JSValueConst obj) {
-  JSValue buffer = JS_GetPropertyStr(ctx, obj, "buffer");
-  JSValue off = JS_GetPropertyStr(ctx, obj, "byteOffset");
-  JSValue len = JS_GetPropertyStr(ctx, obj, "byteLength");
-  uint32_t o = 0, l = 0;
-  size_t size;
-  uint8_t* base;
-  int ret = -1;
-
-  if(!JS_ToUint32(ctx, &o, off) && !JS_ToUint32(ctx, &l, len) && (base = JS_GetArrayBuffer(ctx, &size, buffer)) && (size_t)o + l <= size) {
-    view->data = base + o;
-    view->size = l;
-    ret = 0;
-  }
-
-  JS_FreeValue(ctx, buffer);
-  JS_FreeValue(ctx, off);
-  JS_FreeValue(ctx, len);
-
-  if(ret)
-    JS_FreeValue(ctx, JS_GetException(ctx));
-  return ret;
-}
-
 static void
 cc_free_source(JSContext* ctx, const char* path, char* text) {
   if(path)
@@ -198,7 +171,7 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   } else if(!JS_IsException(src)) {
     ByteSpan view;
 
-    if(js_try_get_bytes(ctx, &view, src) == 0 || cc_view(ctx, &view, src) == 0) {
+    if(js_try_get_bytes(ctx, &view, src) == 0) {
       text = js_malloc(ctx, view.size + 1);
       if(text) {
         memcpy(text, view.data, view.size);

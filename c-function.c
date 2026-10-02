@@ -134,6 +134,23 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
       const char* s = JS_ToCString(ctx, v);
       cstrings[cstring_count++] = s;
       args_storage[i].ptr = (void*)s;
+    } else if(cf->sig.arg_kind[i] == K_POINTER) {
+      /* An address, a view, or a JSCallback (its function pointer). */
+      if(js_to_pointer(ctx, &args_storage[i].ptr, v)) {
+        ret = JS_EXCEPTION;
+        goto done;
+      }
+    } else if(cf->sig.arg_kind[i] == K_BUFFER_LENGTH) {
+      /* The byte length of the view passed here (the same one as for the
+       * buffer parameter before it, as bun:ffi wants it). */
+      ByteSpan buf;
+
+      if(js_try_get_bytes(ctx, &buf, v)) {
+        ret = JS_ThrowTypeError(ctx, "CFunction: argument %d must be a TypedArray, DataView or ArrayBuffer (buffer_length)", i + 1);
+        goto done;
+      }
+
+      args_storage[i].u64 = buf.size;
     } else if(cf->sig.arg_kind[i] == K_STRUCT) {
       /* libffi takes the address of the struct's bytes, which must all be
        * there: the argument is an ArrayBuffer or view of at least its size. */
@@ -223,7 +240,7 @@ js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec) {
   return func_obj;
 }
 
-/* fn = CFunction({ ptr, args, returns, abi }) */
+/* fn = CFunction({ ptr, args, returns, abi }), also with `new` as in bun:ffi */
 static JSValue
 js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   JSValueConst options = argc > 0 ? argv[0] : JS_UNDEFINED;
@@ -248,7 +265,7 @@ js_cfunction_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClassID(&js_cfunction_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_cfunction_class_id, &js_cfunction_class);
 
-  JSValue ctor = JS_NewCFunction(ctx, js_cfunction_constructor, "CFunction", 1);
+  JSValue ctor = JS_NewCFunction2(ctx, js_cfunction_constructor, "CFunction", 1, JS_CFUNC_constructor_or_func, 0);
 
   if(JS_IsObject(defaults))
     JS_SetPropertyStr(ctx, defaults, "CFunction", JS_DupValue(ctx, ctor));

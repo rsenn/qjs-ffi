@@ -1,5 +1,5 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { CFunction, JSCallback, dlsym, RTLD_DEFAULT } from 'ffi';
+import { CFunction, JSCallback, FFIType, dlopen, dlsym, ptr, RTLD_DEFAULT } from 'ffi';
 
 function assertThrows(fn, msg) {
   try {
@@ -17,6 +17,95 @@ function libc(name) {
 }
 
 await tests({
+  'new CFunction(...) is the same as CFunction(...)'() {
+    const abs = new CFunction({ ptr: libc('abs'), args: ['i32'], returns: 'i32' });
+
+    eq('function', typeof abs);
+    eq(4, abs(-4));
+    eq(1, abs.length);
+  },
+
+  'a JSCallback is passed as its function pointer'() {
+    const cb = new JSCallback(() => 7, { returns: 'i32' });
+    const id = CFunction({ ptr: libc('labs'), args: ['pointer'], returns: 'u64_fast' });
+    const call = CFunction({ ptr: cb.ptr, returns: 'i32' });
+
+    eq(Number(cb.ptr), id(cb));
+    eq(Number(cb.ptr), id(cb.ptr));
+    eq(7, call());
+    cb.close();
+  },
+
+  'a JSCallback as a "function" or "T *" argument too, a closed one throws TypeError'() {
+    const cb = new JSCallback(() => 0, { returns: 'i32' });
+
+    for(const type of ['function', 'ptr', 'void *']) {
+      const id = CFunction({ ptr: libc('labs'), args: [type], returns: 'u64_fast' });
+      eq(Number(cb.ptr), id(cb));
+    }
+
+    cb.close();
+    assert(assertThrows(() => CFunction({ ptr: libc('labs'), args: ['function'], returns: 'u64_fast' })(cb)) instanceof TypeError);
+  },
+
+  'a callback sorts with qsort when passed itself, not its .ptr'() {
+    const qsort = CFunction({ ptr: libc('qsort'), args: ['pointer', 'u64', 'u64', 'pointer'], returns: 'void' });
+    const cmp = new JSCallback((a, b) => 0, { args: ['pointer', 'pointer'], returns: 'i32' });
+    const numbers = new Int32Array([3, 1, 2]);
+
+    qsort(numbers, numbers.length, 4n, cmp);
+    eq(true, cmp.called > 0);
+    cmp.close();
+  },
+
+  'buffer_length is the byte length of the view passed for it'() {
+    const memchr = CFunction({ ptr: libc('memchr'), args: ['buffer', 'i32', 'buffer_length'], returns: 'pointer' });
+    const buf = Uint8Array.from('abcdef', c => c.charCodeAt(0));
+    const sub = buf.subarray(2, 4);
+
+    eq(3, memchr.length);
+    eq(3, memchr(buf, 100, buf) - ptr(buf));
+    eq(0, memchr(sub, 99, sub) - ptr(sub));
+    eq(null, memchr(sub, 101, sub));
+    eq(null, memchr(buf, 100, buf.subarray(0, 2)));
+    eq(3, memchr(buf, 100, new DataView(buf.buffer)) - ptr(buf));
+  },
+
+  'buffer_length by number, by alias and as buffer_bytelength'() {
+    for(const type of [FFIType.buffer_length, 21, 'buffer_bytelength']) {
+      const memchr = CFunction({ ptr: libc('memchr'), args: ['buffer', 'i32', type], returns: 'pointer' });
+      const buf = Uint8Array.from('abc', c => c.charCodeAt(0));
+
+      eq(1, memchr(buf, 98, buf) - ptr(buf));
+    }
+  },
+
+  'buffer_length needs a view; a number or nothing is a TypeError'() {
+    const memchr = CFunction({ ptr: libc('memchr'), args: ['buffer', 'i32', 'buffer_length'], returns: 'pointer' });
+    const buf = new Uint8Array(4);
+
+    assert(assertThrows(() => memchr(buf, 0, 4)) instanceof TypeError);
+    assert(assertThrows(() => memchr(buf, 0)) instanceof TypeError);
+    assert(assertThrows(() => memchr(buf, 0, 'abcd')) instanceof TypeError);
+  },
+
+  'buffer_length is argument-only: not a return, not in a struct, not in a JSCallback'() {
+    assert(assertThrows(() => CFunction({ ptr: libc('strlen'), args: ['buffer'], returns: 'buffer_length' })) instanceof TypeError);
+    assert(assertThrows(() => CFunction({ ptr: libc('abs'), args: [['i32', 'buffer_length']], returns: 'void' })) instanceof TypeError);
+    assert(assertThrows(() => new JSCallback(() => 0, { args: ['buffer_length'] })) instanceof TypeError);
+  },
+
+  'a DataView is passed as a buffer (it was NULL once) and gives ptr()'() {
+    const strlen = CFunction({ ptr: libc('strlen'), args: ['buffer'], returns: 'u64' });
+    const bytes = Uint8Array.from('hi\0', c => c.charCodeAt(0));
+    const view = new DataView(bytes.buffer);
+
+    eq(2n, strlen(view));
+    eq(ptr(bytes), ptr(view));
+    eq(ptr(bytes) + 1, ptr(new DataView(bytes.buffer, 1)));
+  },
+
+
   'throws when options is not an object'() {
     const e = assertThrows(() => CFunction(123));
     assert(e instanceof TypeError, 'expected TypeError, got ' + e);

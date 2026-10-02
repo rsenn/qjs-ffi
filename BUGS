@@ -1,12 +1,3 @@
-- tinytest-console-error (tests/tinytest.js:53): under qjsm console.error is
-  undefined, so a failing test throws "not a function" out of run() instead of
-  printing the failure, and the summary line never appears (found while
-  debugging a failing assertion in tests/test-pointer-helpers.js).
-
-    import { tests, eq } from './tinytest.js';
-    await tests({ 'fails'() { eq(1, 2); } });
-
-
 - example-zlib-missing-os-import (examples/zlib.js:11): the example uses
   os.open() but only imports from std, so it dies with "'os' is not defined"
   right after printing the z_stream (found while testing the regenerated
@@ -27,13 +18,6 @@
 
     import { z_stream, deflateInit } from './lib/zlib-extras.js'; deflateInit(new z_stream());
 
-- inspect-short-bigint-unhandled (../qjs-modules/quickjs-inspect.c:1423):
-  console.log of a BigInt small enough to be a QuickJS short bigint (tag 7,
-  JS_TAG_SHORT_BIG_INT) throws "Unhandled value tag in inspect_value: 7";
-  a large BigInt (2n**70n) prints fine. found printing ptr() results.
-
-    console.log(5n);
-
 - tinytest-eq-no-deep-compare (tests/tinytest.js:73): eq/assertEquals
   compares with loose inequality, so two equal arrays or objects always
   fail, and the message prints both as the same string (for example
@@ -42,16 +26,6 @@
 
     import { tests, eq } from './tinytest.js';
     await tests({ 'equal arrays'() { eq(['a', 'b'], ['a', 'b']); } });
-
-- buffer-arg-dataview-segfault (js-helpers.c:51): js_buf() resolves an
-  ArrayBuffer or TypedArray but not a DataView, so a DataView passed as a
-  "buffer"/"pointer" argument silently becomes address 0 and the callee gets
-  NULL (strlen crashes); ptr(new DataView(buf)) returns null. found probing
-  bun:ffi parity.
-
-    import { dlopen, ptr } from 'ffi';
-    const { symbols } = dlopen('libc.so.6', { strlen: { args: ['buffer'], returns: 'u64' } });
-    symbols.strlen(new DataView(new Uint8Array([104, 105, 0]).buffer));
 
 - test-js-free-of-string (test.js:134): strdup is defined with a char * return, which the legacy API gives as a js string, and that string is then passed to free(), which aborts with invalid pointer (same before legacy.js). found porting the legacy clients.
 
