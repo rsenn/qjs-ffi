@@ -47,8 +47,8 @@ turn buffers into addresses and addresses into buffers, values or strings.</p>
 <p>Everywhere a pointer is taken, a <code>number</code>, a <code>bigint</code>, <code>null</code> (NULL) or an
 <code>ArrayBuffer</code> or view (its address) is accepted, so a typed array or a
 <a href="gen-bindings.html">generated struct class</a> can be passed to a <code>pointer</code>
-parameter as it is. A string is never read as an address, except by the
-legacy functions (see <a href="#topointer"><code>toPointer()</code></a>).</p>
+parameter as it is. A string is never read as an address (see
+<a href="#topointer"><code>toPointer()</code></a>).</p>
 <h2 id="ptr"><a class="anchor" href="#ptr" aria-hidden="true">#</a><code>ptr()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>]);</code></pre></div>
 <p>The address of an <code>ArrayBuffer</code> or typed array, plus the offset of the view
@@ -66,8 +66,8 @@ detached.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toPointer</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>]); <span class="t-cm">// "0x55d0c8a4e2a0"</span></code></pre></div>
 <p>Like <code>ptr()</code>, but returns the address as a hexadecimal string, <code>"0"</code> for NULL.
 Meant for display. Do not pass the string back as a pointer to the functions
-here: a string is read as content by <code>toArrayBuffer()</code>, and as a number only by
-the legacy <code>define()</code>/<code>call()</code>.</p>
+here: a string is read as content by <code>toArrayBuffer()</code>, and is copied by the
+legacy <code>call()</code>.</p>
 <h2 id="toarraybuffer"><a class="anchor" href="#toarraybuffer" aria-hidden="true">#</a><code>toArrayBuffer()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">ab</span> <span class="t-op">=</span> <span class="t-fn">toArrayBuffer</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>[, <span class="t-id">deallocatorContext</span>], <span class="t-id">jsTypedArrayBytesDeallocator</span>]]);</code></pre></div>
 <p>Makes an <code>ArrayBuffer</code> over the memory at <code>ptr + byteOffset</code>, as bun:ffi's
@@ -112,7 +112,7 @@ copy flag exists only here.</p>
 <code>ArrayBuffer</code>. <code>ptr</code> is an address, or an <code>ArrayBuffer</code> or view. The offset
 defaults to 0, may be negative, and the read need not be aligned. NULL throws a
 <code>TypeError</code>.</p>
-<div class="tablewrap"><table><thead><tr><th>Function</th><th>Reads</th><th>Returns</th></tr></thead><tbody><tr><td><code>read.i8</code> / <code>read.u8</code></td><td>1 byte, signed / unsigned</td><td><code>number</code></td></tr><tr><td><code>read.i16</code> / <code>read.u16</code></td><td>2 bytes</td><td><code>number</code></td></tr><tr><td><code>read.i32</code> / <code>read.u32</code></td><td>4 bytes</td><td><code>number</code></td></tr><tr><td><code>read.i64</code> / <code>read.u64</code></td><td>8 bytes</td><td><code>bigint</code></td></tr><tr><td><code>read.f32</code> / <code>read.f64</code></td><td><code>float</code> / <code>double</code></td><td><code>number</code></td></tr><tr><td><code id="read-read-ptr">read.ptr</code><a class="member-anchor" href="#read-read-ptr" aria-hidden="true">#</a></td><td>a pointer</td><td><a href="#pointer-values">pointer value</a></td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Function</th><th>Reads</th><th>Returns</th></tr></thead><tbody><tr><td><code>read.i8</code> / <code>read.u8</code></td><td>1 byte, signed / unsigned</td><td><code>number</code></td></tr><tr><td><code>read.i16</code> / <code>read.u16</code></td><td>2 bytes</td><td><code>number</code></td></tr><tr><td><code>read.i32</code> / <code>read.u32</code></td><td>4 bytes</td><td><code>number</code></td></tr><tr><td><code>read.i64</code> / <code>read.u64</code></td><td>8 bytes</td><td><code>bigint</code></td></tr><tr><td><code>read.f32</code> / <code>read.f64</code></td><td><code>float</code> / <code>double</code></td><td><code>number</code></td></tr><tr><td><code id="read-read-ptr">read.ptr</code><a class="member-anchor" href="#read-read-ptr" aria-hidden="true">#</a></td><td>a pointer</td><td><a href="#pointer-values">pointer value</a></td></tr><tr><td><code id="read-read-intptr">read.intptr</code><a class="member-anchor" href="#read-read-intptr" aria-hidden="true">#</a></td><td>a pointer-sized signed integer</td><td><code>number</code></td></tr></tbody></table></div>
 <p>All reads are little-endian. Reading past the memory, or from a bad address,
 crashes the process.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">read</span>, <span class="t-id">ptr</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;

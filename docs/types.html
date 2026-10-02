@@ -63,16 +63,22 @@ name or an array throws when the <code>CFunction</code> is made.</li>
 <li><code>JSCallback</code> does not take struct types and throws a <code>TypeError</code>.</li>
 </ul>
 <h2 id="ffitype"><a class="anchor" href="#ffitype" aria-hidden="true">#</a>FFIType</h2>
-<p><code>FFIType</code> holds the type names as constants, so <code>FFIType.i32</code> can be used
-where <code>"i32"</code> is written:</p>
+<p><code>FFIType</code> holds bun:ffi's type constants, so <code>FFIType.i32</code> can be used where
+<code>"i32"</code> is written, and the other way round:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-type">FFIType</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
 
 <span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, {
   <span class="t-id">abs</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-type">FFIType</span>.<span class="t-prop">i32</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-type">FFIType</span>.<span class="t-prop">i32</span> },
 });</code></pre></div>
-<p>Unlike bun:ffi, where <code>FFIType</code> members are numbers, each member here is the
-string of its own name (<code>FFIType.i32 === "i32"</code>). It lists every short name and
-every C-style alias of the table above.</p>
+<p>As in bun:ffi, every member is a number, and a signature takes a name or a
+number: <code>FFIType.i32</code> is <code>5</code>, and <code>{ args: [5], returns: 5 }</code> means the same as
+<code>{ args: ["i32"], returns: "i32" }</code>. The numbers are bun's:</p>
+<div class="tablewrap"><table><thead><tr><th>Number</th><th>Members</th></tr></thead><tbody><tr><td>0</td><td><code>char</code></td></tr><tr><td>1, 2</td><td><code>i8</code> <code>int8_t</code>; <code>u8</code> <code>uint8_t</code></td></tr><tr><td>3, 4</td><td><code>i16</code> <code>int16_t</code>; <code>u16</code> <code>uint16_t</code></td></tr><tr><td>5, 6</td><td><code>i32</code> <code>int32_t</code> <code>int</code> <code>c_int</code>; <code>u32</code> <code>uint32_t</code> <code>c_uint</code></td></tr><tr><td>7, 8</td><td><code>i64</code> <code>int64_t</code> <code>isize</code>; <code>u64</code> <code>uint64_t</code> <code>usize</code></td></tr><tr><td>9, 10</td><td><code>f64</code> <code>double</code>; <code>f32</code> <code>float</code></td></tr><tr><td>11</td><td><code>bool</code></td></tr><tr><td>12</td><td><code>pointer</code> <code>ptr</code> <code>"void*"</code> <code>"char*"</code></td></tr><tr><td>13, 14</td><td><code>void</code>; <code>cstring</code></td></tr><tr><td>15, 16</td><td><code>i64_fast</code>; <code>u64_fast</code></td></tr><tr><td>17</td><td><code>function</code> <code>callback</code> <code>fn</code></td></tr><tr><td>18, 19</td><td><code>napi_env</code>, <code>napi_value</code></td></tr><tr><td>20</td><td><code>buffer</code></td></tr><tr><td>21</td><td><code>buffer_length</code> <code>buffer_bytelength</code></td></tr></tbody></table></div>
+<p>Each of the numbers 0 to 17 is also a key that maps to itself (`FFIType[5] ===
+5`), as in bun, which has 61 members in all.</p>
+<p>Not every member can be used in a signature. <code>napi_env</code> and <code>napi_value</code> only
+mean something in Node-API, and <code>buffer_length</code> is not implemented yet: they are
+unknown types, which an argument reads as <code>i32</code> and a return as <code>void</code>.</p>
 <h2 id="abi"><a class="anchor" href="#abi" aria-hidden="true">#</a>ABI</h2>
 <div class="tablewrap"><table><thead><tr><th>Name</th><th>Notes</th></tr></thead><tbody><tr><td><code>"default"</code></td><td>Platform default. Used when <code>abi</code> is omitted.</td></tr><tr><td><code>"sysv"</code></td><td>Only available where libffi defines <code>FFI_SYSV</code>.</td></tr><tr><td><code>"unix64"</code></td><td>Only available where libffi defines <code>FFI_UNIX64</code>.</td></tr><tr><td><code>"stdcall"</code></td><td>Windows only (<code>FFI_STDCALL</code>).</td></tr><tr><td><code>"win64"</code></td><td>Windows only (<code>FFI_WIN64</code>).</td></tr></tbody></table></div>
 <p>An unrecognized or platform-unavailable ABI name falls back to

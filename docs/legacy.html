@@ -26,37 +26,44 @@
 <aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html" class="here">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="legacy-api"><a class="anchor" href="#legacy-api" aria-hidden="true">#</a>Legacy API</h1>
-<p>The original interface registers functions by name in a global list, with
-<code>define()</code>, and calls them by name, with <code>call()</code>. It still works and is
-unchanged, but every <code>call()</code> searches that list by string comparison and every
-result is a <code>double</code>. Prefer <a href="dlopen.html"><code>dlopen()</code></a> or
-<a href="c-function.html"><code>CFunction</code></a>. Removing it is postponed, see
-<a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md" target="_blank" rel="noopener">TODO.md</a>.</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlsym</span>, <span class="t-id">define</span>, <span class="t-id">call</span>, <span class="t-id">toString</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<p>The original interface registers functions by name, with <code>define()</code>, and calls
+them by name, with <code>call()</code>. It is not part of the <code>ffi</code> module any more: it
+lives in the JavaScript module <code>legacy.js</code>, which builds each function on a
+<a href="c-function.html"><code>CFunction</code></a>. Prefer <a href="dlopen.html"><code>dlopen()</code></a> or <code>CFunction</code>
+directly; this page is for code that still uses <code>define()</code> and <code>call()</code>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<span class="t-kw">import</span> { <span class="t-id">define</span>, <span class="t-id">call</span> } <span class="t-kw">from</span> <span class="t-str">"legacy.js"</span>;
 
-<span class="t-fn">define</span>(<span class="t-str">"strdup"</span>, <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"strdup"</span>), <span class="t-atom">null</span>, <span class="t-str">"char *"</span>, <span class="t-str">"char *"</span>);
-<span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">call</span>(<span class="t-str">"strdup"</span>, <span class="t-str">"hello"</span>);
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">toString</span>(<span class="t-id">p</span>));</code></pre></div>
+<span class="t-fn">define</span>(<span class="t-str">"strlen"</span>, <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"strlen"</span>), <span class="t-atom">null</span>, <span class="t-str">"int"</span>, <span class="t-str">"char *"</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">call</span>(<span class="t-str">"strlen"</span>, <span class="t-str">"hello"</span>)); <span class="t-cm">// 5</span></code></pre></div>
+<p><code>legacy.js</code> is installed next to <code>ffi.so</code> (the QuickJS C module directory) and
+copied to the build directory, so one <code>QUICKJS_MODULE_PATH</code> finds both. In the
+source tree, import it by path (<code>../legacy.js</code>).</p>
 <h2 id="define"><a class="anchor" href="#define" aria-hidden="true">#</a><code>define()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">define</span>(<span class="t-id">name</span>, <span class="t-id">functionPointer</span>, <span class="t-id">abi</span>, <span class="t-id">returnType</span>, ...<span class="t-prop">parameterTypes</span>);</code></pre></div>
-<p>Registers the function at <code>functionPointer</code> under <code>name</code> and returns <code>true</code> if
-it has been defined. <code>abi</code> is an <a href="types.html#abi">ABI name</a> or <code>null</code> for the
-default. A name that is already defined, or an unknown type, fails.</p>
+<p>Registers the function at <code>functionPointer</code> under <code>name</code> and returns <code>true</code>.
+<code>abi</code> is an <a href="types.html#abi">ABI name</a> or <code>null</code> for the default. It returns
+<code>false</code>, with a message on stderr, if a type is unknown or cannot be used.</p>
 <ul>
-<li>Up to 30 parameters can be defined.</li>
-<li>If <code>null</code> is passed as the function pointer, <code>define()</code> substitutes a dummy
-function that prints "dummy function in ffi" on stderr.</li>
+<li>A <code>null</code> or NULL <code>functionPointer</code> throws a <code>TypeError</code>.</li>
+<li>A name that is already defined is left as it is and <code>true</code> is returned.</li>
+<li>Up to 30 parameters can be defined; more are ignored.</li>
 </ul>
 <h2 id="call"><a class="anchor" href="#call" aria-hidden="true">#</a><code>call()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">n</span> <span class="t-op">=</span> <span class="t-fn">call</span>(<span class="t-id">name</span>, ...<span class="t-prop">params</span>);</code></pre></div>
-<p>Calls the function registered as <code>name</code>.</p>
+<p>Calls the function registered as <code>name</code>. An unknown name throws an <code>Error</code>.</p>
 <ul>
-<li><code>call()</code> always returns a <code>double</code>, which presumes that all integers and
-pointers fit into 52 bits.</li>
-<li>JavaScript strings are copied and passed as a pointer to the copy. They
-cannot be altered by the C function.</li>
-<li><code>ArrayBuffer</code>s are passed as a pointer, and their contents can be written.</li>
-<li><code>true</code> and <code>false</code> become 1 and 0, <code>null</code> becomes NULL.</li>
+<li>The result is always a number (a <code>double</code>), which presumes that all
+integers and pointers fit into 52 bits. A function returning <code>void</code> gives
+<code>0</code>, and a NULL pointer gives <code>0</code>. Only a return type of <code>"string"</code> or
+<code>"char *"</code> gives a string (<code>null</code> for NULL).</li>
+<li>A JavaScript string passed for a pointer parameter is copied, with its
+terminating NUL, and the pointer is that of the copy. The callee cannot
+change the string.</li>
+<li>An <code>ArrayBuffer</code> or typed array is passed by its address, and its contents
+can be written.</li>
+<li>A <a href="js-callback.html"><code>JSCallback</code></a> is passed as its function pointer.</li>
+<li><code>true</code> and <code>false</code> are 1 and 0, <code>null</code> is NULL.</li>
 </ul>
 <h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
 <p>Legacy types are the libffi names (<code>"sint8"</code>, <code>"uint32"</code>, <code>"double"</code>,
@@ -64,7 +71,10 @@ cannot be altered by the C function.</li>
 <code>"unsigned char"</code>, <code>"char *"</code>, <code>"void *"</code>) and the semantic types <code>"string"</code>
 (a JavaScript string) and <code>"buffer"</code> (an <code>ArrayBuffer</code>). Any other name ending
 in <code>*</code> is a pointer as well (<code>"struct foo *"</code>). These are not the type names
-of <a href="types.html">Types and ABI</a>.</p></article>
+of <a href="types.html">Types and ABI</a>.</p>
+<p>Two things differ from the C implementation this replaced: <code>"longdouble"</code> is
+refused (a <code>CFunction</code> has no such type), and <code>"size_t"</code> is 64 bits wide (it
+was a 32-bit <code>uint</code>).</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/legacy.md">Edit this page on GitHub →</a></p>
 </main>
 <nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#define">define()</a></li><li class="lvl2"><a href="#call">call()</a></li><li class="lvl2"><a href="#types">Types</a></li></ul></nav>

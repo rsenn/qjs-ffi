@@ -48,7 +48,7 @@ value is marshaled back into the native ABI return slot per the declared
 return type.</p>
 <h2 id="constructor"><a class="anchor" href="#constructor" aria-hidden="true">#</a>Constructor</h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">cb</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>(<span class="t-id">fn</span>, { <span class="t-id">args</span>, <span class="t-id">returns</span> })</code></pre></div>
-<div class="tablewrap"><table><thead><tr><th>Parameter</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>fn</code></td><td>yes</td><td>The JS function to call back into. Must be callable, or a <code>TypeError</code> is thrown.</td></tr><tr><td><code>args</code></td><td>no</td><td>Array of type names (see <a href="#types">Types</a>) declaring the native parameter list, in order. Omit or use <code>[]</code> for a callback that takes no arguments; a value with no usable <code>length</code> (not an object, or a <code>length</code> that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped.</td></tr><tr><td><code>returns</code></td><td>no</td><td>Type name for the value the native return slot expects (see <a href="#types">Types</a>). Defaults to <code>"void"</code>.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Parameter</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>fn</code></td><td>yes</td><td>The JS function to call back into. Must be callable, or a <code>TypeError</code> is thrown.</td></tr><tr><td><code>args</code></td><td>no</td><td>Array of types, names or <code>FFIType</code> numbers (see <a href="#types">Types</a>) declaring the native parameter list, in order. Omit or use <code>[]</code> for a callback that takes no arguments; a value with no usable <code>length</code> (not an object, or a <code>length</code> that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped.</td></tr><tr><td><code>returns</code></td><td>no</td><td>Type name for the value the native return slot expects (see <a href="#types">Types</a>). Defaults to <code>"void"</code>.</td></tr></tbody></table></div>
 <p>Throws if <code>ffi_closure_alloc()</code>/<code>ffi_prep_cif()</code>/<code>ffi_prep_closure_loc()</code>
 fail (e.g. the platform is out of executable closure trampoline memory).</p>
 <h2 id="properties"><a class="anchor" href="#properties" aria-hidden="true">#</a>Properties</h2>
@@ -62,6 +62,13 @@ immediately, rather than waiting for GC. <code>.ptr</code> must not be called by
 native code afterward. Safe to call more than once.</li>
 <li><code>.toString()</code> -- returns a string like <code>"#JSCallback (0x...)(*0x...)"</code>
 identifying the trampoline address.</li>
+<li><code>[Symbol.toPrimitive]()</code> -- the function pointer as a number, <code>0</code> once closed,
+so <code>+cb</code> is what to pass to C.</li>
+<li><code>[Symbol.dispose]()</code> -- the same as <code>.close()</code>, so `using cb = new
+JSCallback(...)` closes the callback at the end of the block. QuickJS has no
+<code>Symbol.dispose</code> yet: the method is then installed under the registered symbol
+<code>Symbol.for("Symbol.dispose")</code>, which is what the usual polyfills use, and it is
+the engine's own <code>Symbol.dispose</code> as soon as there is one.</li>
 </ul>
 <h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
 <p>Same vocabulary as in <a href="types.html">Types and ABI</a>, matching

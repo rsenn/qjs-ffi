@@ -69,7 +69,7 @@ The generated module needs only <code>ffi</code>, and one with <code>read</code>
 <div class="tablewrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>&lt;source&gt;...</code></td><td>headers or sources to bind. Several are merged into one module.</td></tr><tr><td><code>--library=&lt;path&gt;</code></td><td><code>dlopen()</code> this shared library; without it the symbols are looked up in the running process (<code>RTLD_DEFAULT</code>).</td></tr><tr><td><code>-o</code>, <code>--output=&lt;path&gt;</code></td><td>write the module here instead of to standard output.</td></tr><tr><td><code>-I&lt;dir&gt;</code>, <code>-D&lt;name[=value]&gt;</code></td><td>passed on to clang; repeatable. <code>--include=</code> and <code>--define=</code> are the long forms.</td></tr><tr><td><code>--follow-includes</code></td><td>also bind headers that a source includes from under its own directory (<code>SDL.h</code> brings in <code>SDL_video.h</code>).</td></tr><tr><td><code>--exclude=&lt;name&gt;</code></td><td>do not bind this function or class; repeatable.</td></tr><tr><td><code>--c++</code></td><td>parse the sources as C++. Implied by <code>.cc</code>, <code>.cpp</code>, <code>.cxx</code>, <code>.hh</code>, <code>.hpp</code>, <code>.hxx</code>; a <code>.h</code> needs it.</td></tr><tr><td><code>--std=&lt;std&gt;</code></td><td>the C++ standard for clang, e.g. <code>c++17</code>.</td></tr><tr><td><code>--namespace=&lt;name&gt;</code></td><td>drop the C++ namespace prefix <code>name::</code> from the names; repeatable.</td></tr><tr><td><code>--structs</code></td><td>also wrap every struct and union as an <code>ArrayBuffer</code> class, and every extern variable.</td></tr><tr><td><code>--finalize</code></td><td>destroy a C++ object made with <code>new</code> when it is garbage collected, too.</td></tr><tr><td><code>--api=cfunction|define</code></td><td>which API to target: <code>CFunction</code> (default) or the <a href="legacy.html">legacy</a> <code>define()</code>/<code>call()</code>.</td></tr><tr><td><code>--ffitype</code></td><td>write types as <code>FFIType.i32</code> instead of <code>'i32'</code>.</td></tr><tr><td><code>--describe</code></td><td>give each function its parameter names, and describe its C types for <code>describeObject()</code>.</td></tr><tr><td><code>--jsdoc</code></td><td>a JSDoc comment on each function, method and class.</td></tr><tr><td><code>--emit-ir=&lt;file&gt;</code></td><td>write the intermediate JSON and stop.</td></tr><tr><td><code>--from-ir=&lt;file&gt;</code></td><td>generate from an IR instead of running clang.</td></tr><tr><td><code>--clang=&lt;path&gt;</code></td><td>the clang binary (default <code>clang</code>).</td></tr><tr><td><code>--cache-dir=&lt;dir&gt;</code></td><td>where the condensed AST is cached (default <code>.tmp/gen-bindings</code>).</td></tr><tr><td><code>--no-cache</code></td><td>do not read or write that cache.</td></tr><tr><td><code>-h</code>, <code>--help</code></td><td>the usage text.</td></tr></tbody></table></div>
 <p>Companions in <code>tools/</code>: <code>gen-structs.js</code> (<code>qjs-ffi-genstructs</code>) makes the struct
 classes, or a C header, from an IR on its own, and <code>describe-module.sh</code> lists
-what a generated module exports. Both are covered
+what a module, object or class has. Both are covered
 <a href="#the-ir-on-its-own">below</a>.</p>
 <h2 id="the-examples"><a class="anchor" href="#the-examples" aria-hidden="true">#</a>The examples</h2>
 <p>A small C library, <code>geom.h</code>:</p>
@@ -567,8 +567,10 @@ the class when it points to a bound one.</p>
  */</span>
 <span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_move</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_move'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'shape *'</span>,<span class="t-str">'f64'</span>,<span class="t-str">'f64'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>});</code></pre></div>
 <p><code>--api=define</code> targets the <a href="legacy.html">legacy API</a>: every function is a
-<code>define()</code> once and a closure around <code>call()</code>. It has no struct types, so a
-function with a struct by value is skipped:</p>
+<code>define()</code> once and a closure around <code>call()</code>, both imported from <code>legacy.js</code>
+(<code>import { define, call } from 'legacy.js'</code>, so that module has to be on
+<code>QUICKJS_MODULE_PATH</code>). It has no struct types, so a function with a struct by
+value is skipped:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_abs</span> <span class="t-op">=</span> <span class="t-fn">__bind</span>(<span class="t-str">'geom_abs'</span>,<span class="t-str">'sint32'</span>,<span class="t-str">'sint32'</span>);
 <span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_find</span> <span class="t-op">=</span> <span class="t-fn">__bind</span>(<span class="t-str">'geom_find'</span>,<span class="t-str">'shape *'</span>,<span class="t-str">'char *'</span>);
 
@@ -612,9 +614,23 @@ compiler fails to compile:</p>
 <span class="t-fn">_Static_assert</span>(<span class="t-kw">sizeof</span>(<span class="t-kw">struct</span> <span class="t-id">shape</span>) <span class="t-op">==</span> <span class="t-num">32</span>, <span class="t-str">"shape size"</span>);
 <span class="t-fn">_Static_assert</span>(<span class="t-fn">offsetof</span>(<span class="t-kw">struct</span> <span class="t-id">shape</span>, <span class="t-id">id</span>) <span class="t-op">==</span> <span class="t-num">0</span>, <span class="t-str">"shape.id offset"</span>);
 ...</code></pre></div>
-<p><code>describe-module.sh [--json] &lt;module.js&gt; [export...]</code> lists what a generated
-module or one from <code>lib/</code> exports, with the C types when it was generated with
-<code>--describe</code>. Importing the module loads its libraries, so
+<p><code>describe-module.sh [-r &lt;runtime&gt;] [--json] [--class] &lt;module&gt; [export...]</code>
+lists what a module, an object or a class has: the exports of a generated
+module or one from <code>lib/</code> with the C types when it was generated with
+<code>--describe</code>, but also <code>ffi.so</code> itself, <code>node:fs</code>, or <code>bun:ffi</code>. It runs
+<code>describe-module.js</code> in QuickJS (<code>qjsm</code>, the default, or <code>qjs</code>), Node.js, Bun or
+Deno, so the same API can be dumped in two runtimes and compared:</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">describe-module.sh</span> <span class="t-op">-r</span> <span class="t-id">qjsm</span> <span class="t-id">build</span>/<span class="t-id">ffi.so</span>               <span class="t-cm"># what ffi exports</span>
+<span class="t-id">describe-module.sh</span> <span class="t-op">-r</span> <span class="t-id">bun</span> <span class="t-id">bun</span>:<span class="t-id">ffi</span>                     <span class="t-cm"># what bun:ffi exports</span>
+<span class="t-id">describe-module.sh</span> <span class="t-op">-r</span> <span class="t-id">bun</span> <span class="t-op">--global</span> <span class="t-id">Bun.FFI</span>            <span class="t-cm"># an object by its path</span>
+<span class="t-id">describe-module.sh</span> <span class="t-op">-r</span> <span class="t-id">node</span> <span class="t-op">--class</span> <span class="t-op">--global</span> <span class="t-id">Buffer</span>    <span class="t-cm"># a native constructor as a class</span>
+<span class="t-id">describe-module.sh</span> <span class="t-op">-r</span> <span class="t-id">node</span> <span class="t-id">node</span>:<span class="t-id">fs</span> <span class="t-id">readFile</span> <span class="t-id">promises.readFile</span></code></pre></div>
+<p>With nothing but a module name it does not dump anything: it asks each installed
+runtime whether it can load the module and prints the command that dumps it for
+every one that can (<code>./tools/describe-module.sh -r node node:fs</code>, with the script
+named the way it was started), the others noted on stderr. A module is a path or a specifier the runtime imports; an export may be a dotted
+path; <code>--global</code> takes properties of <code>globalThis</code> instead of a module; <code>--json</code>
+prints the raw results. Importing a module loads its libraries, so
 <code>QUICKJS_MODULE_PATH</code> must find the <code>ffi</code> module.</p>
 <h2 id="using-the-result"><a class="anchor" href="#using-the-result" aria-hidden="true">#</a>Using the result</h2>
 <ul>
@@ -638,7 +654,6 @@ and (for C++) classes by value.</li>
 <li>A struct by value needs a layout libffi can reproduce: not a packed struct.</li>
 <li>Preprocessor macros are not bound (they are not in the AST), only enums and
 <code>const</code> variables with a literal value.</li>
-<li>Little-endian, 64-bit Linux layout rules only.</li>
 <li><code>--finalize</code> needs <code>--api=cfunction</code>. With <code>--api=define</code> a virtual method is
 called through its own symbol, not the vtable, and structs by value are
 skipped.</li>
