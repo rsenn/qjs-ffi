@@ -60,6 +60,14 @@ a <code>TypeError</code>.</p>
 arguments passed at call time are ignored; missing ones are treated as
 <code>undefined</code> (and converted per the declared type, e.g. <code>0</code>/<code>NaN</code>-like for
 numeric types).</p>
+<h2 id="close"><a class="anchor" href="#close" aria-hidden="true">#</a>close()</h2>
+<p><code>fn.close()</code> frees the function's signature (the libffi <code>cif</code>) early, without
+waiting for the garbage collector. It returns <code>undefined</code> and may be called
+more than once; calling the function afterwards is a <code>TypeError</code>. The native
+code it pointed at is untouched. <code>fn[Symbol.dispose]</code> is the same method (see
+<a href="js-callback.html"><code>JSCallback</code></a> for how the symbol is found), so `using fn =
+CFunction(...)<code>works. The functions of</code>dlopen()<code>, </code>linkSymbols()<code>and</code>cc()`
+have it too.</p>
 <h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
 <p>Signatures are written with the names in <a href="types.html">Types and ABI</a>: <code>"i32"</code>,
 <code>"f64"</code>, <code>"pointer"</code>, <code>"cstring"</code>, C-style aliases such as <code>"int"</code>, and an array
@@ -106,7 +114,7 @@ function that takes a pointer, such as <code>ptr()</code> or <code>read</code>, 
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/c-function.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#examples">Examples</a></li><li class="lvl2"><a href="#relationship-to-jscallback">Relationship to JSCallback</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#close">close()</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#examples">Examples</a></li><li class="lvl2"><a href="#relationship-to-jscallback">Relationship to JSCallback</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

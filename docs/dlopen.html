@@ -32,6 +32,7 @@ behind everything else in <code>ffi</code>: <a href="c-function.html"><code>CFun
 <ul>
 <li><a href="#dlopenpath-symbols"><code>dlopen(path, symbols)</code></a></li>
 <li><a href="#linksymbols"><code>linkSymbols(symbols)</code></a></li>
+<li><a href="#variables">Variables</a></li>
 <li><a href="#raw-libdl"><code>dlopen(path, flags)</code>, <code>dlsym()</code>, <code>dlclose()</code>, <code>dlerror()</code></a></li>
 <li><a href="#errno"><code>errno()</code></a></li>
 <li><a href="#suffix"><code>suffix</code></a> and the <a href="#rtld-constants">RTLD constants</a></li>
@@ -54,9 +55,10 @@ the symbols that are already loaded into the process:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">abs</span> } } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, { <span class="t-id">abs</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i32"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> } });</code></pre></div>
 <p>Each spec is <code>{ args, returns, abi }</code>, exactly as for
 <a href="c-function.html"><code>CFunction</code></a> without <code>ptr</code>; the names are in
-<a href="types.html">Types and ABI</a>. A library that cannot be opened, or a symbol that is
-not in it, throws a <code>TypeError</code> carrying the <code>dlerror()</code> text. Nothing stays
-open then.</p>
+<a href="types.html">Types and ABI</a>. A library that cannot be opened throws an <code>Error</code>
+with <code>code: "ERR_DLOPEN_FAILED"</code> (as bun's) and the <code>dlerror()</code> text in its
+message; a symbol that is not in it throws a <code>TypeError</code>. Nothing stays open
+then.</p>
 <h2 id="linksymbols"><a class="anchor" href="#linksymbols" aria-hidden="true">#</a><code>linkSymbols</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">linkSymbols</span>(<span class="t-id">symbolSpecs</span>);</code></pre></div>
 <p>Like <code>dlopen()</code>, without opening a library, and without <code>close()</code>. A spec is
@@ -74,6 +76,40 @@ functions from pointers you got elsewhere in one call:</p>
 <span class="t-id">symbols</span>.<span class="t-fn">strlen</span>(<span class="t-str">"hello"</span>); <span class="t-cm">// 5n</span></code></pre></div>
 <p>A symbol that is not found throws a <code>TypeError</code>. Only available where the
 platform defines <code>RTLD_DEFAULT</code>.</p>
+<h2 id="variables"><a class="anchor" href="#variables" aria-hidden="true">#</a>Variables</h2>
+<p>An extension: bun exposes only functions. A spec with <code>type</code> and no <code>args</code> or
+<code>returns</code> is a variable (a spec with both throws a <code>TypeError</code>). It works the
+same in <code>dlopen()</code>, <code>linkSymbols()</code> and <a href="c-compiler.html"><code>cc()</code></a>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">cc</span>({
+  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-str">"counter.c"</span>, <span class="t-cm">// int counter = 5; const double pi = 3.14; struct { float x, y; } origin;</span>
+  <span class="t-id">symbols</span><span class="t-op">:</span> {
+    <span class="t-id">counter</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"i32"</span> },
+    <span class="t-id">pi</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"f64"</span>, <span class="t-id">readonly</span><span class="t-op">:</span> <span class="t-atom">true</span> },
+    <span class="t-id">origin</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> [<span class="t-str">"f32"</span>, <span class="t-str">"f32"</span>] },
+    <span class="t-id">hello</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> }, <span class="t-cm">// functions as before</span>
+  },
+});
+
+<span class="t-id">symbols</span>.<span class="t-prop">counter</span>; <span class="t-cm">// 5, the memory is read each time</span>
+<span class="t-id">symbols</span>.<span class="t-prop">counter</span> <span class="t-op">=</span> <span class="t-num">7</span>; <span class="t-cm">// and written</span></code></pre></div>
+<p><code>symbols.&lt;name&gt;</code> is an enumerable accessor property, so it is live. A read
+converts the value as a <code>returns</code> of that type does, a write as an <code>args</code> of it
+does (a <code>bigint</code> for <code>i64</code>, a pointer for <code>pointer</code>; see <a href="types.html">Types</a>).</p>
+<ul>
+<li><code>readonly: true</code>: a write throws a <code>TypeError</code>.</li>
+<li>A struct type (an array, see <a href="types.html#structs-by-value">structs</a>) reads as
+an <code>ArrayBuffer</code> over the variable's own memory, with no copy: writes
+through a view reach the variable. This is also how a C array is exposed
+(list the element type once per element). It cannot be assigned.</li>
+<li><code>cstring</code> reads the string a <code>char *</code> variable points to (<code>null</code> for NULL)
+and cannot be assigned. <code>function</code> reads as a pointer.</li>
+<li><code>void</code> (and <code>buffer_length</code>) is a <code>TypeError</code>.</li>
+<li><code>address: true</code> makes the property a plain pointer value, the address like
+<code>dlsym()</code> gives, for passing <code>&amp;counter</code> to C or to <code>read</code>.
+A variable that is not in the library is a <code>TypeError</code> as for functions.</li>
+</ul>
+<p>The address is the library's: after <code>close()</code> a variable dangles as the
+functions do.</p>
 <h2 id="raw-libdl"><a class="anchor" href="#raw-libdl" aria-hidden="true">#</a>Raw libdl</h2>
 <p><code>dlopen()</code> takes a second argument of two kinds, told apart by its type: an
 object is the symbol table above, a number is the <code>flags</code> of the raw call.
@@ -118,7 +154,7 @@ global scope and the libraries loaded after the caller. A constant is only
 exported where the platform's <code>&lt;dlfcn.h&gt;</code> defines it.</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/dlopen.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#dlopenpath-symbols">dlopen(path, symbols)</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#raw-libdl">Raw libdl</a></li><li class="lvl3"><a href="#dlopenpath-flags">dlopen(path, flags)</a></li><li class="lvl3"><a href="#dlsymhandle-name">dlsym(handle, name)</a></li><li class="lvl3"><a href="#dlclosehandle">dlclose(handle)</a></li><li class="lvl3"><a href="#dlerror">dlerror()</a></li><li class="lvl2"><a href="#errno">errno()</a></li><li class="lvl2"><a href="#suffix">suffix</a></li><li class="lvl2"><a href="#rtld-constants">RTLD constants</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#dlopenpath-symbols">dlopen(path, symbols)</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#variables">Variables</a></li><li class="lvl2"><a href="#raw-libdl">Raw libdl</a></li><li class="lvl3"><a href="#dlopenpath-flags">dlopen(path, flags)</a></li><li class="lvl3"><a href="#dlsymhandle-name">dlsym(handle, name)</a></li><li class="lvl3"><a href="#dlclosehandle">dlclose(handle)</a></li><li class="lvl3"><a href="#dlerror">dlerror()</a></li><li class="lvl2"><a href="#errno">errno()</a></li><li class="lvl2"><a href="#suffix">suffix</a></li><li class="lvl2"><a href="#rtld-constants">RTLD constants</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

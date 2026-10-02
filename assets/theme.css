@@ -1,20 +1,20 @@
 /* qjs-ffi — a bridge between two worlds. Purple-magenta on plum ink,
    C's "::" scope operator before headings, a dot grid like a memory dump. */
 :root {
-  --bg:          light-dark(#fcfafd, #17111b);
-  --bg-raised:   light-dark(#ffffff, #201826);
-  --bg-sunken:   light-dark(#f4eff7, #120d16);
-  --bg-code:     light-dark(#f7f2f9, #201826);
-  --fg:          light-dark(#1e1922, #ece6f0);
-  --fg-muted:    light-dark(#645a6c, #aa9fb5);
-  --fg-faint:    light-dark(#92889b, #7a6e87);
-  --line:        light-dark(#e8dfee, #2f2338);
-  --line-strong: light-dark(#d5c8de, #45345a);
-  --accent:      light-dark(#8a2fa0, #d08de0);
-  --accent-fg:   light-dark(#ffffff, #17111b);
-  --accent-soft: light-dark(#f3e6f7, #2d1834);
+  --bg:          light-dark(#fbfafd, #14111b);
+  --bg-raised:   light-dark(#ffffff, #1d1826);
+  --bg-sunken:   light-dark(#f2eff7, #100d16);
+  --bg-code:     light-dark(#f4f2f9, #1d1826);
+  --fg:          light-dark(#1c1922, #e9e6f0);
+  --fg-muted:    light-dark(#605a6c, #a79fb5);
+  --fg-faint:    light-dark(#8f889b, #776e87);
+  --line:        light-dark(#e4dfee, #2a2338);
+  --line-strong: light-dark(#d0c8de, #41345a);
+  --accent:      light-dark(#7d50d3, #b19cd9);
+  --accent-fg:   light-dark(#ffffff, #14111b);
+  --accent-soft: light-dark(#ece6f7, #221834);
 
-  --t-kw:  light-dark(#8a2fa0, #d9a3e8);
+  --t-kw:  light-dark(#562fa0, #bba3e8);
   --t-fn:  light-dark(#1f5fa8, #82b4f0);
 
   --radius: 6px;

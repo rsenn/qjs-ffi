@@ -94,10 +94,10 @@ the <a href="types.html">type table</a>, <a href="types.html#structs-by-value">s
 value</a> and <a href="types.html#abi">ABI names</a>
 documented there apply unchanged. Every name must exist in the compiled code,
 or <code>cc()</code> throws a <code>TypeError</code> (<code>cc: symbol not found: &lt;name&gt;</code>).</p>
-<p>Only functions can be exposed. Bun's docs prose says "functions and
-variables", but its <code>symbols</code> is typed <code>Record&lt;string, FFIFunction&gt;</code> and its
-implementation requires <code>args</code> and wraps every entry as a call, so it exposes
-no variables either; exposing them here is planned (see <code>TODO.md</code>, 5.3).</p>
+<p>A spec with <code>type</code> instead of <code>args</code>/<code>returns</code> exposes a variable, which bun
+does not (its <code>symbols</code> is typed <code>Record&lt;string, FFIFunction&gt;</code>); see
+<a href="dlopen.html#variables">Variables</a>. <code>cc()</code> code is never freed, so such an
+address stays valid.</p>
 <h3 id="library"><a class="anchor" href="#library" aria-hidden="true">#</a><code>library</code></h3>
 <div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Library = string | string[];
 
@@ -105,6 +105,13 @@ cc({ source: "hello.c", library: ["sqlite3"], symbols: { /* ... */ } });</code><
 <p>Libraries to link the C code against, as for <code>-l</code> (<code>"sqlite3"</code> finds
 <code>libsqlite3.so</code>). TinyCC searches its default library paths; add <code>-L&lt;dir&gt;</code> to
 <a href="#flags"><code>flags</code></a> for others.</p>
+<h3 id="include"><a class="anchor" href="#include" aria-hidden="true">#</a><code>include</code></h3>
+<div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Include = string | string[];
+
+cc({ source: "hello.c", include: ["vendor/include"], symbols: { /* ... */ } });</code></pre></div>
+<p>Directories searched for <code>#include "..."</code> and <code>#include &lt;...&gt;</code>, as for <code>-I</code>
+(<code>ffi.d.ts</code> of Bun has it; its docs page does not). Same as <code>-I&lt;dir&gt;</code> in
+<a href="#flags"><code>flags</code></a>.</p>
 <h3 id="flags"><a class="anchor" href="#flags" aria-hidden="true">#</a><code>flags</code></h3>
 <div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Flags = string | string[];</code></pre></div>
 <p>Options handed to TinyCC, such as <code>-I&lt;dir&gt;</code> for include directories, <code>-D</code> for
@@ -176,7 +183,7 @@ it was built.</p>
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/c-compiler.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#reference">Reference</a></li><li class="lvl3"><a href="#source">source</a></li><li class="lvl3"><a href="#symbols">symbols</a></li><li class="lvl3"><a href="#library">library</a></li><li class="lvl3"><a href="#flags">flags</a></li><li class="lvl3"><a href="#define">define</a></li><li class="lvl3"><a href="#return-value">Return value</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#errors">Errors</a></li><li class="lvl2"><a href="#lifetime">Lifetime</a></li><li class="lvl2"><a href="#differences-from-bun">Differences from Bun</a></li><li class="lvl2"><a href="#building">Building</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#reference">Reference</a></li><li class="lvl3"><a href="#source">source</a></li><li class="lvl3"><a href="#symbols">symbols</a></li><li class="lvl3"><a href="#library">library</a></li><li class="lvl3"><a href="#include">include</a></li><li class="lvl3"><a href="#flags">flags</a></li><li class="lvl3"><a href="#define">define</a></li><li class="lvl3"><a href="#return-value">Return value</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#errors">Errors</a></li><li class="lvl2"><a href="#lifetime">Lifetime</a></li><li class="lvl2"><a href="#differences-from-bun">Differences from Bun</a></li><li class="lvl2"><a href="#building">Building</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by
