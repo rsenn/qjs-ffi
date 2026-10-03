@@ -34,7 +34,7 @@ cb = new JSCallback(fn, { args, returns })
 | Parameter | Required | Description                                                                 |
 | --------- | -------- | ---------------------------------------------------------------------------- |
 | `fn`      | yes      | The JS function to call back into. Must be callable, or a `TypeError` is thrown. |
-| `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the native parameter list, in order. Omit or use `[]` for a callback that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
+| `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the native parameter list, in order. Omit or use `[]` for a callback that takes no arguments; a value that is not an array is a `TypeError`. At most 32 arguments; more is a `TypeError`. |
 | `returns` | no       | Type name for the value the native return slot expects (see [Types](#types)). Defaults to `"void"`. |
 
 Throws if `ffi_closure_alloc()`/`ffi_prep_cif()`/`ffi_prep_closure_loc()`
@@ -94,8 +94,7 @@ types:
 | `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise a `number`, or a `bigint` above 2^53 - 1 |
 | `"cstring"`             | `char *`                          | `string` -- the argument value is decoded from the incoming C string; returning `"cstring"` from `fn` is not automatically re-encoded to a native pointer (the return conversion writes the string's JS pointer representation, not a fresh C allocation) -- prefer numeric/`"pointer"` returns unless you know what you're doing |
 
-An unrecognized type name in `args` silently falls back to `"i32"`; an
-unrecognized `returns` falls back to `"void"`.
+An unrecognized type name in `args` or `returns` is a `TypeError` naming it.
 
 ## Exceptions thrown by `fn`
 

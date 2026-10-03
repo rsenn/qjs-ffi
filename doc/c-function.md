@@ -36,7 +36,7 @@ fn = CFunction({ ptr, args, returns, abi })
 | Option    | Required | Description                                                                                       |
 | --------- | -------- | --------------------------------------------------------------------------------------------------- |
 | `ptr`     | yes      | The native function pointer to call: a `number` or `bigint` address, e.g. from `dlsym()`. NULL, `undefined`, a view, a `JSCallback`, a string or anything else is not a function pointer: `TypeError`. |
-| `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
+| `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments; a value that is not an array is a `TypeError`. At most 32 arguments are supported; more is a `TypeError`. |
 | `returns` | no       | Type name for the return value (see [Types](#types)). Defaults to `"void"`.                       |
 | `abi`     | no       | Call ABI name (see [ABI](types.md#abi)). Defaults to `"default"`.                                          |
 | `variadic` | no      | `true` for a C function that ends in `...`; `args` then lists the fixed arguments only, see [Variadic functions](#variadic-functions). |

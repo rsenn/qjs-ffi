@@ -874,7 +874,7 @@ Left out, with the reason in `omitted`:
     and constructors are not part of a spec: use the generated classes);
 *   an array of more than 2^20 elements or of unknown size (`int tail[]`);
 *   a struct that is not in `byValue`, which would otherwise reach the
-    `ffi` module as an unknown type name and silently become `i32`.
+    `ffi` module as an unknown type name, which it rejects with a `TypeError`.
 
 Enums, typedefs and structs are not part of the specs.
 

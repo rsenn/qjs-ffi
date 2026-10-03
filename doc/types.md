@@ -25,9 +25,15 @@ The names a signature is written with, matching [bun:ffi's
 | `"cstring"`             | `char *`                          | `string` (return) / `string` (argument, copied via `JS_ToCString`) -- decoded/encoded as a NUL-terminated C string |
 | `[ <type>, ... ]`       | a struct passed or returned by value | an `ArrayBuffer` of the struct's bytes, see [Structs by value](#structs-by-value) |
 
-An unrecognized type name in `args` silently falls back to `"i32"`; an
-unrecognized `returns` falls back to `"void"`. This matches `JSCallback`'s
-behavior and is a known rough edge -- prefer sticking to the table above.
+An unrecognized type name in `args` or `returns` is a `TypeError` that names it
+(`unknown type: nope`, `unknown return type: nope`), as in bun, for `CFunction`
+and `JSCallback` alike.
+
+An argument converts like this: a `number`, a `bigint`, a boolean, `null` and
+`undefined` for any numeric type, an integer wrapping to its width (`abs(2n)` is
+2, `null` is 0, `true` is 1). A string or a `Symbol` where a number is declared is
+a `TypeError` (`cannot convert argument 1 to 'i32'`), and so is a `valueOf()`
+that throws, with that exception.
 
 `"cstring"` arguments are converted with `JS_ToCString()` for the duration
 of the call and freed immediately afterward; the native function must not
@@ -133,8 +139,7 @@ Each of the numbers 0 to 17 is also a key that maps to itself (`FFIType[5] ===
 5`), as in bun, which has 61 members in all.
 
 Not every member can be used in a signature. `napi_env` and `napi_value` only
-mean something in Node-API: they are unknown types, which an argument reads as
-`i32` and a return as `void`.
+mean something in Node-API: they are unknown types, a `TypeError` in a signature.
 
 ### `buffer_length`
 

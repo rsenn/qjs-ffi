@@ -346,4 +346,53 @@ await tests({
     assert(assertThrows(() => lib.symbols.abs(-4)) instanceof TypeError);
     lib.close();
   },
+
+  'a bigint converts for any integer kind, as a number does, and leaves nothing pending'() {
+    const abs = CFunction({ ptr: libc('abs'), args: ['i32'], returns: 'i32' });
+    const toupper = CFunction({ ptr: libc('toupper'), args: ['u8'], returns: 'i32' });
+    const labs = CFunction({ ptr: libc('labs'), args: ['i64'], returns: 'i64' });
+
+    eq(2, abs(2n));
+    eq(-2147483648, abs(2 ** 31));
+    eq(65, toupper(97n));
+    eq(5n, labs(-5n));
+    eq(5n, labs(-5));
+    eq(3, abs(-3)); // an exception left pending would surface here
+  },
+
+  'null, undefined, booleans and objects convert as numbers do'() {
+    const abs = CFunction({ ptr: libc('abs'), args: ['i32'], returns: 'i32' });
+
+    eq(0, abs(null));
+    eq(0, abs(undefined));
+    eq(1, abs(true));
+    eq(1, abs(-1.9));
+    eq(0, abs({}));
+  },
+
+  'a string or a Symbol for a number is a TypeError that names the argument and the type'() {
+    const abs = CFunction({ ptr: libc('abs'), args: ['i32'], returns: 'i32' });
+    const sqrt = CFunction({ ptr: libc('sqrt'), args: ['f64'], returns: 'f64' });
+    const e = assertThrows(() => abs('7'));
+
+    assert(e instanceof TypeError && /argument 1 to 'i32'/.test(e.message), String(e));
+    assert(assertThrows(() => abs(Symbol('x'))) instanceof TypeError);
+    assert(/'f64'/.test(assertThrows(() => sqrt('4')).message));
+    eq(4, abs(-4)); // the function still works, nothing is pending
+  },
+
+  'a valueOf that throws is the exception of the call'() {
+    const abs = CFunction({ ptr: libc('abs'), args: ['i32'], returns: 'i32' });
+    const e = assertThrows(() => abs({ valueOf() { throw new RangeError('boom'); } }));
+
+    assert(e instanceof RangeError && e.message === 'boom', String(e));
+  },
+
+  'args must be an array, and at most 32 arguments: a TypeError'() {
+    assert(assertThrows(() => CFunction({ ptr: libc('abs'), args: 'i32', returns: 'i32' })) instanceof TypeError);
+    assert(assertThrows(() => CFunction({ ptr: libc('abs'), args: { length: 1, 0: 'i32' }, returns: 'i32' })) instanceof TypeError);
+    assert(assertThrows(() => CFunction({ ptr: libc('abs'), args: Array(33).fill('i32'), returns: 'i32' })) instanceof TypeError);
+    eq(32, CFunction({ ptr: libc('abs'), args: Array(32).fill('i32'), returns: 'i32' }).length);
+    eq(0, CFunction({ ptr: libc('abs'), returns: 'i32' }).length);
+  },
 });

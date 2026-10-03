@@ -170,12 +170,13 @@ ffi_type* ffi_resolve_scalar(JSContext* ctx, JSValueConst value, int* kind);
  *   JSValueConst   options  any value; a non-object gives no arguments
  *                           and a void return
  *
- *   returns  0, or -1 with an exception pending (out of memory, or an
- *            invalid struct type)
+ *   returns  0, or -1 with an exception pending (out of memory, an invalid
+ *            or unknown type, a bad `args`)
  *
- * an unknown type name falls back to i32 for an argument, void for the
- * return. a struct type lists every scalar member in memory order, array
- * members once per element: libffi works the layout out from that. */
+ * an unknown type name is a TypeError ("unknown type: x", "unknown return
+ * type: x"), as is `args` that is not an array or has more than 32 entries.
+ * a struct type lists every scalar member in memory order, array members
+ * once per element: libffi works the layout out from that. */
 int ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options);
 
 /* true if the signature passes or returns a struct by value. */

@@ -26,44 +26,85 @@ typedef struct CFunctionData {
 
 static JSClassID js_cfunction_class_id;
 
-static void
-js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst v) {
-  int32_t i32 = 0;
+/* the FFIType name of a kind, for an error message. */
+static const char*
+kind_name(int kind) {
+  switch(kind) {
+    case K_BOOL: return "bool";
+    case K_I8: return "i8";
+    case K_U8: return "u8";
+    case K_I16: return "i16";
+    case K_U16: return "u16";
+    case K_I32: return "i32";
+    case K_U32: return "u32";
+    case K_I64: return "i64";
+    case K_U64: return "u64";
+    case K_I64_FAST: return "i64_fast";
+    case K_U64_FAST: return "u64_fast";
+    case K_F32: return "f32";
+    case K_F64: return "f64";
+  }
+
+  return "number";
+}
+
+/* converts argument `index` (counting from 1) to the native slot of `kind`.
+ *
+ * a number, bigint, boolean, null or undefined converts, an integer kind
+ * wrapping to its width; a string or a Symbol is a TypeError, as in bun.
+ *
+ *   returns  0, or -1 with an exception pending
+ */
+static int
+js_to_native_arg(JSContext* ctx, int kind, union native_value* out, JSValueConst v, int index) {
   int64_t i64 = 0;
   double d = 0;
 
   switch(kind) {
-    case K_BOOL: out->i64 = JS_ToBool(ctx, v) > 0; break;
-
+    case K_BOOL: out->i64 = JS_ToBool(ctx, v) > 0; return 0;
     case K_I8:
-    case K_I16:
-    case K_I32:
-      JS_ToInt32(ctx, &i32, v);
-      out->i64 = i32;
-      break;
-
     case K_U8:
+    case K_I16:
     case K_U16:
+    case K_I32:
     case K_U32:
     case K_I64:
     case K_I64_FAST:
     case K_U64:
     case K_U64_FAST:
-      JS_ToInt64Ext(ctx, &i64, v);
-      out->i64 = i64;
-      break;
-
     case K_F32:
-      JS_ToFloat64(ctx, &d, v);
-      out->f32 = (float)d;
-      break;
-    case K_F64:
-      JS_ToFloat64(ctx, &d, v);
-      out->f64 = d;
-      break;
-
-    default: out->i64 = 0; break;
+    case K_F64: break;
+    default: out->i64 = 0; return 0;
   }
+
+  if(JS_IsString(v) || JS_IsSymbol(v)) {
+    JS_ThrowTypeError(ctx, "CFunction: cannot convert argument %d to '%s'", index, kind_name(kind));
+    return -1;
+  }
+
+  if(kind == K_F32 || kind == K_F64) {
+    if(JS_ToFloat64(ctx, &d, v))
+      return -1;
+
+    if(kind == K_F32)
+      out->f32 = (float)d;
+    else
+      out->f64 = d;
+
+    return 0;
+  }
+
+  if(JS_ToInt64Ext(ctx, &i64, v))
+    return -1;
+
+  switch(kind) {
+    case K_I8:
+    case K_I16:
+    case K_I32: out->i64 = (int32_t)i64; break;
+    default: out->i64 = i64; break;
+  }
+
+  return 0;
 }
 
 static void
@@ -259,8 +300,9 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
 
       ptrs[i] = buf.data;
       continue;
-    } else {
-      js_to_native_arg(ctx, kinds[i], &args_storage[i], v);
+    } else if(js_to_native_arg(ctx, kinds[i], &args_storage[i], v, i + 1)) {
+      ret = JS_EXCEPTION;
+      goto done;
     }
 
     ptrs[i] = &args_storage[i];
@@ -375,9 +417,7 @@ js_variable_set(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     if(js_to_pointer(ctx, &nv.ptr, arg))
       return js_throw_pointer_error(ctx, arg);
   } else {
-    js_to_native_arg(ctx, v->sig.ret_kind, &nv, arg);
-
-    if(JS_HasException(ctx))
+    if(js_to_native_arg(ctx, v->sig.ret_kind, &nv, arg, 1))
       return JS_EXCEPTION;
   }
 

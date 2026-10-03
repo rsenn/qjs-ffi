@@ -310,6 +310,16 @@ value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, 
   return t;
 }
 
+/* throws a TypeError for a type spec that names no type, as bun does.
+ * `what` is "unknown type" or "unknown return type". */
+static void
+unknown_type(JSContext* ctx, const char* what, JSValueConst spec) {
+  const char* s = JS_IsArray(ctx, spec) ? NULL : JS_ToCString(ctx, spec);
+
+  JS_ThrowTypeError(ctx, "%s: %s", what, s ? s : "(not a type)");
+  JS_FreeCString(ctx, s);
+}
+
 ffi_type*
 ffi_resolve_scalar(JSContext* ctx, JSValueConst value, int* kind) {
   ffi_type* t = NULL;
@@ -352,27 +362,38 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
 
   JSValue args_val = JS_GetPropertyStr(ctx, options, "args");
 
-  if(js_try_get_length(ctx, args_val, &argc))
-    argc = 0;
+  if(!JS_IsUndefined(args_val)) {
+    if(!JS_IsArray(ctx, args_val) || js_try_get_length(ctx, args_val, &argc)) {
+      JS_FreeValue(ctx, args_val);
+      JS_ThrowTypeError(ctx, "args must be an array of types");
+      return -1;
+    }
 
-  if(argc > FFI_MAX_ARGS)
-    argc = FFI_MAX_ARGS;
+    if(argc > FFI_MAX_ARGS) {
+      JS_FreeValue(ctx, args_val);
+      JS_ThrowTypeError(ctx, "unsupported signature: at most %d arguments", FFI_MAX_ARGS);
+      return -1;
+    }
+  }
 
   for(int64_t i = 0; i < argc; i++) {
     JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
     int kind = K_I32;
     ffi_type* t = value_to_type(ctx, sig, item, &kind, 0);
 
+    if(kind >= 0 && !t)
+      unknown_type(ctx, "unknown type", item);
+
     JS_FreeValue(ctx, item);
 
-    if(kind < 0) {
+    if(kind < 0 || !t) {
       JS_FreeValue(ctx, args_val);
       ffi_sig_free(JS_GetRuntime(ctx), sig);
       return -1;
     }
 
-    types[i] = t ? t : &ffi_type_sint32;
-    kinds[i] = t ? kind : K_I32;
+    types[i] = t;
+    kinds[i] = kind;
   }
 
   JS_FreeValue(ctx, args_val);
@@ -380,7 +401,7 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
   JSValue ret_val = JS_GetPropertyStr(ctx, options, "returns");
 
   if(!JS_IsUndefined(ret_val)) {
-    int kind;
+    int kind = K_VOID;
     ffi_type* t = value_to_type(ctx, sig, ret_val, &kind, 0);
 
     if(t && kind == K_BUFFER_LENGTH) {
@@ -388,16 +409,17 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
       kind = -1;
     }
 
-    if(kind < 0) {
+    if(kind >= 0 && !t)
+      unknown_type(ctx, "unknown return type", ret_val);
+
+    if(kind < 0 || !t) {
       JS_FreeValue(ctx, ret_val);
       ffi_sig_free(JS_GetRuntime(ctx), sig);
       return -1;
     }
 
-    if(t) {
-      sig->ret_type = t;
-      sig->ret_kind = kind;
-    }
+    sig->ret_type = t;
+    sig->ret_kind = kind;
   }
 
   JS_FreeValue(ctx, ret_val);

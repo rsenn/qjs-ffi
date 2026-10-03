@@ -13,6 +13,15 @@ function sh(cmd) {
   return out;
 }
 
+function assertThrows(fn) {
+  try {
+    fn();
+  } catch(e) {
+    return e;
+  }
+  throw new Error('expected to throw');
+}
+
 function libc(name) {
   const p = dlsym(RTLD_DEFAULT, name);
   assert(p != null, 'dlsym(' + name + ') failed');
@@ -79,13 +88,13 @@ await tests({
     eq(14, symbols.twice(7));
   },
 
-  'a number that is no usable type is an unknown type: i32 as an argument, void as a return'() {
+  'a number that is no usable type is an unknown type: a TypeError, as in bun'() {
     for(const unknown of [FFIType.napi_env, FFIType.napi_value, 99, -1]) {
-      const abs = CFunction({ ptr: libc('abs'), args: [unknown], returns: FFIType.i32 });
-      const nothing = CFunction({ ptr: libc('abs'), args: [FFIType.i32], returns: unknown });
+      const inArgs = assertThrows(() => CFunction({ ptr: libc('abs'), args: [unknown], returns: FFIType.i32 }));
+      const inReturns = assertThrows(() => CFunction({ ptr: libc('abs'), args: [FFIType.i32], returns: unknown }));
 
-      eq(4, abs(-4));
-      eq(undefined, nothing(-4));
+      assert(inArgs instanceof TypeError && /unknown type: /.test(inArgs.message), String(inArgs));
+      assert(inReturns instanceof TypeError && /unknown return type: /.test(inReturns.message), String(inReturns));
     }
   },
 
@@ -221,10 +230,11 @@ await tests({
     eq(3n, strlen(new Uint8Array([97, 98, 99, 0]).buffer));
   },
 
-  'a name that neither ends in * nor is known still falls back to i32'() {
-    const abs = CFunction({ ptr: libc('abs'), args: ['no such type'], returns: 'i32' });
+  'a name that neither ends in * nor is known is a TypeError that names it'() {
+    const e = assertThrows(() => CFunction({ ptr: libc('abs'), args: ['no such type'], returns: 'i32' }));
 
-    eq(5, abs(-5));
+    assert(e instanceof TypeError && /unknown type: no such type/.test(e.message), String(e));
+    assert(/unknown return type: nope/.test(assertThrows(() => CFunction({ ptr: libc('abs'), returns: 'nope' })).message));
   },
 
   'JSCallback accepts typed pointer arguments'() {
