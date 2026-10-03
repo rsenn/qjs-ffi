@@ -7,7 +7,8 @@
 #define T(name, type, kind, id) JS_PROP_INT32_DEF(name, id, JS_PROP_C_W_E),
 #define P(name, id) JS_PROP_INT32_DEF(name, id, JS_PROP_C_W_E),
 
-const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT] = {FFI_TYPE_LIST(T) FFI_TYPE_EXTRA(P) FFI_TYPE_INDEX(P)};
+const JSCFunctionListEntry js_ffitype_funcs[FFI_TYPE_COUNT] = {FFI_TYPE_LIST(T) FFI_TYPE_EXTRA(P)
+                                                                   FFI_TYPE_INDEX(P)};
 
 #undef T
 #undef P
@@ -117,7 +118,8 @@ ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
        * a BigInt, as bun:ffi does */
       int64_t v = *(const int64_t*)p;
 
-      return v >= -9007199254740991LL && v <= 9007199254740991LL ? JS_NewInt64(ctx, v) : JS_NewBigInt64(ctx, v);
+      return v >= -9007199254740991LL && v <= 9007199254740991LL ? JS_NewInt64(ctx, v)
+                                                                 : JS_NewBigInt64(ctx, v);
     }
     case K_U64_FAST: {
       /* the unsigned type switches one value earlier, as in bun: a Number
@@ -139,8 +141,10 @@ ffi_native_to_js(JSContext* ctx, int kind, const void* p) {
 
 #define STRUCT_MAX_DEPTH 8
 #define STRUCT_MAX_ELEMENTS 1024
+#define ARRAY_MAX_ELEMENTS (1 << 20)
 
-static ffi_type* value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, int depth);
+static ffi_type* value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind,
+                               int depth);
 
 /* builds the struct type of an array of element types, owned by `sig`;
  * NULL with an exception pending on error.
@@ -200,7 +204,71 @@ struct_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int depth) {
   return st;
 }
 
-/* resolves one type spec (name, number or struct array) to its ffi_type.
+/* builds the type of `{ array: T, length: N }`: a struct of N elements of
+ * T, owned by `sig`; NULL with an exception pending on error.
+ *
+ * ```js
+ * { array: "i8", length: 4096 }  // char buf[4096]
+ * ```
+ */
+static ffi_type*
+array_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int depth) {
+  JSValue length_val = JS_GetPropertyStr(ctx, value, "length");
+  JSValue element_val = JS_GetPropertyStr(ctx, value, "array");
+  int64_t n = 0;
+  int kind = K_I32;
+  ffi_type *st = NULL, *element = NULL, **elements, **list;
+
+  if(depth >= STRUCT_MAX_DEPTH) {
+    JS_ThrowRangeError(ctx, "array type nested more than %d deep", STRUCT_MAX_DEPTH);
+    goto done;
+  }
+
+  if(!JS_IsNumber(length_val) || JS_ToInt64(ctx, &n, length_val) || n < 1 ||
+     n > ARRAY_MAX_ELEMENTS) {
+    JS_ThrowRangeError(ctx, "array type needs a length of 1 to %d", ARRAY_MAX_ELEMENTS);
+    goto done;
+  }
+
+  element = value_to_type(ctx, sig, element_val, &kind, depth + 1);
+
+  if(kind < 0)
+    goto done;
+
+  if(!element || kind == K_VOID || kind == K_BUFFER_LENGTH) {
+    JS_ThrowTypeError(ctx, "array type element is not a type name or a struct");
+    goto done;
+  }
+
+  if(!(st = js_mallocz(ctx, sizeof(ffi_type) + sizeof(ffi_type*) * (n + 1))))
+    goto done;
+
+  if(!(list = js_realloc(ctx, sig->aggregates, sizeof(ffi_type*) * (sig->aggregate_count + 1)))) {
+    js_free(ctx, st);
+    st = NULL;
+    goto done;
+  }
+
+  sig->aggregates = list;
+  sig->aggregates[sig->aggregate_count++] = st;
+
+  elements = (ffi_type**)(st + 1);
+  st->type = FFI_TYPE_STRUCT;
+  st->elements = elements;
+
+  for(int64_t i = 0; i < n; i++)
+    elements[i] = element;
+
+  elements[n] = NULL;
+
+done:
+  JS_FreeValue(ctx, length_val);
+  JS_FreeValue(ctx, element_val);
+  return st;
+}
+
+/* resolves one type spec (name, number, struct array or array object) to
+ * its ffi_type.
  * NULL means an unknown name, or with *kind set to -1 an exception is
  * pending (an invalid struct type). */
 static ffi_type*
@@ -213,6 +281,20 @@ value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, 
 
     *kind = st ? K_STRUCT : -1;
     return st;
+  }
+
+  if(JS_IsObject(value)) {
+    JSValue has = JS_GetPropertyStr(ctx, value, "array");
+    int is_array_type = !JS_IsUndefined(has);
+
+    JS_FreeValue(ctx, has);
+
+    if(is_array_type) {
+      ffi_type* st = array_type(ctx, sig, value, depth);
+
+      *kind = st ? K_STRUCT : -1;
+      return st;
+    }
   }
 
   if(JS_IsNumber(value)) {
@@ -292,7 +374,8 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
   JS_FreeValue(ctx, ret_val);
 
   if(argc) {
-    if(!(sig->arg_types = js_malloc(ctx, sizeof(ffi_type*) * argc)) || !(sig->arg_kind = js_malloc(ctx, sizeof(int) * argc))) {
+    if(!(sig->arg_types = js_malloc(ctx, sizeof(ffi_type*) * argc)) ||
+       !(sig->arg_kind = js_malloc(ctx, sizeof(int) * argc))) {
       ffi_sig_free(JS_GetRuntime(ctx), sig);
       return -1;
     }

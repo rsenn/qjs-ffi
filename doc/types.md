@@ -64,6 +64,22 @@ compiler's layout and only binds a function when it holds.
 *   A struct type also describes a [variable](dlopen.md#variables): it reads as
     an `ArrayBuffer` over the variable's memory.
 
+### Array types
+
+A C array is `{ array: type, length: n }`. It is a struct of `n` elements, so it
+is passed, returned or held as a [variable](dlopen.md#variables) the same way,
+and it nests (`int grid[3][2]` is `{ array: { array: "i32", length: 2 }, length:
+3 }`):
+
+```js
+const buf = { array: "i8", length: 4096 }; // char buf[4096]
+const sum = CFunction({ ptr, args: [{ array: "i32", length: 3 }], returns: "i32" });
+```
+
+`length` is 1 to 2^20 (1048576), a bigger or missing one throws a `RangeError`,
+and an element that is `void` or not a type throws a `TypeError`. A plain
+struct list is still limited to 1024 members, so use an array type for a long
+array.
 
 ## FFIType
 

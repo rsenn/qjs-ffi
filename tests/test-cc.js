@@ -211,6 +211,53 @@ if(typeof ffi.cc != 'function') {
       assert(assertThrows(() => (s.origin = new ArrayBuffer(8))) instanceof TypeError);
     },
 
+    'an array type { array, length } is a struct of that many elements: a variable view, any size up to 2^20'() {
+      const source = bytesOf(`
+        char buf[4096] = "hello";
+        int grid[3][2] = { { 1, 2 }, { 3, 4 }, { 5, 6 } };
+        int total(void) { int t = 0; for(int i = 0; i < 6; i++) t += ((int*)grid)[i]; return t; }
+      `);
+      const { symbols: s } = cc({
+        source,
+        symbols: {
+          buf: { type: { array: 'i8', length: 4096 } },
+          grid: { type: { array: { array: 'i32', length: 2 }, length: 3 } },
+          total: { args: [], returns: 'i32' },
+        },
+      });
+
+      eq(4096, s.buf.byteLength);
+      eq('hello', String.fromCharCode(...new Uint8Array(s.buf).subarray(0, 5)));
+      eq('1,2,3,4,5,6', [...new Int32Array(s.grid)].join());
+      new Int32Array(s.grid)[5] = 60;
+      eq(75, s.total());
+    },
+
+    'an array type is also an argument, passed by value, and a return'() {
+      const source = bytesOf(`
+        struct S { int a[3]; };
+        int sum(struct S s) { return s.a[0] + s.a[1] + s.a[2]; }
+        struct S make(int x) { struct S s = { { x, x + 1, x + 2 } }; return s; }
+      `);
+      const three = { array: 'i32', length: 3 };
+      const { symbols: s } = cc({ source, symbols: { sum: { args: [three], returns: 'i32' }, make: { args: ['i32'], returns: three } } });
+
+      eq(6, s.sum(new Int32Array([1, 2, 3]).buffer));
+      eq('5,6,7', [...new Int32Array(s.make(5))].join());
+    },
+
+    'an array type with no length, a length out of range, or a bad element throws'() {
+      const source = bytesOf('int x;');
+      const bad = type => assertThrows(() => cc({ source, symbols: { x: { type } } }));
+
+      assert(bad({ array: 'i32' }) instanceof RangeError);
+      assert(bad({ array: 'i32', length: 0 }) instanceof RangeError);
+      assert(bad({ array: 'i32', length: 2 ** 20 + 1 }) instanceof RangeError);
+      assert(bad({ array: 'void', length: 2 }) instanceof TypeError);
+      assert(bad({ array: 'nope', length: 2 }) instanceof TypeError);
+      eq(2 ** 20 * 4, cc({ source: bytesOf('int big[1 << 20];'), symbols: { big: { type: { array: 'i32', length: 2 ** 20 } } } }).symbols.big.byteLength);
+    },
+
     'cc variables: address: true is the address, as dlsym()'() {
       const source = bytesOf('int counter = 5;');
       const { symbols: s } = cc({ source, symbols: { counter: { type: 'i32', address: true } } });

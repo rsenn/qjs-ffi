@@ -49,9 +49,10 @@ await tests({
   'a variable is { type }, readonly when const, an array as nested element types'() {
     eq('{"type":"i32"}', JSON.stringify(vars.symbols.counter));
     eq('{"type":"f64","readonly":true}', JSON.stringify(vars.symbols.pi));
-    eq('{"type":["f32","f32"]}', JSON.stringify(vars.symbols.origin));
-    eq('{"type":[["i32","i32"],["i32","i32"],["i32","i32"]]}', JSON.stringify(vars.symbols.grid));
-    eq(16, vars.symbols.name_buf.type.length);
+    eq('{"type":{"array":"f32","length":2}}', JSON.stringify(vars.symbols.origin));
+    eq('{"type":{"array":{"array":"i32","length":2},"length":3}}', JSON.stringify(vars.symbols.grid));
+    eq('{"type":{"array":"i8","length":16}}', JSON.stringify(vars.symbols.name_buf));
+    eq('{"type":{"array":"i32","length":2000}}', JSON.stringify(vars.symbols.big));
     eq('{"type":"cstring"}', JSON.stringify(vars.symbols.greeting));
     eq('{"type":"void *"}', JSON.stringify(vars.symbols.handle));
   },
@@ -62,8 +63,7 @@ await tests({
   },
 
   'what has no spec is omitted with the reason'() {
-    eq('big,log_it,tail', names(vars.omitted));
-    assert(/1024 elements/.test(vars.omitted.find(o => o.name === 'big').reason));
+    eq('log_it,tail', names(vars.omitted));
     assert(/unknown size/.test(vars.omitted.find(o => o.name === 'tail').reason));
     assert(/variadic/.test(vars.omitted.find(o => o.name === 'log_it').reason));
   },
@@ -84,6 +84,7 @@ await tests({
     eq('hello', String.fromCharCode(...new Uint8Array(s.name_buf).subarray(0, 5)));
     eq('1,2', [...new Float32Array(s.origin)].join());
     eq('1,2,3,4,5,6', [...new Int32Array(s.grid)].join());
+    eq(8000, s.big.byteLength);
     eq('3,4', [...new Float32Array(s.where_)].join());
     eq('hi', s.greeting);
     eq(null, s.handle);

@@ -860,7 +860,7 @@ From the IR entry to the spec:
 | --- | --- |
 | `args: ["dx: f64"]` | `args: ["f64"]`, the names dropped |
 | `"struct vec3"` | the member types from `byValue`: `["f32", "f32", "f32"]` |
-| `type: "int[3][2]"` | nested element types: `[["i32", "i32"], ["i32", "i32"], ["i32", "i32"]]` |
+| `type: "int[3][2]"` | nested [array types](types.md#array-types): `{ array: { array: "i32", length: 2 }, length: 3 }` |
 | `const: true` | `readonly: true` |
 | `value` on a constant | not a symbol: goes to `constants` |
 
@@ -870,8 +870,7 @@ Left out, with the reason in `omitted`:
     structs by value);
 *   C++ functions (the symbol is mangled) and classes (`this`, virtual dispatch
     and constructors are not part of a spec: use the generated classes);
-*   an array of more than 1024 elements (a struct type lists at most that many
-    members per level) or of unknown size (`int tail[]`);
+*   an array of more than 2^20 elements or of unknown size (`int tail[]`);
 *   a struct that is not in `byValue`, which would otherwise reach the
     `ffi` module as an unknown type name and silently become `i32`.
 

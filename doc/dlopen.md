@@ -106,7 +106,8 @@ does (a `bigint` for `i64`, a pointer for `pointer`; see [Types](types.md)).
 *   A struct type (an array, see [structs](types.md#structs-by-value)) reads as
     an `ArrayBuffer` over the variable's own memory, with no copy: writes
     through a view reach the variable. This is also how a C array is exposed
-    (list the element type once per element). It cannot be assigned.
+    (`{ array: "i32", length: 8 }`, see [array types](types.md#array-types)). It
+    cannot be assigned.
 *   `cstring` reads the string a `char *` variable points to (`null` for NULL)
     and cannot be assigned. `function` reads as a pointer.
 *   `void` (and `buffer_length`) is a `TypeError`.

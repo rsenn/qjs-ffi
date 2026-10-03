@@ -1,16 +1,15 @@
 import { mapCType } from './types.js';
 import { isFfiType, arrayDims } from './ffi-types.js';
 
-/* the most elements one level of a struct type may list (STRUCT_MAX_ELEMENTS
- * in ffi-type.c). */
-const MAX_ELEMENTS = 1024;
+/* the most elements an array type has (ARRAY_MAX_ELEMENTS in ffi-type.c). */
+const MAX_ELEMENTS = 1 << 20;
 
 /* the spec type for one IR type, or { reason } if it has none.
  *
  *   "i32", "cstring", "T *"  as they are
  *   "unsigned char"          a C spelling, through mapCType()
  *   "struct pt"              the member types in ir.byValue
- *   "int[3][2]"              nested arrays of the element type
+ *   "int[3][2]"              nested { array, length } of the element type
  */
 function specType(ir, type) {
   const array = arrayDims(type);
@@ -25,8 +24,8 @@ function specType(ir, type) {
     let t = element.type;
 
     for(const n of [...array.dims].reverse()) {
-      if(n < 1 || n > MAX_ELEMENTS) return { reason: type + ': a struct type lists 1 to ' + MAX_ELEMENTS + ' elements, not ' + n };
-      t = Array(n).fill(t);
+      if(n < 1 || n > MAX_ELEMENTS) return { reason: type + ': an array type has 1 to ' + MAX_ELEMENTS + ' elements, not ' + n };
+      t = { array: t, length: n };
     }
 
     return { type: t };
