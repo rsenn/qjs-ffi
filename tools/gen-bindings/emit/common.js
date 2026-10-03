@@ -1,6 +1,7 @@
 import { invocationName } from '../args.js';
 import { isCxx, langArgs } from '../clang.js';
 import { mapCType } from '../types.js';
+import { FFI_NAMES } from '../ffi-types.js';
 
 const RESERVED = new Set([
   'break',
@@ -87,8 +88,6 @@ export function header(opts) {
     ' * Regenerate with:\n' +
     ' *   ' +
     invocationName() +
-    ' --api=' +
-    opts.api +
     (opts.library ? ' --library=' + opts.library : '') +
     (opts.ffiType ? ' --ffitype' : '') +
     (opts.structs ? ' --structs' : '') +
@@ -167,15 +166,6 @@ export function memberAccess(name) {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? '.' + name : '[' + jsLiteral(name) + ']';
 }
 
-/* The names of the FFIType members (ffi-type.c), i.e. the type strings
- * mapCType() may put in `.cf`. */
-const FFI_TYPE_NAMES = new Set(['void', 'bool', 'i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'i64', 'u64', 'i64_fast', 'u64_fast', 'f32', 'f64', 'pointer', 'ptr', 'function', 'cstring']);
-
-/* A pointer type is spelled "T *", for any T. */
-export function isFfiType(name) {
-  return FFI_TYPE_NAMES.has(name) || name.endsWith('*');
-}
-
 /* Whether the type string is `struct NAME`, a struct passed or returned by
  * value, as opposed to a typed pointer such as `struct NAME *`. */
 export function isByValue(t) {
@@ -188,24 +178,10 @@ function structTypeName(name) {
   return '__s_' + safeIdent(name.slice('struct '.length).replace(/::/g, '_'));
 }
 
-/* the type name legacy.js's define() takes for an FFIType name.
- *
- *   i32          sint32
- *   cstring      char *
- *   function     callback
- *   struct vec3  struct
- *   T *          T *
- */
-const LEGACY_TYPES = { void: 'void', bool: 'uint8', i8: 'sint8', u8: 'uint8', i16: 'sint16', u16: 'uint16', i32: 'sint32', u32: 'uint32', i64: 'sint64', u64: 'uint64', f32: 'float', f64: 'double', cstring: 'char *', function: 'callback' };
-
-export function legacyType(name) {
-  return LEGACY_TYPES[name] || (isByValue(name) ? 'struct' : name);
-}
-
 export function cfType(name, opts) {
   if(isByValue(name)) return structTypeName(name);
 
-  return opts.ffiType && FFI_TYPE_NAMES.has(name) ? 'FFIType.' + name : jsLiteral(name);
+  return opts.ffiType && FFI_NAMES.has(name) ? 'FFIType.' + name : jsLiteral(name);
 }
 
 /* `const __s_NAME = [...];` for each struct in `used` (names), the member
@@ -234,5 +210,3 @@ export function wrapReturn(returnType, expr, opts) {
 
   return ident ? '__ret(' + ident + ',' + expr + ')' : expr;
 }
-
-export const DEFINE_SYM = 'function __sym(name) {\n  const p = dlsym(__LIB__, name);\n  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n  return p;\n}\n';

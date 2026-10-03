@@ -154,10 +154,4 @@ await tests({
 
     assert(threw !== null, 'a deleted object must not be callable');
   },
-
-  '--api=define keeps binding by symbol: no vtable call is generated'() {
-    const text = gen('test-gen-bindings-virtual.define.js', '--api=define') && std.loadFile(tmp + 'test-gen-bindings-virtual.define.js');
-
-    assert(text !== null && !text.includes('__virtual('), 'define must not use __virtual');
-  },
 });

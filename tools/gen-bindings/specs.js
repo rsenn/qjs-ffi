@@ -1,8 +1,5 @@
 import { mapCType } from './types.js';
-
-/* the type names the ffi module knows; the IR already uses them for
- * everything it could map (see mapCType()). */
-const FFI_NAMES = new Set(['void', 'bool', 'i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'i64', 'u64', 'i64_fast', 'u64_fast', 'f32', 'f64', 'pointer', 'cstring', 'function']);
+import { isFfiType, arrayDims } from './ffi-types.js';
 
 /* the most elements one level of a struct type may list (STRUCT_MAX_ELEMENTS
  * in ffi-type.c). */
@@ -16,20 +13,18 @@ const MAX_ELEMENTS = 1024;
  *   "int[3][2]"              nested arrays of the element type
  */
 function specType(ir, type) {
-  const array = /^(.*?)((?:\[\d*\])+)$/.exec(type);
+  const array = arrayDims(type);
 
   if(array) {
-    const dims = [...array[2].matchAll(/\[(\d*)\]/g)].map(m => m[1]);
+    if(array.dims.includes(null)) return { reason: type + ': an array of unknown size' };
 
-    if(dims.some(d => d === '')) return { reason: type + ': an array of unknown size' };
-
-    const element = specType(ir, array[1].trim());
+    const element = specType(ir, array.elem);
 
     if(element.reason) return element;
 
     let t = element.type;
 
-    for(const n of dims.reverse().map(Number)) {
+    for(const n of [...array.dims].reverse()) {
       if(n < 1 || n > MAX_ELEMENTS) return { reason: type + ': a struct type lists 1 to ' + MAX_ELEMENTS + ' elements, not ' + n };
       t = Array(n).fill(t);
     }
@@ -41,7 +36,7 @@ function specType(ir, type) {
 
   if(struct) return ir.byValue && ir.byValue[struct[1]] ? { type: ir.byValue[struct[1]] } : { reason: type + ' is not laid out, it cannot be passed or held by value' };
 
-  if(FFI_NAMES.has(type) || /\*\s*$/.test(type)) return { type };
+  if(isFfiType(type.trim())) return { type };
 
   const m = mapCType(type, null, null);
 

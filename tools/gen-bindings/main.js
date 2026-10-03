@@ -5,7 +5,7 @@ import { collectIR, newIR, mergeIR } from './ir.js';
 import { resolveByValue } from './by-value.js';
 import { nameCollisions } from './names.js';
 import { bindable, setNamespaces } from './emit/common.js';
-import { generateCFunction, generateDefine } from './emit/functions.js';
+import { generateCFunction } from './emit/functions.js';
 import { irToSpecs } from './specs.js';
 import { toSource } from './source.js';
 
@@ -16,11 +16,6 @@ export function main() {
   } catch(e) {
     std.err.puts('gen-bindings.js: ' + e.message + '\n');
     usage();
-    std.exit(1);
-  }
-
-  if(opts.finalize && opts.api === 'define') {
-    std.err.puts('gen-bindings.js: --finalize needs --api=cfunction\n');
     std.exit(1);
   }
 
@@ -83,7 +78,7 @@ export function main() {
 
   const specs = opts.emitSpecs ? irToSpecs(ir, { library: opts.library }) : null;
   const data = opts.emitIr ? ir : specs;
-  const out = data ? (opts.js || (opts.emitSpecs === true && !opts.json) ? toSource(data) : JSON.stringify(data, null, 2) + '\n') : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
+  const out = data ? (opts.js || (opts.emitSpecs === true && !opts.json) ? toSource(data) : JSON.stringify(data, null, 2) + '\n') : generateCFunction(ir, opts);
   const dest = opts.emitIr || (typeof opts.emitSpecs == 'string' && opts.emitSpecs) || opts.output;
 
   if(dest) {

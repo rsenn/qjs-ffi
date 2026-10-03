@@ -1,5 +1,5 @@
 import { bindable, flattenName, safeIdent } from './emit/common.js';
-import { identOf } from './structs.js';
+import { identOf } from './emit/structs.js';
 
 /* The names the generated module would export twice, because --namespace
  * dropped what told them apart: [{ ident, entities: ['class a::Foo', ...] }].

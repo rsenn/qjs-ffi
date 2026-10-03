@@ -391,17 +391,6 @@ await tests({
     });
   },
 
-  'the define API with --structs emits working classes too'() {
-    return withGenerated(['--std=c++17', '--api=define', '--structs'], async m => {
-      const s = new m.geo_Shape(3, 2.0);
-      try {
-        eq(6, s.area());
-      } finally {
-        s.delete();
-      }
-    });
-  },
-
   '--describe: describeClass()/describeObject() report parameter names, C types and overloads'() {
     return withGenerated(['--std=c++17', '--describe'], async m => {
       const { describeClass } = await import('../../qjs-modules/lib/describe-class.js');

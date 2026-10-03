@@ -1,7 +1,7 @@
-import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn, legacyType } from './common.js';
+import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn } from './common.js';
 import { sigCode } from './describe.js';
 import { jsDoc } from './jsdoc.js';
-import { classesCode as structClasses, mergeIRs } from '../structs.js';
+import { classesCode as structClasses, mergeIRs } from './structs.js';
 
 /* Runtime support for the generated C++ classes, emitted verbatim after
  * VIEW_HELPERS. A class's `__info` is { size, ctors, dtor, zeroInit }; ctors
@@ -161,17 +161,17 @@ class __CxxObject extends ArrayBuffer {
  * name is exported with a leading underscore. */
 const CLASS_RESERVED_MEMBERS = new Set(['constructor', 'ptr', 'from', 'at', 'delete', 'byteLength', 'maxByteLength', 'resizable', 'resize', 'slice', 'transfer', 'transferToFixedLength', 'detached', 'toString', 'valueOf']);
 
-/* One CFunction()/__bind() expression for a constructor, method or
- * destructor symbol; `thisType` ("ns::Class *"), if given, is the type of the
- * implicit `this` pointer prepended to the parameters. With a vtable `slot`
- * (--api=cfunction) the call goes through the object's vtable instead, to
- * whatever overrides the method in the object's real class. */
+/* the CFunction expression for one constructor, method or destructor.
+ *
+ *   string  symbol    the mangled name to look up
+ *   object  entry     the IR entry: its args and returns
+ *   string  thisType  "ns::Class *", prepended as the implicit `this`
+ *   number  slot      a vtable slot: the call goes through the object's
+ *                     vtable, to what its real class overrides
+ */
 function classFn(symbol, entry, thisType, opts, slot) {
   const cf = [...(thisType ? [thisType] : []), ...paramTypes(entry)];
-  const def = cf.map(legacyType);
-  const virtual = slot !== undefined && opts.api !== 'define';
-
-  if(opts.api === 'define') return '__bind(' + jsLiteral(symbol) + ',' + jsLiteral(legacyType(entry.returns || 'void')) + def.map(t => ',' + jsLiteral(t)).join('') + ')';
+  const virtual = slot !== undefined;
 
   const types = 'args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returns || 'void', opts);
 
@@ -215,7 +215,7 @@ function orderClasses(classes) {
  * non-virtually.
  *
  * With --structs the plain structs and unions of `ir` are emitted too, as
- * ArrayBuffer classes (see classesCode() in ../structs.js, which emits both
+ * ArrayBuffer classes (see classesCode() in structs.js, which emits both
  * kinds in dependency order).
  */
 export function classesCode(ir, classes, opts, cxxFunctions) {

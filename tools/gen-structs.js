@@ -52,7 +52,7 @@
  *   -h, --help        show this help
  */
 import * as std from 'std';
-import { loadIR, generate, generateC } from './gen-bindings/structs.js';
+import { loadIR, generate, generateC } from './gen-bindings/emit/structs.js';
 
 function usage() {
   std.err.puts(

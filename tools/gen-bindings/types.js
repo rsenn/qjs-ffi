@@ -1,3 +1,4 @@
+import { FFI_SIZES, arrayOf } from './ffi-types.js';
 import { collectTypedefs, collectEnumIndex } from './ir.js';
 import { bindable } from './emit/common.js';
 
@@ -100,21 +101,16 @@ const BASE_TYPES = {
   __uintptr_t: { cf: 'u64' },
 };
 
-/* Byte size of each FFIType name; `long double` (mapped to f64, lossy) is
- * the exception, see sizeOfC(). */
-const FFI_SIZES = { bool: 1, i8: 1, u8: 1, i16: 2, u16: 2, i32: 4, u32: 4, i64: 8, u64: 8, i64_fast: 8, u64_fast: 8, f32: 4, f64: 8, pointer: 8, ptr: 8, function: 8, cstring: 8 };
-
 /* Byte size of the C type `cType`, whose mapCType() result is `m`, from the
  * type alone (scalars, pointers, arrays of those), or null. Only a fallback
  * for what the layout probe could not size. */
 export function sizeOfC(m, cType, typedefs, enumIndex) {
-  const array = /^(.*?)\s*((?:\[\d+\])+)$/.exec(cType);
+  const array = arrayOf(cType);
 
   if(array) {
-    const elem = sizeOfC(mapCType(array[1], typedefs, enumIndex), array[1], typedefs, enumIndex);
-    const count = [...array[2].matchAll(/\[(\d+)\]/g)].reduce((n, d) => n * Number(d[1]), 1);
+    const elem = sizeOfC(mapCType(array.elem, typedefs, enumIndex), array.elem, typedefs, enumIndex);
 
-    return elem === null ? null : elem * count;
+    return elem === null ? null : elem * array.count;
   }
 
   if(!m.supported) return null;

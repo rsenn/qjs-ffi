@@ -1,4 +1,5 @@
-import { SIZES, scalarOf, arrayOf, recordOf, mergeIRs, identOf } from './structs.js';
+import { SIZES, arrayOf } from './ffi-types.js';
+import { scalarOf, recordOf, mergeIRs, identOf } from './emit/structs.js';
 
 /* Structs passed or returned by value. CFunction takes such a type as an array
  * of the struct's members' types in memory order (a nested struct a nested
@@ -167,8 +168,7 @@ export function prepareByValue(ir, opts) {
  * either a plain C struct whose layout elementsOf() can reproduce, which then
  * is `struct NAME` in the entry's types, with its element list in
  * `ir.byValue[NAME]`, or the function is moved to `ir.skipped` with the
- * reason it would have had without by-value support. `opts.api` define has
- * no struct type, so there all of them are skipped.
+ * reason it would have had without by-value support.
  */
 export function resolveByValue(ir, opts) {
   const index = mergeIRs([{ structs: ir.structs, classes: [], typedefs: ir.typedefs || [], enums: [] }]);
@@ -185,7 +185,6 @@ export function resolveByValue(ir, opts) {
       const name = recordOf(b.name, index);
       const rec = name && index.structs.get(name);
 
-      if(opts.api === 'define') return where + ': struct passed by value needs --api=cfunction';
       if(!rec) return where + ': ' + b.reason;
 
       const r = elementsOf(rec, index, memo);

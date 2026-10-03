@@ -195,18 +195,6 @@ await tests({
     });
   },
 
-  'gen-bindings: with --api=define a struct by value is skipped, define() has no struct type'() {
-    const file = tmp + 'test-struct-by-value.define.ir.json';
-
-    sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--api=define', '--emit-ir=' + file, root + 'tests/cxx/byvalue.h'].join(' '));
-
-    const ir = JSON.parse(std.loadFile(file));
-
-    assert(!ir.methods.some(m => m.name === 'vec3_add'), 'vec3_add must not be bound');
-    assert(ir.skipped.some(s => s.name === 'vec3_add' && /needs --api=cfunction/.test(s.reason)), JSON.stringify(ir.skipped.slice(0, 2)));
-    assert(ir.methods.some(m => m.name === 'calls_made'), 'plain functions stay');
-  },
-
   'many calls with big structs do not leak or crash'() {
     const make = fn('big_make', ['i64'], BIG);
     const sum = fn('big_sum', [BIG], 'i64');

@@ -12,137 +12,103 @@ export function invocationName() {
   return base.endsWith('.js') ? 'qjsm ' + s : base;
 }
 
+/* every option, once: the parser and the help text are made from this.
+ *
+ *   names     the spellings, long ones first; -X takes its value
+ *             attached (-Idir) or as the next argument (-I dir)
+ *   arg       the value's name in the help; without it the option is a flag
+ *   key       the opts property it sets
+ *   list      the value is added to an array
+ *   set       what a flag stores (default true)
+ *   def       the default of `key` (false, null with `arg`, [] a list)
+ *   next      --name may take the next argument as its value
+ *   optional  --name alone is allowed and stores true
+ *   help      one line for --help
+ */
+const OPTIONS = [
+  { names: ['--follow-includes'], key: 'followIncludes', help: "also bind headers included from under each source's directory" },
+  { names: ['--ffitype'], key: 'ffiType', help: 'write types as FFIType.i32 instead of "i32"' },
+  { names: ['--structs'], key: 'structs', help: 'also wrap structs/unions as ArrayBuffer classes, and extern variables' },
+  { names: ['--describe'], key: 'describe', help: 'name parameters in signatures, attach types as fn[Symbol.for("describe")]' },
+  { names: ['--finalize'], key: 'finalize', help: 'also destroy C++ objects made with new when they are garbage collected' },
+  { names: ['--jsdoc'], key: 'jsdoc', help: 'JSDoc comments with parameter and return types on functions, methods, classes' },
+  { names: ['--exclude'], arg: '<name>', key: 'excludes', list: true, help: 'do not bind this function (repeatable)' },
+  { names: ['--c++'], key: 'cxx', help: 'parse every source as C++ (implied by .cc/.cpp/.cxx/.hh/.hpp/.hxx)' },
+  { names: ['--std'], arg: '<std>', key: 'std', help: 'C++ standard for clang, e.g. c++17 (C++ sources only)' },
+  { names: ['--namespace'], arg: '<name>', key: 'namespaces', list: true, help: 'drop the C++ namespace prefix from names (stk::Foo -> Foo, not stk_Foo), repeatable' },
+  { names: ['-I', '--include'], arg: '<dir>', key: 'includes', list: true, help: 'extra clang include dir (repeatable)' },
+  { names: ['-D', '--define'], arg: '<name[=val]>', key: 'defines', list: true, help: 'extra clang macro define (repeatable)' },
+  { names: ['--library'], arg: '<path>', key: 'library', help: 'dlopen() this shared library instead of RTLD_DEFAULT' },
+  { names: ['--clang'], arg: '<path>', key: 'clang', def: 'clang', help: 'clang binary to invoke (default: clang)' },
+  { names: ['--emit-ir'], arg: '<file>', key: 'emitIr', help: 'write the intermediate JSON and stop' },
+  { names: ['--emit-specs'], arg: '<file>', key: 'emitSpecs', optional: true, help: 'write the dlopen() symbol specs and stop; without a file to stdout, as a JS module unless --json' },
+  { names: ['--js'], key: 'js', help: 'write --emit-ir/--emit-specs output as a JS module (export default)' },
+  { names: ['--json'], key: 'json', help: 'write it as JSON (the default, except for a bare --emit-specs)' },
+  { names: ['--from-ir'], arg: '<file>', key: 'fromIr', help: 'generate from this IR (JSON, or JS from --js) instead of running clang' },
+  { names: ['--cache-dir'], arg: '<dir>', key: 'cacheDir', def: '.tmp/gen-bindings', help: 'condensed-AST cache directory (default: .tmp/gen-bindings)' },
+  { names: ['--no-cache'], key: 'cache', set: false, def: true, help: 'ignore and do not write the condensed-AST cache' },
+  { names: ['-o', '--output'], arg: '<path>', key: 'output', next: true, help: 'write generated JS here instead of stdout' },
+  { names: ['-h', '--help'], key: 'help', help: 'show this help' },
+];
+
+/* the spelling of an option in the help: --std=<std>, -I<dir>, --js. */
+const spell = (o, n) => (o.arg ? (n.startsWith('--') ? (o.optional ? n + '[=' + o.arg + ']' : n + '=' + o.arg) : n + ' ' + o.arg) : n);
+
+/* the help text, one line per option. */
 export function usage() {
-  std.err.puts(
-    'Usage: ' +
-      invocationName() +
-      ' [options] <source.c>... | --from-ir=<ir.json>\n' +
-      '  --api=cfunction|define   which qjs-ffi API to target (default: cfunction)\n' +
-      "  --follow-includes        also bind headers included from under each source's directory\n" +
-      '  --ffitype                write types as FFIType.i32 instead of "i32" (cfunction API only)\n' +
-      '  --structs                also wrap structs/unions as ArrayBuffer classes, and extern variables\n' +
-      '  --describe               name parameters in signatures, attach types as fn[Symbol.for("describe")]\n' +
-      '  --finalize               also destroy C++ objects made with new when they are garbage collected\n' +
-      '  --jsdoc                  JSDoc comments with parameter and return types on functions, methods, classes\n' +
-      '  --exclude=<name>         do not bind this function(repeatable)\n' +
-      '  --c++                    parse every source as C++ (implied by .cc/.cpp/.cxx/.hh/.hpp/.hxx)\n' +
-      '  --std=<std>              C++ standard for clang, e.g. c++17 (C++ sources only)\n' +
-      '  --namespace=<name>       drop the C++ namespace prefix from class/function names (stk::Foo -> Foo, not stk_Foo), repeatable\n' +
-      '  -I<dir>                 extra clang include dir (repeatable)\n' +
-      '  -D<name[=val]>           extra clang macro define (repeatable)\n' +
-      '  --library=<path>         dlopen() this shared library instead of RTLD_DEFAULT\n' +
-      '  --clang=<path>           clang binary to invoke (default: clang)\n' +
-      '  --emit-ir=<file>         write the intermediate JSON and stop\n' +
-      '  --emit-specs=<file>      write the dlopen() symbol specs as JSON and stop\n' +
-      '  --emit-specs             the same to stdout, as a JS module unless --json\n' +
-      '  --js                     write --emit-ir/--emit-specs output as a JS module (export default)\n' +
-      '  --json                   write it as JSON (the default, except for a bare --emit-specs)\n' +
-      '  --from-ir=<file>         generate from this IR (JSON, or JS from --js) instead of running clang\n' +
-      '  --cache-dir=<dir>        condensed-AST cache directory (default: .tmp/gen-bindings)\n' +
-      '  --no-cache               ignore and do not write the condensed-AST cache\n' +
-      '  -o, --output=<path>      write generated JS here instead of stdout\n' +
-      '  -h, --help               show this help\n',
-  );
+  const rows = OPTIONS.map(o => [o.names.map(n => spell(o, n)).join(', '), o.help]);
+  const width = Math.max(...rows.map(r => r[0].length));
+
+  std.err.puts('Usage: ' + invocationName() + ' [options] <source.c>... | --from-ir=<ir.json>\n' + rows.map(([flags, help]) => '  ' + flags.padEnd(width + 2) + help + '\n').join(''));
 }
 
-export function parseArgs(argv) {
-  const opts = {
-    api: 'cfunction',
-    includes: [],
-    defines: [],
-    library: null,
-    clang: 'clang',
-    output: null,
-    sources: [],
-    followIncludes: false,
-    excludes: [],
-    ffiType: false,
-    structs: false,
-    finalize: false,
-    describe: false,
-    jsdoc: false,
-    cxx: false,
-    std: null,
-    namespaces: [],
-    emitIr: null,
-    emitSpecs: null,
-    js: false,
-    json: false,
-    fromIr: null,
-    cacheDir: '.tmp/gen-bindings',
-    cache: true,
-  };
-
-  for(let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-
-    if(a === '-h' || a === '--help') {
-      usage();
-      std.exit(0);
-    } else if(a.startsWith('--api=')) {
-      opts.api = a.slice('--api='.length);
-    } else if(a.startsWith('--exclude=')) {
-      opts.excludes.push(a.slice('--exclude='.length));
-    } else if(a === '--ffitype') {
-      opts.ffiType = true;
-    } else if(a === '--structs') {
-      opts.structs = true;
-    } else if(a === '--finalize') {
-      opts.finalize = true;
-    } else if(a === '--describe') {
-      opts.describe = true;
-    } else if(a === '--jsdoc') {
-      opts.jsdoc = true;
-    } else if(a === '--c++') {
-      opts.cxx = true;
-    } else if(a.startsWith('--std=')) {
-      opts.std = a.slice('--std='.length);
-    } else if(a.startsWith('--namespace=')) {
-      opts.namespaces.push(a.slice('--namespace='.length));
-    } else if(a === '--follow-includes') {
-      opts.followIncludes = true;
-    } else if(a.startsWith('-I')) {
-      opts.includes.push(a.slice(2) || argv[++i]);
-    } else if(a.startsWith('--include=')) {
-      opts.includes.push(a.slice('--include='.length));
-    } else if(a.startsWith('-D')) {
-      opts.defines.push(a.slice(2) || argv[++i]);
-    } else if(a.startsWith('--define=')) {
-      opts.defines.push(a.slice('--define='.length));
-    } else if(a.startsWith('--library=')) {
-      opts.library = a.slice('--library='.length);
-    } else if(a.startsWith('--emit-ir=')) {
-      opts.emitIr = a.slice('--emit-ir='.length);
-    } else if(a === '--js') {
-      opts.js = true;
-    } else if(a === '--json') {
-      opts.json = true;
-    } else if(a === '--emit-specs') {
-      opts.emitSpecs = true;
-    } else if(a.startsWith('--emit-specs=')) {
-      opts.emitSpecs = a.slice('--emit-specs='.length);
-      if(!opts.emitSpecs) throw new Error('--emit-specs= needs a file name');
-    } else if(a.startsWith('--from-ir=')) {
-      opts.fromIr = a.slice('--from-ir='.length);
-    } else if(a.startsWith('--cache-dir=')) {
-      opts.cacheDir = a.slice('--cache-dir='.length);
-    } else if(a === '--no-cache') {
-      opts.cache = false;
-    } else if(a.startsWith('--clang=')) {
-      opts.clang = a.slice('--clang='.length);
-    } else if(a === '-o' || a === '--output') {
-      opts.output = argv[++i];
-    } else if(a.startsWith('--output=')) {
-      opts.output = a.slice('--output='.length);
-    } else if(a.startsWith('-')) {
-      throw new Error('unknown option: ' + a);
-    } else {
-      opts.sources.push(a);
+/* the option `arg` spells, with its value, or null. `next` gives the
+ * following argument for an option that takes it. */
+function matchOption(arg, next) {
+  for(const o of OPTIONS) {
+    for(const n of o.names) {
+      if(!o.arg) {
+        if(arg === n) return { o };
+      } else if(n.startsWith('--')) {
+        if(arg.startsWith(n + '=')) return { o, value: arg.slice(n.length + 1) };
+        if(arg === n && o.optional) return { o, value: true };
+        if(arg === n && o.next) return { o, value: next() };
+      } else if(arg.startsWith(n)) {
+        return { o, value: arg.length > n.length ? arg.slice(n.length) : next() };
+      }
     }
   }
 
-  if(opts.api !== 'cfunction' && opts.api !== 'define') throw new Error('--api must be "cfunction" or "define", got: ' + opts.api);
-  if(opts.ffiType && opts.api !== 'cfunction') throw new Error('--ffitype only applies to --api=cfunction');
+  return null;
+}
+
+export function parseArgs(argv) {
+  const opts = {};
+
+  for(const o of OPTIONS) opts[o.key] = 'def' in o ? o.def : o.list ? [] : o.arg ? null : false;
+
+  opts.sources = [];
+
+  for(let i = 0; i < argv.length; i++) {
+    const m = matchOption(argv[i], () => argv[++i]);
+
+    if(m) {
+      if(m.o.key === 'help') {
+        usage();
+        std.exit(0);
+      }
+
+      if(m.o.key === 'emitSpecs' && m.value === '') throw new Error('--emit-specs= needs a file name');
+
+      if(m.o.list) opts[m.o.key].push(m.value);
+      else opts[m.o.key] = m.o.arg ? m.value : 'set' in m.o ? m.o.set : true;
+    } else if(argv[i].startsWith('-')) {
+      throw new Error('unknown option: ' + argv[i]);
+    } else {
+      opts.sources.push(argv[i]);
+    }
+  }
+
   if(opts.fromIr && opts.sources.length) throw new Error('--from-ir takes no <source.c> arguments');
   if(opts.fromIr && opts.emitIr) throw new Error('--from-ir and --emit-ir cannot be combined');
   if((opts.js || opts.json) && !opts.emitIr && !opts.emitSpecs) throw new Error('--js and --json need --emit-ir or --emit-specs');
@@ -152,5 +118,3 @@ export function parseArgs(argv) {
 
   return opts;
 }
-
-/* --- clang invocation --------------------------------------------------- */

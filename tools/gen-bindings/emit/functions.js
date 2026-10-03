@@ -1,8 +1,8 @@
-import { safeIdent, header, skippedComment, bindable, paramTypes, jsLiteral, cfType, structTypesCode, usedStructs, wrapReturn, legacyType } from './common.js';
+import { safeIdent, header, skippedComment, bindable, paramTypes, jsLiteral, cfType, structTypesCode, usedStructs, wrapReturn } from './common.js';
 import { prepareByValue } from '../by-value.js';
 import { describedFunction, DESCRIBE_HELPERS } from './describe.js';
 import { jsDoc } from './jsdoc.js';
-import { runtimeCode, variablesCode, needsRuntime } from './structs.js';
+import { runtimeCode, variablesCode, needsRuntime } from './runtime.js';
 import { classesCode } from './classes.js';
 
 /* Emits `export const NAME = value;` for every constant variable whose value
@@ -70,7 +70,7 @@ export function generateCFunction(ir, opts) {
   if(opts.describe) out += DESCRIBE_HELPERS;
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
-  if(needsRuntime(ir, opts, classes)) out += runtimeCode(opts);
+  if(needsRuntime(ir, opts, classes)) out += runtimeCode();
   out += variablesCode(ir, opts) + classesCode(ir, classes, opts, cxxFunctions);
   out += structTypesCode(ir, usedStructs([...functions, ...cxxFunctions, ...classes.flatMap(c => [...c.methods, ...c.constructors])]), opts);
   out += '\n';
@@ -89,56 +89,3 @@ export function generateCFunction(ir, opts) {
   out += skippedComment(ir.skipped);
   return out;
 }
-
-export function generateDefine(ir, opts) {
-  const { functions, cxxFunctions, classes, enums } = bindable(ir, opts);
-  const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
-  const views = opts.structs || classes.length > 0 || cxxFunctions.length > 0;
-  const imports = [
-    'dlsym',
-    views ? 'toArrayBuffer' : null,
-    views ? 'read as __rd' : null,
-    views ? 'ptr as __ptr' : null,
-    views ? 'toString as __cstr' : null,
-    opts.library ? 'dlopen' : null,
-    opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
-  ].filter(Boolean);
-
-  let out = header(opts);
-  out += 'import { ' + imports.join(', ') + " } from 'ffi';\nimport { define, call } from 'legacy.js';\n\n";
-
-  if(opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
-
-  out +=
-    'function __bind(name, rtype, ...argtypes) {\n' +
-    '  const p = dlsym(' +
-    lib +
-    ', name);\n' +
-    '  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' +
-    '  if(!define(name, p, null, rtype, ...argtypes))\n' +
-    '    throw new Error("gen-bindings: define() failed for " + name);\n' +
-    '  return (...args) => call(name, ...args);\n' +
-    '}\n';
-  if(opts.describe) out += DESCRIBE_HELPERS;
-  out += enumConstantsCode(enums);
-  out += constantsCode(ir.fields);
-  if(needsRuntime(ir, opts, classes)) out += runtimeCode(opts);
-  out += variablesCode(ir, opts) + classesCode(ir, classes, opts, cxxFunctions);
-  out += '\n';
-
-  for(const fn of functions) {
-    const args = paramTypes(fn).map(t => jsLiteral(legacyType(t)));
-    const ident = safeIdent(fn.name);
-    const impl = '__bind(' + jsLiteral(fn.name) + ',' + jsLiteral(legacyType(fn.returns || 'void')) + (args.length ? ',' + args.join(',') : '') + ')';
-
-    const doc = opts.jsdoc ? jsDoc([fn.name], [fn], new Set(classes.map(c => c.name)), '') : '';
-
-    out += opts.describe ? describedFunction(ident, fn, impl, doc) : doc + 'export const ' + ident + ' = ' + impl + ';\n';
-    if(ident !== fn.name) out += '// note: "' + fn.name + '" is a reserved word, exported above as "' + ident + '"\n';
-  }
-
-  out += skippedComment(ir.skipped);
-  return out;
-}
-
-/* --- main ----------------------------------------------------------------- */

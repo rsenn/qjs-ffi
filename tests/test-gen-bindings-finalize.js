@@ -163,9 +163,9 @@ await tests({
     return settle().then(() => eq(alive, fin.Animal.alive()));
   },
 
-  '--finalize with --api=define is refused'() {
-    const out = sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--api=define', '--finalize', root + 'tests/cxx/virt.hpp'].join(' '));
+  '--api is not an option any more: only the CFunction output is made'() {
+    const out = sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--api=define', root + 'tests/cxx/virt.hpp'].join(' '));
 
-    assert(/--finalize needs --api=cfunction/.test(out), out);
+    assert(/unknown option: --api=define/.test(out), out);
   },
 });
