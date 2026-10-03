@@ -372,8 +372,10 @@ export function collectIR(root, isSourceFile, idPrefix) {
    * recording why in `skipped` under `label`.
    */
   function callable(node, label) {
-    if(node.variadic) {
-      ir.skipped.push({ name: label, reason: 'variadic functions are not supported' });
+    // a C function can be variadic (the CFunction takes (type, value) pairs after
+    // the fixed arguments); a C++ one has a mangled name and is not supported
+    if(node.variadic && node.mangledName && node.mangledName !== node.name) {
+      ir.skipped.push({ name: label, reason: 'variadic C++ functions are not supported' });
       return null;
     }
 
@@ -416,6 +418,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
       isConst: split.isConst,
       args: params.map(p => p.name + ': ' + p.type.cf),
       returns: retMap.cf,
+      ...(node.variadic ? { variadic: true } : {}),
       enums: [...new Set(used)].map(id => idPrefix + id),
       ...(byValue.length ? { byValue } : {}),
     };
@@ -583,6 +586,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
  * { name: "geom_move", kind: "function",
  *   args: ["s: shape *", "dx: f64"],  // "name: type", an FFIType name
  *   returns: "i32",
+ *   variadic: true,                   // only for a variadic C function
  *   enums: ["0:0x5e10..."] }          // ids of the enums it uses
  * ```
  *

@@ -20,6 +20,8 @@ typedef struct CFunctionData {
   void* fp;
   ffi_cif cif;
   FFISignature sig;
+  int abi;
+  int variadic; /* the arguments after sig's come as (type, value) pairs */
 } CFunctionData;
 
 static JSClassID js_cfunction_class_id;
@@ -85,6 +87,7 @@ js_cfunction_new(JSContext* ctx, void* fp, JSValueConst spec) {
 
   if(JS_IsObject(spec)) {
     JSValue abi_val = JS_GetPropertyStr(ctx, spec, "abi");
+    JSValue variadic_val = JS_GetPropertyStr(ctx, spec, "variadic");
 
     if(!JS_IsUndefined(abi_val)) {
       const char* s = JS_ToCString(ctx, abi_val);
@@ -92,9 +95,12 @@ js_cfunction_new(JSContext* ctx, void* fp, JSValueConst spec) {
       JS_FreeCString(ctx, s);
     }
 
+    cf->variadic = JS_ToBool(ctx, variadic_val) > 0;
     JS_FreeValue(ctx, abi_val);
+    JS_FreeValue(ctx, variadic_val);
   }
 
+  cf->abi = abi;
   cf->fp = fp;
 
   if(ffi_prep_cif(&cf->cif, abi, cf->sig.argc, cf->sig.ret_type, cf->sig.arg_types) != FFI_OK) {
@@ -104,6 +110,73 @@ js_cfunction_new(JSContext* ctx, void* fp, JSValueConst spec) {
   }
 
   return cf;
+}
+
+/* a variadic call: the arguments after the fixed ones are (type, value)
+ * pairs. fills kinds/types/vals for all of them and prepares `cif`, which
+ * the C default argument promotions shape: a type narrower than an int is
+ * an int, a float a double.
+ *
+ * ```js
+ * printf("%d %f\n", "i32", 5, "f64", 2.5);
+ * ```
+ *
+ *   returns  0, or -1 with an exception pending
+ */
+static int
+js_cfunction_variadic(JSContext* ctx, CFunctionData* cf, int argc, JSValueConst argv[], int* kinds,
+                      ffi_type** types, JSValueConst* vals, ffi_cif* cif, int* count) {
+  int fixed = cf->sig.argc;
+  int extra = argc > fixed ? argc - fixed : 0;
+
+  if(extra % 2) {
+    JS_ThrowTypeError(ctx, "CFunction: the arguments after the fixed ones are (type, value) pairs");
+    return -1;
+  }
+
+  if(fixed + extra / 2 > FFI_MAX_ARGS) {
+    JS_ThrowRangeError(ctx, "CFunction: at most %d arguments", FFI_MAX_ARGS);
+    return -1;
+  }
+
+  for(int i = 0; i < fixed; i++) {
+    kinds[i] = cf->sig.arg_kind[i];
+    types[i] = cf->sig.arg_types[i];
+    vals[i] = i < argc ? argv[i] : JS_UNDEFINED;
+  }
+
+  for(int j = 0; j < extra / 2; j++) {
+    int kind = K_I32;
+    ffi_type* t = ffi_resolve_scalar(ctx, argv[fixed + 2 * j], &kind);
+
+    if(!t) {
+      JS_ThrowTypeError(ctx, "CFunction: argument %d is not a scalar type name (a variadic type)",
+                        fixed + 2 * j + 1);
+      return -1;
+    }
+
+    switch(kind) {
+      case K_BOOL:
+      case K_I8:
+      case K_U8:
+      case K_I16:
+      case K_U16: kind = K_I32, t = &ffi_type_sint32; break;
+      case K_F32: kind = K_F64, t = &ffi_type_double; break;
+    }
+
+    kinds[fixed + j] = kind;
+    types[fixed + j] = t;
+    vals[fixed + j] = argv[fixed + 2 * j + 1];
+  }
+
+  *count = fixed + extra / 2;
+
+  if(ffi_prep_cif_var(cif, cf->abi, fixed, *count, cf->sig.ret_type, types) != FFI_OK) {
+    JS_ThrowTypeError(ctx, "CFunction: ffi_prep_cif_var failed");
+    return -1;
+  }
+
+  return 0;
 }
 
 /* JSClassDef.call of CFunction: ffi_call() on the stored cif.
@@ -116,6 +189,10 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
   union native_value args_storage[FFI_MAX_ARGS];
   void* ptrs[FFI_MAX_ARGS];
   const char* cstrings[FFI_MAX_ARGS];
+  JSValueConst vals[FFI_MAX_ARGS];
+  int kinds_buf[FFI_MAX_ARGS];
+  ffi_type* types_buf[FFI_MAX_ARGS];
+  ffi_cif vcif;
   int cstring_count = 0;
   union native_value rc;
   JSValue ret;
@@ -123,20 +200,37 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
   if(!cf)
     return JS_ThrowTypeError(ctx, "CFunction: invalid function");
 
-  for(int i = 0; i < cf->sig.argc; i++) {
-    JSValueConst v = i < argc ? argv[i] : JS_UNDEFINED;
+  const int* kinds = cf->sig.arg_kind;
+  ffi_type** types = cf->sig.arg_types;
+  ffi_cif* cif = &cf->cif;
+  int n = cf->sig.argc;
 
-    if(cf->sig.arg_kind[i] == K_CSTRING) {
+  if(cf->variadic) {
+    if(js_cfunction_variadic(ctx, cf, argc, argv, kinds_buf, types_buf, vals, &vcif, &n))
+      return JS_EXCEPTION;
+
+    kinds = kinds_buf;
+    types = types_buf;
+    cif = &vcif;
+  } else {
+    for(int i = 0; i < n; i++)
+      vals[i] = i < argc ? argv[i] : JS_UNDEFINED;
+  }
+
+  for(int i = 0; i < n; i++) {
+    JSValueConst v = vals[i];
+
+    if(kinds[i] == K_CSTRING) {
       const char* s = JS_ToCString(ctx, v);
       cstrings[cstring_count++] = s;
       args_storage[i].ptr = (void*)s;
-    } else if(cf->sig.arg_kind[i] == K_POINTER) {
+    } else if(kinds[i] == K_POINTER) {
       /* pointer: an address, a view, or a JSCallback's function pointer. */
       if(js_to_pointer(ctx, &args_storage[i].ptr, v)) {
         ret = js_throw_pointer_error(ctx, v);
         goto done;
       }
-    } else if(cf->sig.arg_kind[i] == K_BUFFER_LENGTH) {
+    } else if(kinds[i] == K_BUFFER_LENGTH) {
       /* buffer_length: byte size of the view given here, the same view
        * as the buffer argument before it. */
       ByteSpan buf;
@@ -150,23 +244,23 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
       }
 
       args_storage[i].u64 = buf.size;
-    } else if(cf->sig.arg_kind[i] == K_STRUCT) {
+    } else if(kinds[i] == K_STRUCT) {
       /* libffi takes the address of the struct's bytes, which must all be
        * there: the argument is an ArrayBuffer or view of at least its size. */
       ByteSpan buf;
 
-      if(js_try_get_bytes(ctx, &buf, v) || buf.size < cf->sig.arg_types[i]->size) {
+      if(js_try_get_bytes(ctx, &buf, v) || buf.size < types[i]->size) {
         ret = JS_ThrowTypeError(ctx,
                                 "CFunction: argument %d must be an ArrayBuffer of at least %zu "
                                 "bytes (a struct passed by value)",
-                                i + 1, cf->sig.arg_types[i]->size);
+                                i + 1, types[i]->size);
         goto done;
       }
 
       ptrs[i] = buf.data;
       continue;
     } else {
-      js_to_native_arg(ctx, cf->sig.arg_kind[i], &args_storage[i], v);
+      js_to_native_arg(ctx, kinds[i], &args_storage[i], v);
     }
 
     ptrs[i] = &args_storage[i];
@@ -182,11 +276,11 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
       goto done;
     }
 
-    ffi_call(&cf->cif, cf->fp, out, cf->sig.argc ? ptrs : NULL);
+    ffi_call(cif, cf->fp, out, n ? ptrs : NULL);
     ret = JS_NewArrayBufferCopy(ctx, out, size);
     js_free(ctx, out);
   } else {
-    ffi_call(&cf->cif, cf->fp, &rc, cf->sig.argc ? ptrs : NULL);
+    ffi_call(cif, cf->fp, &rc, n ? ptrs : NULL);
     ret = ffi_native_to_js(ctx, cf->sig.ret_kind, &rc);
   }
 

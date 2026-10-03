@@ -322,12 +322,12 @@ Everything else the IR holds:
 
 *   **`typedefs`**: every `typedef` and `using` alias, with the type it stands
     for and the record it names.
-*   **`skipped`**: what could not be bound and why. Variadic functions and
-    operators are skipped here, an unknown type or a union by value by the
-    mapping:
+*   **`skipped`**: what could not be bound and why. Operators and C++ variadic
+    functions are skipped here, an unknown type or a union by value by the
+    mapping (a variadic *C* function is bound, with `"variadic": true`):
 
     ```json
-    [{ "name": "geom_log", "reason": "variadic functions are not supported" }]
+    [{ "name": "geom_ops", "reason": "operators are not supported" }]
     ```
 
 A C++ class is the same, plus its bases, its public constructors, methods and
@@ -466,10 +466,12 @@ export const geom_version = CFunction({ptr:__sym('geom_version'),args:[],returns
 export const geom_move = CFunction({ptr:__sym('geom_move'),args:['shape *','f64','f64'],returns:'i32'});
 export const geom_find = CFunction({ptr:__sym('geom_find'),args:['cstring'],returns:'shape *'});
 export const geom_each = CFunction({ptr:__sym('geom_each'),args:['function','void *'],returns:'void'});
-
-// Skipped (unsupported):
-//   - geom_log: variadic functions are not supported
+export const geom_log = CFunction({ptr:__sym('geom_log'),args:['cstring'],returns:'i32',variadic:true});
 ```
+
+A variadic C function such as `geom_log` is bound with `variadic: true` and its
+fixed arguments, and called with `(type, value)` pairs for the rest, see
+[Variadic functions](c-function.md#variadic-functions).
 
 | C | JavaScript |
 | - | ---------- |
@@ -866,7 +868,7 @@ From the IR entry to the spec:
 
 Left out, with the reason in `omitted`:
 
-*   what the IR already `skipped` (variadic functions, unions and unplaceable
+*   what the IR already `skipped` (C++ variadic functions, unions and unplaceable
     structs by value);
 *   C++ functions (the symbol is mangled) and classes (`this`, virtual dispatch
     and constructors are not part of a spec: use the generated classes);
@@ -893,8 +895,8 @@ Enums, typedefs and structs are not part of the specs.
 
 ## Limitations
 
-*   Variadic functions, operators and arrays by value are skipped, as are unions
-    and (for C++) classes by value.
+*   Operators, C++ variadic functions and arrays by value are skipped, as are
+    unions and (for C++) classes by value.
 *   A struct by value needs a layout libffi can reproduce: not a packed struct.
 *   Preprocessor macros are not bound (they are not in the AST), only enums and
     `const` variables with a literal value.

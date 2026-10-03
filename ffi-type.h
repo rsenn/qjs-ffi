@@ -148,6 +148,17 @@ typedef struct FFISignature {
   int aggregate_count;
 } FFISignature;
 
+/* resolves a type that is a name or a number only (no struct or array),
+ * as an argument of a variadic call is.
+ *
+ *   JSValueConst  value  "i32", "cstring", "T *", or FFIType.i32
+ *   int*          kind   receives the kind
+ *
+ *   returns  the ffi_type, or NULL for an unknown name, a struct, void or
+ *            buffer_length; never throws
+ */
+ffi_type* ffi_resolve_scalar(JSContext* ctx, JSValueConst value, int* kind);
+
 /* parses options.args and options.returns into `sig`.
  *
  * ```js

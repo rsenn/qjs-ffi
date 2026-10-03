@@ -80,7 +80,7 @@ export function irToSpecs(ir, options = {}) {
     const bad = types.find(t => t.reason);
 
     if(bad) omitted.push({ name: fn.name, reason: bad.reason });
-    else symbols[fn.name] = { args: types.slice(0, -1).map(t => t.type), returns: types[types.length - 1].type };
+    else symbols[fn.name] = { args: types.slice(0, -1).map(t => t.type), returns: types[types.length - 1].type, ...(fn.variadic ? { variadic: true } : {}) };
   }
 
   for(const v of ir.fields) {

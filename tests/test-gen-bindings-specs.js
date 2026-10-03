@@ -43,6 +43,7 @@ const names = list => list.map(o => o.name).sort().join();
 await tests({
   'a function is { args, returns } with bare types'() {
     eq('{"args":[],"returns":"i32"}', JSON.stringify(vars.symbols.bump));
+    eq('{"args":["cstring"],"returns":"i32","variadic":true}', JSON.stringify(vars.symbols.log_it));
     eq('{"args":[["f32","f32"]],"returns":["f32","f32"]}', JSON.stringify(vars.symbols.pt_swap));
   },
 
@@ -63,9 +64,8 @@ await tests({
   },
 
   'what has no spec is omitted with the reason'() {
-    eq('log_it,tail', names(vars.omitted));
+    eq('tail', names(vars.omitted));
     assert(/unknown size/.test(vars.omitted.find(o => o.name === 'tail').reason));
-    assert(/variadic/.test(vars.omitted.find(o => o.name === 'log_it').reason));
   },
 
   'the library is carried over'() {
@@ -87,6 +87,7 @@ await tests({
     eq(8000, s.big.byteLength);
     eq('3,4', [...new Float32Array(s.where_)].join());
     eq('hi', s.greeting);
+    eq(5, s.log_it('%d-%s', 'i32', 1234, 'cstring', ''));
     eq(null, s.handle);
     eq('2,1', [...new Float32Array(s.pt_swap(new Float32Array([1, 2]).buffer))].join());
   },

@@ -310,6 +310,35 @@ value_to_type(JSContext* ctx, FFISignature* sig, JSValueConst value, int* kind, 
   return t;
 }
 
+ffi_type*
+ffi_resolve_scalar(JSContext* ctx, JSValueConst value, int* kind) {
+  ffi_type* t = NULL;
+  int k = K_VOID;
+
+  if(JS_IsNumber(value)) {
+    int32_t id;
+
+    if(!JS_ToInt32(ctx, &id, value))
+      t = ffi_resolve_type_id(id, &k);
+  } else if(JS_IsString(value)) {
+    const char* s = JS_ToCString(ctx, value);
+
+    if(s) {
+      t = ffi_resolve_type(s, &k);
+      JS_FreeCString(ctx, s);
+    }
+  }
+
+  if(JS_HasException(ctx))
+    JS_FreeValue(ctx, JS_GetException(ctx));
+
+  if(!t || k == K_VOID || k == K_BUFFER_LENGTH || k == K_STRUCT)
+    return NULL;
+
+  *kind = k;
+  return t;
+}
+
 int
 ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
   ffi_type* types[FFI_MAX_ARGS];

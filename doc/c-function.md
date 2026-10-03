@@ -39,6 +39,7 @@ fn = CFunction({ ptr, args, returns, abi })
 | `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments; a value with no usable `length` (not an object, or a `length` that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped. |
 | `returns` | no       | Type name for the return value (see [Types](#types)). Defaults to `"void"`.                       |
 | `abi`     | no       | Call ABI name (see [ABI](types.md#abi)). Defaults to `"default"`.                                          |
+| `variadic` | no      | `true` for a C function that ends in `...`; `args` then lists the fixed arguments only, see [Variadic functions](#variadic-functions). |
 
 If `ptr` is not a non-NULL `number` or `bigint`, or the declared types can't
 be turned into a working `ffi_cif`, `CFunction()` throws a `TypeError`.
@@ -52,6 +53,36 @@ The returned function's `.length` matches the declared `args` count. Extra
 arguments passed at call time are ignored; missing ones are treated as
 `undefined` (and converted per the declared type, e.g. `0`/`NaN`-like for
 numeric types).
+
+## Variadic functions
+
+A C function that ends in `...` (`printf`, `snprintf`, `open`) is declared with
+`variadic: true` and the fixed arguments only. At each call the arguments after
+the fixed ones are `(type, value)` pairs, because the types of the `...`
+arguments are not known until the call:
+
+```js
+const snprintf = CFunction({
+  ptr: dlsym(RTLD_DEFAULT, "snprintf"),
+  args: ["pointer", "u64", "cstring"],
+  returns: "i32",
+  variadic: true,
+});
+
+const buf = new Uint8Array(64);
+
+snprintf(buf, 64n, "%d %s %.2f", "i32", 42, "cstring", "hi", "f64", 2.5);
+```
+
+A pair's type is a scalar type name or `FFIType` number (not a struct, `void` or
+`buffer_length`); an unpaired value, an unknown type or more than 32 arguments
+in all throws. The C default argument promotions are applied for you: `f32`
+is passed as a `double`, and `i8`, `u8`, `i16`, `u16` and `bool` as an `int`.
+
+A variadic call has to be prepared as one (`ffi_prep_cif_var`), which is why
+the function is declared variadic: calling `printf` as a fixed-argument function
+passes the wrong register count on x86-64 as soon as a `double` is an argument.
+The `length` of the function is the number of fixed arguments.
 
 ## close()
 
