@@ -186,6 +186,10 @@ install(FILES legacy.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
 configure_file(node-ffi.js "${CMAKE_CURRENT_BINARY_DIR}/node-ffi.js" COPYONLY)
 install(FILES node-ffi.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
 
+# ffi-hooks.js maps node:ffi and bun:ffi to the modules for them: qjsm -I ffi-hooks.js script.js
+configure_file(ffi-hooks.js "${CMAKE_CURRENT_BINARY_DIR}/ffi-hooks.js" COPYONLY)
+install(FILES ffi-hooks.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
+
 if(NOT CMAKE_INSTALL_DATADIR)
   set(CMAKE_INSTALL_DATADIR share)
 endif(NOT CMAKE_INSTALL_DATADIR)

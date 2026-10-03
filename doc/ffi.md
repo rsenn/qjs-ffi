@@ -51,7 +51,7 @@ where the platform defines them. Run scripts with `qjsm`, see
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
 | [Generating bindings](gen-bindings.md) | `tools/gen-bindings.js`, a binding generator for C and C++ headers |
 | [Legacy API](legacy.md) | `define()` and `call()`, in the module `legacy.js` |
-| [node:ffi](node-ffi.md) | the API of Node's `node:ffi` on top of `ffi`, in the module `node-ffi.js` |
+| [node:ffi](node-ffi.md) | the API of Node's `node:ffi` on top of `ffi`, in the module `node-ffi.js`, and the hook file that maps `node:ffi` and `bun:ffi` to the right module |
 
 ## Usage
 

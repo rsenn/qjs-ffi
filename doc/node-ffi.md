@@ -17,7 +17,23 @@ functions.cos(0); // 1
 lib.close();
 ```
 
-Scripts written for `node:ffi` run on `qjsm` by importing `node-ffi.js` instead.
+## Running a script written for `node:ffi`
+
+A script that says `import { dlopen } from "node:ffi"` runs unchanged with the
+hook file installed next to the module:
+
+```sh
+qjsm -I ffi-hooks.js script.js
+```
+
+`-I` runs the hook first and it stays for every later import, dynamic ones too.
+It maps `node:ffi` to `node-ffi.js`, and `bun:ffi` to `ffi`, so a script written
+for Bun runs the same way.
+
+**Without the hook `qjsm` reads `node:ffi` as plain `ffi`**, which is the bun
+API under Node's name: `dlopen()` then returns `{ symbols, close }`, not
+`{ lib, functions }`, and a script written for Node misbehaves without saying
+why.
 
 ## What it has
 
