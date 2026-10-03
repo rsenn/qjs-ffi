@@ -54,6 +54,7 @@ and `cb.ptr` are the same there, and a closed callback is a `TypeError`.
 | `.called`   | `number`  | How many times the trampoline has been invoked by native code so far.        |
 | `.funcObj`  | `Function`| The wrapped JS function passed to the constructor.                          |
 | `.exception`| any       | The exception thrown by the JS function on its most recent invocation, or `undefined` if it didn't throw. Reset to `undefined` at the start of each invocation. |
+| `.threadsafe` | boolean | The `threadsafe` option as a boolean, `false` by default. The option is accepted for bun's sake; the callback still runs only when native code calls it on the JS thread. |
 
 `JSCallback.list` is a static getter returning an array snapshot of every
 currently-live `JSCallback` instance (useful for debugging/introspection).

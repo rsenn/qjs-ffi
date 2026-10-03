@@ -229,7 +229,9 @@ items are tracked in [TODO.md](../TODO.md#5-meeting-the-bunffi-spec-remaining-di
 
 Not implemented:
 
-*   `JSCallback`'s `threadsafe` option and `viewSource`.
+*   `JSCallback`'s `threadsafe` option works as a property only: it reads back as
+    `true`, and the callback still runs on the JS thread alone. `viewSource` is
+    missing.
 
 An extension: a spec with `type` instead of `args`/`returns` exposes a
 [variable](dlopen.md#variables), which bun does not.

@@ -125,7 +125,8 @@ Ordered roughly by how likely bun code is to trip over it.
 
 ### 5.1 Missing
 
-1. `JSCallback` option `threadsafe`: accepted and ignored. Needs a hop to the
+1. `JSCallback` option `threadsafe`: accepted and ignored (the `.threadsafe`
+   property reads it back as a boolean). Needs a hop to the
    JS thread (job queue/`os` message), or a clear `TypeError` until then.
 2. **Postponed** (low value: bun's `viewSource` is for debugging its own C code
    generator, and there is none here). `viewSource(symbols[, false])` /

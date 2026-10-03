@@ -32,6 +32,7 @@
  */
 typedef struct JSCallback {
   int ref_count, called;
+  int threadsafe; /* the option, as a boolean: it changes nothing yet */
   JSContext* ctx;
   struct list_head link;
   JSValue exception, func;

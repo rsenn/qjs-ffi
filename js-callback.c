@@ -185,6 +185,13 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
     return NULL;
   }
 
+  if(JS_IsObject(options)) {
+    JSValue threadsafe = JS_GetPropertyStr(ctx, options, "threadsafe");
+
+    cl->threadsafe = JS_ToBool(ctx, threadsafe) > 0;
+    JS_FreeValue(ctx, threadsafe);
+  }
+
   cl->ref_count = 1;
   cl->called = 0;
   cl->ctx = ctx;
@@ -292,6 +299,7 @@ enum {
   PROP_CALLED,
   PROP_FUNCOBJ,
   PROP_EXCEPTION,
+  PROP_THREADSAFE,
 };
 
 static JSValue
@@ -322,6 +330,7 @@ js_callback_get(JSContext* ctx, JSValueConst this_val, int magic) {
     case PROP_CALLED: return JS_NewInt32(ctx, cl->called);
     case PROP_FUNCOBJ: return JS_DupValue(ctx, cl->func);
     case PROP_EXCEPTION: return JS_DupValue(ctx, cl->exception);
+    case PROP_THREADSAFE: return JS_NewBool(ctx, cl->threadsafe);
   }
 
   return JS_UNDEFINED;
@@ -360,6 +369,7 @@ static const JSCFunctionListEntry js_callback_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("called", js_callback_get, 0, PROP_CALLED),
     JS_CGETSET_MAGIC_DEF("funcObj", js_callback_get, 0, PROP_FUNCOBJ),
     JS_CGETSET_MAGIC_DEF("exception", js_callback_get, 0, PROP_EXCEPTION),
+    JS_CGETSET_MAGIC_DEF("threadsafe", js_callback_get, 0, PROP_THREADSAFE),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "JSCallback", JS_PROP_CONFIGURABLE),
 };
 

@@ -158,6 +158,15 @@ await tests({
     cb.close();
   },
 
+  '.threadsafe is the option as a boolean, false by default'() {
+    const cb = (options = {}) => new JSCallback(() => 0, { args: [], returns: 'i32', ...options });
+
+    eq(false, cb().threadsafe);
+    eq(true, cb({ threadsafe: true }).threadsafe);
+    eq(true, cb({ threadsafe: 1 }).threadsafe);
+    eq(false, cb({ threadsafe: 0 }).threadsafe);
+  },
+
   'a bigint return converts for any integer kind'() {
     const cb = new JSCallback(() => 5n, { returns: 'i32' });
 
