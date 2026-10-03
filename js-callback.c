@@ -192,7 +192,10 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
     JS_FreeValue(ctx, threadsafe);
   }
 
-  cl->ref_count = 1;
+  /* one reference for the JS object, one for being open: a callback lives
+   * until close(), as in bun, so a ptr taken from it stays callable */
+  cl->ref_count = 2;
+  cl->open = 1;
   cl->called = 0;
   cl->ctx = ctx;
   cl->exception = JS_UNDEFINED;
@@ -231,6 +234,18 @@ js_callback_free(JSRuntime* rt, JSCallback* cl) {
   }
 }
 
+/* close(): frees the trampoline and drops the reference that kept the
+ * callback alive. idempotent. */
+static void
+js_callback_close_cl(JSContext* ctx, JSCallback* cl) {
+  if(!cl->open)
+    return;
+
+  cl->open = 0;
+  js_callback_release(ctx, cl);
+  js_callback_free(JS_GetRuntime(ctx), cl);
+}
+
 static JSValue
 js_callback_wrap(JSContext* ctx, JSValueConst proto, JSCallback* cl) {
   JSValue obj = JS_NewObjectProtoClass(ctx, proto, js_callback_class_id);
@@ -257,6 +272,7 @@ js_callback_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
   JSValue proto = JS_GetPropertyStr(ctx, new_target, "prototype");
 
   if(JS_IsException(proto)) {
+    js_callback_close_cl(ctx, cl);
     js_callback_free(JS_GetRuntime(ctx), cl);
     return JS_EXCEPTION;
   }
@@ -264,8 +280,10 @@ js_callback_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
   JSValue obj = js_callback_wrap(ctx, proto, cl);
   JS_FreeValue(ctx, proto);
 
-  if(JS_IsException(obj))
+  if(JS_IsException(obj)) {
+    js_callback_close_cl(ctx, cl);
     js_callback_free(JS_GetRuntime(ctx), cl);
+  }
 
   return obj;
 }
@@ -277,7 +295,7 @@ js_callback_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
   if(!(cl = js_callback_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
-  js_callback_release(ctx, cl);
+  js_callback_close_cl(ctx, cl);
   return JS_UNDEFINED;
 }
 
@@ -349,6 +367,41 @@ static JSClassDef js_callback_class = {
     .finalizer = js_callback_finalizer,
 };
 
+/* an open callback holds its function for ever, so when the runtime goes
+ * (the prototype, and with it this object, is freed with the context) the
+ * callbacks left open are closed, or the function objects would leak. */
+static JSClassID js_callback_registry_class_id;
+
+static void
+js_callback_registry_finalizer(JSRuntime* rt, JSValue val) {
+  struct list_head *el, *next;
+
+  if(!callback_list.next)
+    return;
+
+  list_for_each_safe(el, next, &callback_list) {
+    JSCallback* cl = list_entry(el, JSCallback, link);
+
+    if(cl->open && JS_GetRuntime(cl->ctx) == rt) {
+      cl->open = 0;
+
+      if(cl->closure) {
+        ffi_closure_free(cl->closure);
+        cl->closure = NULL;
+        cl->code = NULL;
+      }
+
+      ffi_sig_free(rt, &cl->sig);
+      js_callback_free(rt, cl);
+    }
+  }
+}
+
+static JSClassDef js_callback_registry_class = {
+    .class_name = "JSCallbackRegistry",
+    .finalizer = js_callback_registry_finalizer,
+};
+
 /* cb[Symbol.toPrimitive](): the function pointer as a Number, 0 once
  * closed, so `+cb` is what to give C. */
 static JSValue
@@ -418,6 +471,14 @@ js_callback_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_SetPropertyFunctionList(ctx, js_callback_proto, js_callback_proto_funcs,
                              countof(js_callback_proto_funcs));
   js_callback_define_dispose(ctx, js_callback_proto);
+
+  if(!js_callback_registry_class_id) {
+    JS_NewClassID(&js_callback_registry_class_id);
+    JS_NewClass(JS_GetRuntime(ctx), js_callback_registry_class_id, &js_callback_registry_class);
+  }
+
+  JS_DefinePropertyValueStr(ctx, js_callback_proto, "[[open callbacks]]",
+                            JS_NewObjectClass(ctx, js_callback_registry_class_id), 0);
   JS_SetClassProto(ctx, js_callback_class_id, js_callback_proto);
 
   JSValue ctor =

@@ -1,3 +1,4 @@
+import * as std from 'std';
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
 import { JSCallback, CFunction, dlsym, toArrayBuffer, RTLD_DEFAULT } from 'ffi';
 import { define, call } from '../legacy.js';
@@ -156,6 +157,56 @@ await tests({
 
     assert(assertThrows(() => CFunction({ ptr: cb.ptr, args: [], returns: 'i32' })()) instanceof TypeError);
     cb.close();
+  },
+
+  'the ptr of a callback that nothing references stays callable until it is closed, as in bun'() {
+    const p = new JSCallback(() => 7, { args: [], returns: 'i32' }).ptr;
+
+    std.gc();
+    for(let i = 0; i < 2000; i++) new Array(100).fill(i);
+    std.gc();
+
+    const call = CFunction({ ptr: p, args: [], returns: 'i32' });
+
+    eq(7, call());
+    eq(7, call());
+
+    const cb = JSCallback.list.find(c => c.ptr === p);
+
+    assert(cb !== undefined, 'the callback is still listed');
+    cb.close();
+    eq(null, cb.ptr);
+  },
+
+  'an open callback is kept, a closed one is released with its object'() {
+    const open = () => JSCallback.list.filter(c => c.ptr !== null).length;
+    const before = open();
+    const made = [];
+
+    for(let i = 0; i < 20; i++) made.push(new JSCallback(() => i, { args: [], returns: 'i32' }).ptr);
+
+    std.gc();
+    eq(before + 20, open());
+
+    for(const cb of JSCallback.list.filter(c => made.includes(c.ptr))) cb.close();
+
+    std.gc();
+    eq(before, open());
+  },
+
+  'a script that ends with a callback still open ends normally'() {
+    const root = scriptArgs[0].replace(/[^/]*$/, '') + '../';
+    const file = root + '.tmp/test-js-callback.open.mjs';
+    const f = std.open(file, 'w');
+
+    f.puts("import { JSCallback } from 'ffi';\nconst keep = new JSCallback(() => 1, { args: [], returns: 'i32' });\nnew JSCallback(() => 2, { args: [], returns: 'i32' });\nconsole.log('done');\n");
+    f.close();
+
+    const p = std.popen('qjsm ' + file + ' 2>&1; echo "exit $?"', 'r');
+    const out = p.readAsString();
+
+    p.close();
+    eq('done\nexit 0\n', out);
   },
 
   '.threadsafe is the option as a boolean, false by default'() {

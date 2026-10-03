@@ -59,10 +59,27 @@ and `cb.ptr` are the same there, and a closed callback is a `TypeError`.
 `JSCallback.list` is a static getter returning an array snapshot of every
 currently-live `JSCallback` instance (useful for debugging/introspection).
 
+## Lifetime
+
+A callback lives until `close()`, as in bun, **not** until its object is
+collected: the pointer of one that nothing references any more stays callable.
+
+```js
+const p = new JSCallback(() => 7, { args: [], returns: "i32" }).ptr;
+
+// ... the object is gone, p still calls the function
+```
+
+So a callback that is never closed is never freed, together with the function it
+calls, until the script ends (it is then closed for you). `JSCallback.list` has
+every callback that is still open, wrapped in new objects, which is also how to
+close one whose object is gone. Call `close()`, or use `using`, for a callback
+that is not needed for the life of the program.
+
 ## Methods
 
-- `.close()` -- frees the `ffi_closure` (and the stored arg-type arrays)
-  immediately, rather than waiting for GC. `.ptr` must not be called by
+- `.close()` -- frees the `ffi_closure` (and the stored arg-type arrays), and
+  lets the callback go. `.ptr` must not be called by
   native code afterward. Safe to call more than once.
 - `.toString()` -- returns a string like `"#JSCallback (0x...)(*0x...)"`
   identifying the trampoline address.

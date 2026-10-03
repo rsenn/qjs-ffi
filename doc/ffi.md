@@ -208,7 +208,8 @@ pointer outlives nothing. In particular
     alive while the buffer is used, `.slice(0)` the buffer to copy it, or pass a
     native deallocator to be called when the buffer is garbage collected, see
     [Pointers and memory](pointers.md#toarraybuffer).
-*   A `JSCallback` pointer is valid until `close()`.
+*   A `JSCallback` pointer is valid until `close()`, even when nothing references
+    the object any more (a callback is never freed by the garbage collector).
 *   After `dlopen()`'s `close()` the library's functions and data are gone.
 *   A pointer derived from a `cstring` argument is valid only for that call.
 

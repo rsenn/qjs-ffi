@@ -141,8 +141,8 @@ export class DynamicLibrary {
     if(callback) callback.close();
   }
 
-  /* a callback is held strongly from registerCallback() until
-   * unrefCallback(); once collected it is gone, as in Node. */
+  /* a JSCallback lives until it is closed, so ref and unref only move the
+   * reference this module holds; Node would let an unreferenced one go. */
   refCallback(pointer) {
     const entry = this.#callbacks.get(BigInt(pointer));
 

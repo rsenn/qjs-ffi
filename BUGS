@@ -40,9 +40,3 @@
 
     const { inspect } = await import('inspect');
     console.log(inspect({ a: [], b: {} }, { colors: false }));
-
-- jscallback-pointer-dangles-after-collection (js-callback.c:212): the closure is freed as soon as the JSCallback object is collected, so a ptr copied out of it dangles and calling it throws or crashes; bun keeps a callback alive until close(), so the pointer of an unreferenced JSCallback stays callable. found by the bun comparison in tests/test-bun-diff.js.
-
-    import { JSCallback, CFunction } from 'ffi';
-    const p = new JSCallback(() => 7, { args: [], returns: 'i32' }).ptr;
-    console.log(CFunction({ ptr: p, args: [], returns: 'i32' })()); // TypeError, bun prints 7

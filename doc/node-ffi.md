@@ -69,8 +69,10 @@ why.
 *   A callback is not checked: it may throw, return a promise, or close its own
     library, which Node calls undefined behavior. It has to run on the thread
     that made it, as for [`JSCallback`](js-callback.md).
-*   `refCallback` and `unrefCallback` hold the callback strongly or not; one
-    that is collected is gone and calling it crashes, as in Node.
+*   `refCallback` and `unrefCallback` change nothing that matters: a callback
+    lives until `unregisterCallback()` or `lib.close()`, however it is
+    referenced (see [Lifetime](js-callback.md#lifetime)), where Node lets an
+    unreferenced one be collected.
 
 ## Not in `node:ffi`, but here
 
