@@ -1,0 +1,15 @@
+# the cases of probe.mjs where this module and bun:ffi differ, and why.
+# tests/test-bun-diff.js fails on a difference that is not listed here, and on
+# an entry that no longer differs. one per line: <case name> | <reason>
+
+toArrayBuffer negative length | RangeError here, bun throws TypeError
+CString length 0 | "" here, bun throws TypeError
+CFunction name | bun names the function after its symbol; ours has no name
+CFunction ptr type | bun's functions have .ptr; ours do not
+CFunction own keys | bun's functions have name, native and ptr
+args not an array | TypeError here, bun throws a plain Error
+args array-like | TypeError here, bun throws a plain Error
+dlopen close() | 0 here, bun returns undefined
+dlopen keys | bun's result has only close enumerable; ours has symbols and close
+JSCallback threadsafe | bun has a threadsafe property (false); ours does not
+JSCallback own keys | bun's callbacks have the own properties ptr and threadsafe
