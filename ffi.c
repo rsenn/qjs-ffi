@@ -244,6 +244,10 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
 
     /* takes `fn`, not the atom: the atom is freed here */
     JS_DefinePropertyValue(ctx, symbols, tab[i].atom, fn, JS_PROP_C_W_E);
+    /* the function is named after its symbol, as in bun */
+    JS_DefinePropertyValueStr(ctx, fn, "name", JS_AtomToString(ctx, tab[i].atom),
+                              JS_PROP_CONFIGURABLE);
+
     JS_FreeAtom(ctx, tab[i].atom);
   }
 

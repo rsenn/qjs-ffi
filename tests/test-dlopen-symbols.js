@@ -37,6 +37,14 @@ await tests({
     lib.close();
   },
 
+  'a function is named after its symbol and has .ptr, the address it calls'() {
+    const lib = dlopen(null, { abs: { args: ['i32'], returns: 'i32' } });
+
+    eq('abs', lib.symbols.abs.name);
+    eq(dlsym(RTLD_DEFAULT, 'abs'), lib.symbols.abs.ptr);
+    lib.close();
+  },
+
   'cstring args/returns round-trip through dlopen-built CFunction'() {
     const lib = dlopen(null, { strdup: { args: ['cstring'], returns: 'cstring' } });
     eq('hi there', lib.symbols.strdup('hi there'));

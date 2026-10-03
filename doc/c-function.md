@@ -49,7 +49,10 @@ described in [Pointer values](pointers.md#pointer-values): an address, a view, a
 `JSCallback`, or `null`/`undefined` for NULL; a boolean, a string or an object is
 a `TypeError`.
 
-The returned function's `.length` matches the declared `args` count. Extra
+The returned function's `.length` matches the declared `args` count, and its
+`.ptr` is the address it calls (a [pointer value](pointers.md#pointer-values)). A
+function made by [`dlopen()`](dlopen.md) is named after its symbol (`.name`), one
+made by `CFunction()` has no name. Extra
 arguments passed at call time are ignored; missing ones are treated as
 `undefined` (and converted per the declared type, e.g. `0`/`NaN`-like for
 numeric types).

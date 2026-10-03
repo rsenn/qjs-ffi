@@ -590,6 +590,9 @@ js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec) {
 
   JS_SetOpaque(func_obj, cf);
 
+  /* ptr: the address of the function, as bun's functions have it */
+  JS_DefinePropertyValueStr(ctx, func_obj, "ptr", js_new_pointer(ctx, fp), 0);
+
   /* length: like a function's own: configurable, not writable/enumerable. */
   if(JS_DefinePropertyValueStr(ctx, func_obj, "length", JS_NewInt32(ctx, cf->sig.argc),
                                JS_PROP_CONFIGURABLE) < 0) {
