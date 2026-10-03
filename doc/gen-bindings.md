@@ -66,6 +66,8 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--describe` | give each function its parameter names, and describe its C types for `describeObject()`. |
 | `--jsdoc` | a JSDoc comment on each function, method and class. |
 | `--emit-ir=<file>` | write the intermediate JSON and stop. |
+| `--emit-specs=<file>` | write the `dlopen()` symbol specs as JSON and stop, see [Specs from the IR](#specs-from-the-ir). Not with `--emit-ir`. |
+| `--js` | write the `--emit-ir` or `--emit-specs` file as a JS module, `export default { ... };`, instead of JSON. |
 | `--from-ir=<file>` | generate from an IR instead of running clang. |
 | `--clang=<path>` | the clang binary (default `clang`). |
 | `--cache-dir=<dir>` | where the condensed AST is cached (default `.tmp/gen-bindings`). |
@@ -758,7 +760,12 @@ defines, language) for the header of the output.
 ```sh
 qjs-ffi-genbindings --emit-ir=api.json geom.h          # clang -> IR
 qjs-ffi-genbindings --from-ir=api.json -o geom.js      # IR -> JavaScript, no clang
+qjs-ffi-genbindings --from-ir=api.json --library=libgeom.so \
+    --emit-specs=geom.specs.json                       # IR -> dlopen() specs
 ```
+
+`--from-ir` reads the IR as JSON, or as the JS module `--emit-ir --js` writes
+(`export default { ... };`).
 
 `--from-ir` takes no sources and takes the options of the emitting phase
 (`--api`, `--structs`, `--describe`, `--namespace`, ...) as before. The IR can
@@ -819,6 +826,69 @@ named the way it was started), the others noted on stderr. A module is a path or
 path; `--global` takes properties of `globalThis` instead of a module; `--json`
 prints the raw results. Importing a module loads its libraries, so
 `QUICKJS_MODULE_PATH` must find the `ffi` module.
+
+## Specs from the IR
+
+`--emit-specs=<file>` turns the IR into the symbol specs that `dlopen()` takes
+([Libraries and symbols](dlopen.md)), so a script can bind a library without a
+generated `.js` file. It works from sources or from an IR file with
+`--from-ir`, which needs no clang:
+
+```sh
+qjs-ffi-genbindings --library=/usr/lib/libgeom.so --emit-specs=geom.specs.json geom.h
+qjs-ffi-genbindings --from-ir=geom.ir.json --library=/usr/lib/libgeom.so \
+    --emit-specs=geom.specs.json
+```
+
+```js
+const { library, symbols } = JSON.parse(std.loadFile("geom.specs.json"));
+const lib = dlopen(library, symbols); // lib.symbols.geom_abs(-3), lib.symbols.counter
+```
+
+With `--js` the file is an ES module with the same data, written by `inspect()`
+of qjs-modules, so a script can import it (`--emit-ir` takes `--js` too):
+
+```sh
+qjs-ffi-genbindings --library=/usr/lib/libgeom.so --emit-specs=geom.specs.js --js geom.h
+```
+
+```js
+import specs from './geom.specs.js';
+
+const lib = dlopen(specs.library, specs.symbols);
+```
+
+The file is `{ library, symbols, constants, omitted }`:
+
+| Key | Holds |
+| --- | --- |
+| `library` | the `--library` path, else `null` |
+| `symbols` | `{ name: spec }`: `{ args, returns }` for a function, `{ type, readonly? }` for a variable |
+| `constants` | the values of constants that have no symbol (`static const int N = 5`), to be JS constants |
+| `omitted` | `{ name, reason }` for everything that has no spec |
+
+From the IR entry to the spec:
+
+| IR | Spec |
+| --- | --- |
+| `args: ["dx: f64"]` | `args: ["f64"]`, the names dropped |
+| `"struct vec3"` | the member types from `byValue`: `["f32", "f32", "f32"]` |
+| `type: "int[3][2]"` | nested element types: `[["i32", "i32"], ["i32", "i32"], ["i32", "i32"]]` |
+| `const: true` | `readonly: true` |
+| `value` on a constant | not a symbol: goes to `constants` |
+
+Left out, with the reason in `omitted`:
+
+*   what the IR already `skipped` (variadic functions, unions and unplaceable
+    structs by value);
+*   C++ functions (the symbol is mangled) and classes (`this`, virtual dispatch
+    and constructors are not part of a spec: use the generated classes);
+*   an array of more than 1024 elements (a struct type lists at most that many
+    members per level) or of unknown size (`int tail[]`);
+*   a struct that is not in `byValue`, which would otherwise reach the
+    `ffi` module as an unknown type name and silently become `i32`.
+
+Enums, typedefs and structs are not part of the specs.
 
 ## Using the result
 

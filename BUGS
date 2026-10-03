@@ -35,3 +35,8 @@
 
     import { toArrayBuffer } from 'ffi';
     console.log(toArrayBuffer().byteLength);
+
+- inspect-nested-empty-container (qjs-modules/quickjs-inspect.c:1794): inspect() writes an extra closing bracket after an empty array or object nested in another one, so { a: [] } comes out as a broken { a: []]}; the nested "[]" is written at line 1748 and the end loop then closes it again. found writing --js output for the symbol specs, confirmed with qjsm on the qjs-modules builds.
+
+    const { inspect } = await import('inspect');
+    console.log(inspect({ a: [], b: {} }, { colors: false }));

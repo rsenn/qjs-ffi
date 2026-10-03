@@ -95,9 +95,10 @@ New/changed tests get the 5x flakiness check per
 ### Next: `ffi.c` loader
 
 A loader in the `ffi` module that builds `CFunction`s (and constants) straight
-from the IR JSON, so no generated `.js` is needed. Needs: the IR `source`/
-library name, `dlopen` handling, and a decision on how `structs` map to
-libffi struct types (CFunction takes them as arrays).
+from the specs `--emit-specs` writes (`{ library, symbols, constants, omitted }`,
+[`doc/gen-bindings.md`](doc/gen-bindings.md#specs-from-the-ir)), so no generated
+`.js` is needed. The specs already carry the library and the struct types as
+arrays; what is left is a loader that reads the file and calls `dlopen()`.
 
 ### Next: C++ gaps
 

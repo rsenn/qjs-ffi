@@ -6,6 +6,8 @@ import { resolveByValue } from './by-value.js';
 import { nameCollisions } from './names.js';
 import { bindable, setNamespaces } from './emit/common.js';
 import { generateCFunction, generateDefine } from './emit/functions.js';
+import { irToSpecs } from './specs.js';
+import { toSource } from './source.js';
 
 export function main() {
   let opts;
@@ -30,7 +32,15 @@ export function main() {
       std.err.puts('gen-bindings.js: cannot read ' + opts.fromIr + '\n');
       std.exit(1);
     }
-    ir = JSON.parse(text);
+
+    try {
+      // the JS form (--emit-ir --js) is `export default <literal>;`
+      ir = /^\s*export default /.test(text) ? std.evalScript('(' + text.replace(/^\s*export default /, '').replace(/;\s*$/, '') + ')') : JSON.parse(text);
+    } catch(e) {
+      std.err.puts('gen-bindings.js: cannot parse ' + opts.fromIr + ': ' + e.message + '\n');
+      std.exit(1);
+    }
+
     Object.assign(opts, ir.source);
     opts.sources = ir.source.files;
   } else {
@@ -59,7 +69,7 @@ export function main() {
 
   setNamespaces(opts.namespaces);
 
-  const clashes = opts.emitIr ? [] : nameCollisions(ir, opts);
+  const clashes = opts.emitIr || opts.emitSpecs ? [] : nameCollisions(ir, opts);
 
   if(clashes.length) {
     for(const c of clashes) std.err.puts('gen-bindings.js: after dropping ' + opts.namespaces.map(n => n + '::').join(', ') + ', "' + c.ident + '" would be exported by: ' + c.entities.join('; ') + '\n');
@@ -67,8 +77,10 @@ export function main() {
     std.exit(1);
   }
 
-  const out = opts.emitIr ? JSON.stringify(ir, null, 2) + '\n' : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
-  const dest = opts.emitIr || opts.output;
+  const specs = opts.emitSpecs ? irToSpecs(ir, { library: opts.library }) : null;
+  const data = opts.emitIr ? ir : specs;
+  const out = data ? (opts.js ? toSource(data) : JSON.stringify(data, null, 2) + '\n') : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
+  const dest = opts.emitIr || opts.emitSpecs || opts.output;
 
   if(dest) {
     const f = std.open(dest, 'w');
@@ -79,5 +91,5 @@ export function main() {
   }
 
   if(ir.skipped.length)
-    std.err.puts('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : ', see comment at end of output') + '\n');
+    std.err.puts('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : specs ? ', see "omitted" in the specs' : ', see comment at end of output') + '\n');
 }

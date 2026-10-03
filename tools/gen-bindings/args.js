@@ -33,7 +33,9 @@ export function usage() {
       '  --library=<path>         dlopen() this shared library instead of RTLD_DEFAULT\n' +
       '  --clang=<path>           clang binary to invoke (default: clang)\n' +
       '  --emit-ir=<file>         write the intermediate JSON and stop\n' +
-      '  --from-ir=<file>         generate from this IR instead of running clang\n' +
+      '  --emit-specs=<file>      write the dlopen() symbol specs as JSON and stop\n' +
+      '  --js                     write --emit-ir/--emit-specs output as a JS module (export default)\n' +
+      '  --from-ir=<file>         generate from this IR (JSON, or JS from --js) instead of running clang\n' +
       '  --cache-dir=<dir>        condensed-AST cache directory (default: .tmp/gen-bindings)\n' +
       '  --no-cache               ignore and do not write the condensed-AST cache\n' +
       '  -o, --output=<path>      write generated JS here instead of stdout\n' +
@@ -61,6 +63,8 @@ export function parseArgs(argv) {
     std: null,
     namespaces: [],
     emitIr: null,
+    emitSpecs: null,
+    js: false,
     fromIr: null,
     cacheDir: '.tmp/gen-bindings',
     cache: true,
@@ -106,6 +110,10 @@ export function parseArgs(argv) {
       opts.library = a.slice('--library='.length);
     } else if(a.startsWith('--emit-ir=')) {
       opts.emitIr = a.slice('--emit-ir='.length);
+    } else if(a === '--js') {
+      opts.js = true;
+    } else if(a.startsWith('--emit-specs=')) {
+      opts.emitSpecs = a.slice('--emit-specs='.length);
     } else if(a.startsWith('--from-ir=')) {
       opts.fromIr = a.slice('--from-ir='.length);
     } else if(a.startsWith('--cache-dir=')) {
@@ -129,6 +137,8 @@ export function parseArgs(argv) {
   if(opts.ffiType && opts.api !== 'cfunction') throw new Error('--ffitype only applies to --api=cfunction');
   if(opts.fromIr && opts.sources.length) throw new Error('--from-ir takes no <source.c> arguments');
   if(opts.fromIr && opts.emitIr) throw new Error('--from-ir and --emit-ir cannot be combined');
+  if(opts.js && !opts.emitIr && !opts.emitSpecs) throw new Error('--js needs --emit-ir or --emit-specs');
+  if(opts.emitIr && opts.emitSpecs) throw new Error('--emit-ir and --emit-specs cannot be combined');
   if(!opts.fromIr && !opts.sources.length) throw new Error('missing <source.c> argument');
 
   return opts;
