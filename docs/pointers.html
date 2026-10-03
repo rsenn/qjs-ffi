@@ -73,7 +73,7 @@ only the legacy <code>toArrayBuffer(string, size, false)</code> form still reads
 <code>bigint</code> is taken as it is: <code>"3"</code> is 3, <code>1.5</code> is 1, <code>null</code> and <code>undefined</code> are 0
 (and where it is optional, <code>undefined</code> means omitted). Only a value that cannot
 be converted at all, a Symbol, is refused; it throws a <code>TypeError</code> at once, and
-<code>CString</code> and <code>toArrayBuffer()</code> throw a <code>RangeError</code> for a negative length. The
+<code>CString</code> and <code>toArrayBuffer()</code> throw a <code>TypeError</code> for a <code>byteLength</code> below 1. The
 argument that is not a pointer is the same <code>TypeError</code>:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">ptr</span>(<span class="t-id">buffer</span>, <span class="t-fn">Symbol</span>());    <span class="t-cm">// TypeError: ptr: argument 2 must be BigInt | Number</span>
 <span class="t-fn">ptr</span>(<span class="t-str">"0x1000"</span>);            <span class="t-cm">// TypeError: cannot convert a string to a pointer; encode it as a buffer</span></code></pre></div>
@@ -101,7 +101,7 @@ legacy <code>call()</code>.</p>
 <p>Makes an <code>ArrayBuffer</code> over the memory at <code>ptr + byteOffset</code>, as bun:ffi's
 <code>toArrayBuffer()</code>. <code>toBuffer()</code> is the same function (QuickJS has no Node
 <code>Buffer</code>, so it also returns an <code>ArrayBuffer</code>).</p>
-<div class="tablewrap"><table><thead><tr><th>Argument</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>An address (<code>number</code> or <code>bigint</code>). NULL throws a <code>TypeError</code>.</td></tr><tr><td><code>byteOffset</code></td><td>Bytes to skip first. Defaults to 0. Without a <code>byteLength</code> a negative offset counts from the end of the C string, as in <code>slice()</code>.</td></tr><tr><td><code>byteLength</code></td><td>Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Negative is a <code>RangeError</code>. An <code>undefined</code> one counts as omitted.</td></tr><tr><td><code>deallocatorContext</code></td><td>An address passed to the deallocator. <code>null</code> or omitted for NULL.</td></tr><tr><td><code>jsTypedArrayBytesDeallocator</code></td><td>The address of a native function <code>void (*)(void *bytes, void *context)</code>, called when the buffer is freed.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Argument</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>An address (<code>number</code> or <code>bigint</code>). NULL throws a <code>TypeError</code>.</td></tr><tr><td><code>byteOffset</code></td><td>Bytes to skip first. Defaults to 0. Without a <code>byteLength</code> a negative offset counts from the end of the C string, as in <code>slice()</code>.</td></tr><tr><td><code>byteLength</code></td><td>Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Below 1 is a <code>TypeError</code>, as in bun. An <code>undefined</code> one counts as omitted.</td></tr><tr><td><code>deallocatorContext</code></td><td>An address passed to the deallocator. <code>null</code> or omitted for NULL.</td></tr><tr><td><code>jsTypedArrayBytesDeallocator</code></td><td>The address of a native function <code>void (*)(void *bytes, void *context)</code>, called when the buffer is freed.</td></tr></tbody></table></div>
 <p>The buffer is a view, not a copy: writes to it change the native memory, and
 the memory must stay valid for as long as the buffer is used. Without a
 deallocator the memory is never freed. <code>.slice(0)</code> makes a copy:</p>
@@ -183,8 +183,7 @@ gives <code>""</code>. As in bun:ffi it may be called with <code>new</code>, whi
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>), <span class="t-num">6</span>, <span class="t-num">5</span>)); <span class="t-cm">// world</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">CString</span>(<span class="t-fn">ptr</span>(<span class="t-id">bytes</span>), <span class="t-num">6</span>)); <span class="t-cm">// world</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">CString</span>(<span class="t-atom">null</span>) <span class="t-op">===</span> <span class="t-str">""</span>); <span class="t-cm">// true</span></code></pre></div>
-<p>A negative <code>byteLength</code> is a <code>RangeError</code>. (bun refuses a <code>byteLength</code> of 0;
-here it gives <code>""</code>.) To get a string from a function that returns <code>char *</code>,
+<p>A <code>byteLength</code> below 1 is a <code>TypeError</code>, as in bun. To get a string from a function that returns <code>char *</code>,
 declare the return type <code>"cstring"</code> and it arrives decoded.</p>
 <h2 id="tostring"><a class="anchor" href="#tostring" aria-hidden="true">#</a><code>toString()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toString</span>(<span class="t-id">buffer</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>]]);

@@ -56,7 +56,10 @@ be turned into a working <code>ffi_cif</code>, <code>CFunction()</code> throws a
 described in <a href="pointers.html#pointer-values">Pointer values</a>: an address, a view, a
 <code>JSCallback</code>, or <code>null</code>/<code>undefined</code> for NULL; a boolean, a string or an object is
 a <code>TypeError</code>.</p>
-<p>The returned function's <code>.length</code> matches the declared <code>args</code> count. Extra
+<p>The returned function's <code>.length</code> matches the declared <code>args</code> count, and its
+<code>.ptr</code> is the address it calls (a <a href="pointers.html#pointer-values">pointer value</a>). A
+function made by <a href="dlopen.html"><code>dlopen()</code></a> is named after its symbol (<code>.name</code>), one
+made by <code>CFunction()</code> has no name. Extra
 arguments passed at call time are ignored; missing ones are treated as
 <code>undefined</code> (and converted per the declared type, e.g. <code>0</code>/<code>NaN</code>-like for
 numeric types).</p>
