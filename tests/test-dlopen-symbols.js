@@ -92,4 +92,14 @@ await tests({
     assertThrows(() => dlopen(null, { optind: { type: 'i32', args: [] } }));
     assert(assertThrows(() => dlopen(null, { no_such_variable_xyz: { type: 'i32' } })) instanceof TypeError);
   },
+
+  'the dlopen() result has [Symbol.dispose], the same as close(), for `using`'() {
+    // QuickJS has no Symbol.dispose yet; the registered symbol stands in.
+    const dispose = Symbol.dispose || Symbol.for('Symbol.dispose');
+    const lib = dlopen(null, { getpid: { args: [], returns: 'i32' } });
+
+    eq('function', typeof lib[dispose]);
+    eq(0, lib[dispose]());
+    eq(0, lib.close());
+  },
 });

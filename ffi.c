@@ -311,6 +311,7 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
   JSValue result = JS_NewObject(ctx);
   JS_SetPropertyStr(ctx, result, "symbols", symbols);
   JS_SetPropertyStr(ctx, result, "close", close_fn);
+  js_callback_define_dispose(ctx, result);
   return result;
 }
 

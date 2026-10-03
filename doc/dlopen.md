@@ -24,6 +24,7 @@ wraps it as a [`CFunction`](c-function.md). The result is
 | -------- | ----------- |
 | `symbols` | An object with one function per key of `symbolSpecs`. |
 | `close()` | `dlclose()`s the library and returns its result (`0`). Calling it again does nothing and returns `0`. |
+| `[Symbol.dispose]()` | The same as `close()`, so `using lib = dlopen(...)` closes it (the registered `Symbol.for("Symbol.dispose")` where the engine has none). |
 
 ```js
 import { dlopen } from "ffi";
