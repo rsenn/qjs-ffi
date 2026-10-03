@@ -22,8 +22,8 @@ wraps it as a [`CFunction`](c-function.md). The result is
 
 | Property | Description |
 | -------- | ----------- |
-| `symbols` | An object with one function per key of `symbolSpecs`. |
-| `close()` | `dlclose()`s the library and returns its result (`0`). Calling it again does nothing and returns `0`. |
+| `symbols` | An object with one function per key of `symbolSpecs`, each named after its symbol. Not enumerable, so `Object.keys(lib)` is `["close"]`, as in bun. |
+| `close()` | `dlclose()`s the library and returns `undefined`, as in bun. Calling it again does nothing. |
 | `[Symbol.dispose]()` | The same as `close()`, so `using lib = dlopen(...)` closes it (the registered `Symbol.for("Symbol.dispose")` where the engine has none). |
 
 ```js

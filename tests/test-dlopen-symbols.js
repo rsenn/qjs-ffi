@@ -65,8 +65,8 @@ await tests({
 
   'close() called twice is a no-op'() {
     const lib = dlopen(null, { getpid: { args: [], returns: 'i32' } });
-    eq(0, lib.close());
-    eq(0, lib.close());
+    eq(undefined, lib.close());
+    eq(undefined, lib.close());
   },
 
   'close() actually dlcloses -- a second dlopen(same path) still works after close'() {
@@ -107,7 +107,19 @@ await tests({
     const lib = dlopen(null, { getpid: { args: [], returns: 'i32' } });
 
     eq('function', typeof lib[dispose]);
-    eq(0, lib[dispose]());
-    eq(0, lib.close());
+    eq(undefined, lib[dispose]());
+    eq(undefined, lib.close());
+  },
+
+  'the result enumerates only close(), as in bun'() {
+    const lib = dlopen(null, { abs: { args: ['i32'], returns: 'i32' } });
+
+    eq('close', Object.keys(lib).join());
+    eq('object', typeof lib.symbols);
+    lib.close();
+  },
+
+  'dlopen() with no symbols is a TypeError'() {
+    assert(assertThrows(() => dlopen(null, {})) instanceof TypeError);
   },
 });

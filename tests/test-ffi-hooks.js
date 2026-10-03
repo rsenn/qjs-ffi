@@ -41,7 +41,7 @@ await tests({
       console.log(Object.keys(dlopen(null, { abs: { args: ['i32'], returns: 'i32' } })).join());
     `);
 
-    eq('symbols,close', run('qjsm ' + file));
+    eq('close', run('qjsm ' + file));
   },
 
   "with the hook 'bun:ffi' is ffi"() {

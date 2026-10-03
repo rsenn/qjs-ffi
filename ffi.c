@@ -152,15 +152,16 @@ js_dlsym(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
  * dlclose()'s result. a second call returns 0 and does nothing.
  * the handle is in data[0]. */
 static JSValue
-js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst data[]) {
+js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
+                        int magic, JSValueConst data[]) {
   void* ptr;
   JSValue ret = JS_UNDEFINED;
 
   if(JS_IsUndefined(data[0]))
-    return JS_NewInt32(ctx, 0);
+    return JS_UNDEFINED;
 
   if(!js_to_address(ctx, &ptr, data[0]))
-    ret = JS_NewInt32(ctx, dlclose(ptr));
+    dlclose(ptr);
 
   JS_FreeValue(ctx, data[0]);
   data[0] = JS_UNDEFINED;
@@ -170,7 +171,8 @@ js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValue
 /* builds the `symbols` object, documented at js_build_symbols() in
  * c-function.h. */
 JSValue
-js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int linked, const char* who, js_symbol_resolver* resolve) {
+js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int linked,
+                 const char* who, js_symbol_resolver* resolve) {
   JSPropertyEnum* tab = NULL;
   uint32_t i, len = 0;
 
@@ -242,12 +244,12 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
     if(JS_IsException(fn))
       goto fail;
 
-    /* takes `fn`, not the atom: the atom is freed here */
-    JS_DefinePropertyValue(ctx, symbols, tab[i].atom, fn, JS_PROP_C_W_E);
     /* the function is named after its symbol, as in bun */
     JS_DefinePropertyValueStr(ctx, fn, "name", JS_AtomToString(ctx, tab[i].atom),
                               JS_PROP_CONFIGURABLE);
 
+    /* takes `fn`, not the atom: the atom is freed here */
+    JS_DefinePropertyValue(ctx, symbols, tab[i].atom, fn, JS_PROP_C_W_E);
     JS_FreeAtom(ctx, tab[i].atom);
   }
 
@@ -279,6 +281,20 @@ fail:
 static JSValue
 js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_specs) {
   const char* path = NULL;
+  JSPropertyEnum* names = NULL;
+  uint32_t count = 0;
+
+  if(JS_GetOwnPropertyNames(ctx, &names, &count, symbol_specs,
+                            JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY))
+    return JS_EXCEPTION;
+
+  for(uint32_t i = 0; i < count; i++)
+    JS_FreeAtom(ctx, names[i].atom);
+
+  js_free(ctx, names);
+
+  if(!count)
+    return JS_ThrowTypeError(ctx, "dlopen: expected at least one symbol");
 
   if(JS_IsNull(path_val))
     path = NULL;
@@ -297,8 +313,10 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
     JSValue error = JS_NewError(ctx);
 
     snprintf(msg, sizeof(msg), "dlopen: %s", err ? err : "failed");
-    JS_DefinePropertyValueStr(ctx, error, "message", JS_NewString(ctx, msg), JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
-    JS_DefinePropertyValueStr(ctx, error, "code", JS_NewString(ctx, "ERR_DLOPEN_FAILED"), JS_PROP_C_W_E);
+    JS_DefinePropertyValueStr(ctx, error, "message", JS_NewString(ctx, msg),
+                              JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    JS_DefinePropertyValueStr(ctx, error, "code", JS_NewString(ctx, "ERR_DLOPEN_FAILED"),
+                              JS_PROP_C_W_E);
     return JS_Throw(ctx, error);
   }
 
@@ -313,8 +331,10 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
   JSValue close_fn = JS_NewCFunctionData(ctx, js_dlopen_symbols_close, 0, 0, 1, &close_data);
   JS_FreeValue(ctx, close_data);
 
+  /* only close is enumerable, as in bun */
   JSValue result = JS_NewObject(ctx);
-  JS_SetPropertyStr(ctx, result, "symbols", symbols);
+  JS_DefinePropertyValueStr(ctx, result, "symbols", symbols,
+                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
   JS_SetPropertyStr(ctx, result, "close", close_fn);
   js_callback_define_dispose(ctx, result);
   return result;
@@ -375,7 +395,9 @@ js_tostring(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]
 
   const char* str = (const char*)buf.data;
 
-  return str ? (buf.size != SIZE_MAX && buf.size < INT64_MAX) ? JS_NewStringLen(ctx, str, buf.size) : JS_NewString(ctx, str) : JS_NULL;
+  return str ? (buf.size != SIZE_MAX && buf.size < INT64_MAX) ? JS_NewStringLen(ctx, str, buf.size)
+                                                              : JS_NewString(ctx, str)
+             : JS_NULL;
 }
 
 static void
@@ -433,7 +455,8 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
     buf.size = len;
   }
 
-  return copy ? JS_NewArrayBufferCopy(ctx, buf.data, buf.size) : JS_NewArrayBuffer(ctx, buf.data, buf.size, &free_objptr, opaque, FALSE);
+  return copy ? JS_NewArrayBufferCopy(ctx, buf.data, buf.size)
+              : JS_NewArrayBuffer(ctx, buf.data, buf.size, &free_objptr, opaque, FALSE);
 }
 
 /* the native deallocator of memory wrapped by toArrayBuffer(), supplied
@@ -511,11 +534,14 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
 
   /* byteOffset and byteLength; undefined counts as omitted */
   OffsetLength range;
-  int given = argc > 2 && !JS_IsUndefined(argv[2]) ? 2 : argc > 1 && !JS_IsUndefined(argv[1]) ? 1 : 0;
+  int given = argc > 2 && !JS_IsUndefined(argv[2])   ? 2
+              : argc > 1 && !JS_IsUndefined(argv[1]) ? 1
+                                                     : 0;
   int parsed = js_parse_range(ctx, &range, given, argv + 1);
 
   if(parsed < given)
-    return JS_ThrowTypeError(ctx, "toArrayBuffer: byteOffset and byteLength must be BigInt | Number");
+    return JS_ThrowTypeError(ctx,
+                             "toArrayBuffer: byteOffset and byteLength must be BigInt | Number");
 
   if(parsed < 2) {
     /* no byteLength: the C string at ptr; a negative byteOffset counts
@@ -533,7 +559,8 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
 
   /* the last argument is the deallocator, the one before it its context */
   if(argc > 4) {
-    if(js_cptr(ctx, &context, argv[3], "deallocatorContext") || js_cptr(ctx, (void**)&dealloc, argv[4], "jsTypedArrayBytesDeallocator"))
+    if(js_cptr(ctx, &context, argv[3], "deallocatorContext") ||
+       js_cptr(ctx, (void**)&dealloc, argv[4], "jsTypedArrayBytesDeallocator"))
       return JS_EXCEPTION;
   } else if(argc > 3) {
     if(js_cptr(ctx, (void**)&dealloc, argv[3], "jsTypedArrayBytesDeallocator"))
