@@ -208,7 +208,6 @@ console.log('clean');
 
     eq('wor', CString(ptr(buf), 6, 3));
     eq('world', CString(ptr(buf), 6));
-    eq('', CString(ptr(buf), 6, 0));
   },
 
   'CString of NULL, nothing or a view'() {
@@ -230,10 +229,12 @@ console.log('clean');
     eq('abc', s);
   },
 
-  'CString throws RangeError for a negative byteLength'() {
-    let e;
-    try { CString(ptr(bytes('abc\0')), 0, -1); } catch(x) { e = x; }
-    assert(e instanceof RangeError, 'expected RangeError, got ' + e);
+  'CString throws TypeError for a byteLength below 1, as bun does'() {
+    for(const length of [0, -1]) {
+      let e;
+      try { CString(ptr(bytes('abc\0')), 0, length); } catch(x) { e = x; }
+      assert(e instanceof TypeError, 'expected TypeError for ' + length + ', got ' + e);
+    }
   },
 
   'CString wraps a pointer returned from native code'() {

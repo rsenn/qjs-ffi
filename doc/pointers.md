@@ -50,7 +50,7 @@ A `byteOffset` or `byteLength` (of `ptr()`, `toPointer()`, `read`, `CString`,
 `bigint` is taken as it is: `"3"` is 3, `1.5` is 1, `null` and `undefined` are 0
 (and where it is optional, `undefined` means omitted). Only a value that cannot
 be converted at all, a Symbol, is refused; it throws a `TypeError` at once, and
-`CString` and `toArrayBuffer()` throw a `RangeError` for a negative length. The
+`CString` and `toArrayBuffer()` throw a `TypeError` for a `byteLength` below 1. The
 argument that is not a pointer is the same `TypeError`:
 
 ```js
@@ -105,7 +105,7 @@ Makes an `ArrayBuffer` over the memory at `ptr + byteOffset`, as bun:ffi's
 | -------- | ----------- |
 | `ptr` | An address (`number` or `bigint`). NULL throws a `TypeError`. |
 | `byteOffset` | Bytes to skip first. Defaults to 0. Without a `byteLength` a negative offset counts from the end of the C string, as in `slice()`. |
-| `byteLength` | Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Negative is a `RangeError`. An `undefined` one counts as omitted. |
+| `byteLength` | Size of the buffer in bytes. Omitted, the memory is read up to the first NUL byte, as a C string is. Below 1 is a `TypeError`, as in bun. An `undefined` one counts as omitted. |
 | `deallocatorContext` | An address passed to the deallocator. `null` or omitted for NULL. |
 | `jsTypedArrayBytesDeallocator` | The address of a native function `void (*)(void *bytes, void *context)`, called when the buffer is freed. |
 
@@ -252,8 +252,7 @@ console.log(CString(ptr(bytes), 6)); // world
 console.log(CString(null) === ""); // true
 ```
 
-A negative `byteLength` is a `RangeError`. (bun refuses a `byteLength` of 0;
-here it gives `""`.) To get a string from a function that returns `char *`,
+A `byteLength` below 1 is a `TypeError`, as in bun. To get a string from a function that returns `char *`,
 declare the return type `"cstring"` and it arrives decoded.
 
 ## `toString()`

@@ -550,8 +550,8 @@ js_toarraybuffer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst a
     p += range.ofs;
     len = strlen((const char*)p);
   } else {
-    if(range.len < 0)
-      return JS_ThrowRangeError(ctx, "toArrayBuffer: byteLength must not be negative");
+    if(range.len < 1)
+      return JS_ThrowTypeError(ctx, "toArrayBuffer: byteLength must be > 0");
 
     p += range.ofs;
     len = range.len;

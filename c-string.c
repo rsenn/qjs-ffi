@@ -20,8 +20,8 @@ js_cstring_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     if(js_to_index(ctx, &len, argv[2]))
       return JS_ThrowTypeError(ctx, "CString: argument 3 must be BigInt | Number");
 
-    if(len < 0)
-      return JS_ThrowRangeError(ctx, "CString: byteLength must not be negative");
+    if(len < 1)
+      return JS_ThrowTypeError(ctx, "CString: byteLength must be > 0");
   }
 
   if(!p)
@@ -33,7 +33,8 @@ js_cstring_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
 int
 js_cstring_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
-  JSValue fn = JS_NewCFunction2(ctx, js_cstring_call, "CString", 3, JS_CFUNC_constructor_or_func, 0);
+  JSValue fn =
+      JS_NewCFunction2(ctx, js_cstring_call, "CString", 3, JS_CFUNC_constructor_or_func, 0);
 
   if(JS_IsObject(defaults))
     JS_SetPropertyStr(ctx, defaults, "CString", JS_DupValue(ctx, fn));

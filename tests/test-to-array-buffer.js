@@ -89,12 +89,13 @@ await tests({
     cb.close();
   },
 
-  'a NULL pointer, a negative length and a boolean argument throw'() {
+  'a NULL pointer, a length below 1 and a boolean argument throw'() {
     const src = new Uint8Array([1, 2]);
 
     assertThrows(() => toArrayBuffer(null, 0, 1), TypeError);
     assertThrows(() => toArrayBuffer(0, 0, 1), TypeError);
-    assertThrows(() => toArrayBuffer(ptr(src), 0, -1), RangeError);
+    assertThrows(() => toArrayBuffer(ptr(src), 0, -1), TypeError);
+    assertThrows(() => toArrayBuffer(ptr(src), 0, 0), TypeError);
     assertThrows(() => toArrayBuffer(ptr(src), 0, 2, false), TypeError);
   },
 

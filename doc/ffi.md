@@ -242,5 +242,5 @@ Different on purpose or for now:
 *   `read.ptr` and every pointer result are exact (a `bigint` above 2^53 - 1);
     bun's `read.ptr` rounds to a `number`.
 *   A closed `JSCallback` passed as a pointer is a `TypeError`; bun passes a stale
-    pointer. `CString(ptr, 0, 0)` is `""`; bun throws. An out-of-range `bigint`
+    pointer. An out-of-range `bigint`
     pointer wraps modulo 2^64, as in bun.

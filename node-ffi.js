@@ -231,6 +231,8 @@ export function toString(pointer) {
 /* an ArrayBuffer of `length` bytes at `pointer`: a copy, or with
  * `copy` false a view of the memory itself. */
 export function toArrayBuffer(pointer, length, copy = true) {
+  if(Number(length) === 0) return new ArrayBuffer(0);
+
   const view = ffi.toArrayBuffer(pointer, 0, Number(length));
 
   return copy ? view.slice(0) : view;
