@@ -48,6 +48,7 @@
 
 #include "c-function.h"
 #include "ffi-read.h"
+#include "ffi-write.h"
 #include "ffi-type.h"
 #include "js-callback.h"
 
@@ -675,6 +676,7 @@ static const JSCFunctionListEntry js_funcs[] = {
     JS_PROP_INT32_DEF("pointerSize", sizeof(void*), JS_PROP_CONFIGURABLE),
     JS_OBJECT_DEF("FFIType", js_ffitype_funcs, FFI_TYPE_COUNT, JS_PROP_CONFIGURABLE),
     JS_OBJECT_DEF("read", js_ffiread_funcs, FFI_READ_COUNT, JS_PROP_CONFIGURABLE),
+    JS_OBJECT_DEF("write", js_ffiwrite_funcs, FFI_WRITE_COUNT, JS_PROP_CONFIGURABLE),
 };
 
 static int

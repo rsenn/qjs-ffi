@@ -20,7 +20,7 @@ Start with the [overview](ffi.md).
 | [Types and ABI](types.md) | `FFIType`, type names and aliases, structs by value, ABI names |
 | [CFunction](c-function.md) | a native function pointer as a JavaScript function |
 | [JSCallback](js-callback.md) | a JavaScript function as a native function pointer |
-| [Pointers and memory](pointers.md) | `ptr()`, `toPointer()`, `toArrayBuffer()`, `toBuffer()`, `read`, `CString`, `toString()`, `pointerSize` |
+| [Pointers and memory](pointers.md) | `ptr()`, `toPointer()`, `toArrayBuffer()`, `toBuffer()`, `read`, `write`, `CString`, `toString()`, `pointerSize` |
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
 

@@ -7,6 +7,7 @@ turn buffers into addresses and addresses into buffers, values or strings.
 *   [`ptr()`](#ptr) and [`toPointer()`](#topointer): address of a buffer
 *   [`toArrayBuffer()`, `toBuffer()`](#toarraybuffer): an `ArrayBuffer` over memory
 *   [`read`](#read): read a value from an address
+*   [`write`](#write): write a value to an address
 *   [`CString`](#cstring) and [`toString()`](#tostring): C strings
 *   [`pointerSize`](#pointersize)
 
@@ -187,6 +188,44 @@ const mem = new Uint8Array([1, 0xff, 2, 0x80, 0x78, 0x56, 0x34, 0x12]);
 
 read.u8(ptr(mem), 1); // 255
 read.i8(ptr(mem), 1); // -1
+read.u32(ptr(mem), 4); // 0x12345678
+```
+
+## `write`
+
+```js
+write.i32(ptr, byteOffset, value);
+```
+
+The mirror of [`read`](#read): stores a value directly at an address, without a
+`DataView` or an `ArrayBuffer`. `ptr` is an address, or an `ArrayBuffer` or view.
+The offset may be negative, is optional (`write.u8(ptr, 9)` writes at 0) and the
+write need not be aligned. NULL throws a `TypeError`.
+
+| Function | Writes | `value` |
+| -------- | ------ | ------- |
+| `write.i8` / `write.u8` | 1 byte | `number` or `bigint`, wrapped to the width |
+| `write.i16` / `write.u16` | 2 bytes | the same |
+| `write.i32` / `write.u32` | 4 bytes | the same |
+| `write.i64` / `write.u64` | 8 bytes | the same |
+| `write.f32` / `write.f64` | `float` / `double` | `number` |
+| `write.ptr` | a pointer | anything a pointer argument takes |
+| `write.intptr` | a pointer-sized integer | `number` or `bigint` |
+| `write.bytes` | the bytes of a buffer or view, `write.bytes(ptr, offset, source[, byteLength])` | an `ArrayBuffer`, `TypedArray` or `DataView` |
+| `write.cstring` | UTF-8 and a NUL | a `string` |
+
+`write.bytes` and `write.cstring` return the number of bytes written (the NUL
+of `cstring` is not counted); the others return `undefined`. All writes are
+little-endian and unchecked: writing past the memory, or to a bad address,
+crashes the process.
+
+```js
+import { write, read, ptr } from "ffi";
+
+const mem = new Uint8Array(16);
+
+write.u32(ptr(mem), 4, 0x12345678);
+write.cstring(ptr(mem), 8, "hi"); // 2
 read.u32(ptr(mem), 4); // 0x12345678
 ```
 
