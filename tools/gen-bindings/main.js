@@ -1,7 +1,7 @@
 import * as std from 'std';
 import { usage, parseArgs } from './args.js';
 import { sourceFilter, runClangAstDump } from './clang.js';
-import { collectIR, newIR, linkPrototypeChains, mergeIR } from './ir.js';
+import { collectIR, newIR, mergeIR } from './ir.js';
 import { resolveByValue } from './by-value.js';
 import { nameCollisions } from './names.js';
 import { bindable, setNamespaces } from './emit/common.js';
@@ -41,6 +41,11 @@ export function main() {
       std.exit(1);
     }
 
+    if(ir.version !== newIR().version) {
+      std.err.puts('gen-bindings.js: ' + opts.fromIr + ' is IR version ' + ir.version + ', this is version ' + newIR().version + '; make it again with --emit-ir\n');
+      std.exit(1);
+    }
+
     Object.assign(opts, ir.source);
     opts.sources = ir.source.files;
   } else {
@@ -63,7 +68,6 @@ export function main() {
       mergeIR(ir, found);
     });
 
-    linkPrototypeChains(ir);
     resolveByValue(ir, opts);
   }
 
@@ -79,8 +83,8 @@ export function main() {
 
   const specs = opts.emitSpecs ? irToSpecs(ir, { library: opts.library }) : null;
   const data = opts.emitIr ? ir : specs;
-  const out = data ? (opts.js ? toSource(data) : JSON.stringify(data, null, 2) + '\n') : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
-  const dest = opts.emitIr || opts.emitSpecs || opts.output;
+  const out = data ? (opts.js || (opts.emitSpecs === true && !opts.json) ? toSource(data) : JSON.stringify(data, null, 2) + '\n') : opts.api === 'cfunction' ? generateCFunction(ir, opts) : generateDefine(ir, opts);
+  const dest = opts.emitIr || (typeof opts.emitSpecs == 'string' && opts.emitSpecs) || opts.output;
 
   if(dest) {
     const f = std.open(dest, 'w');

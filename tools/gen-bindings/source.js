@@ -23,7 +23,7 @@ function mark(value) {
  * ```
  */
 export function toSource(value) {
-  const text = inspect(mark(value), { reparseable: true, colors: false, compact: -3, depth: Infinity, maxArrayLength: Infinity, maxStringLength: Infinity, breakLength: 80 });
+  const text = inspect(mark(value), { reparseable: true, colors: false, compact: -1, depth: Infinity, maxArrayLength: Infinity, maxStringLength: Infinity, breakLength: 80 });
 
   return 'export default ' + text.replaceAll("'" + EMPTY_ARRAY + "'", '[]').replaceAll("'" + EMPTY_OBJECT + "'", '{}') + ';\n';
 }

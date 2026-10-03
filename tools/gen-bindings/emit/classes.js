@@ -1,4 +1,4 @@
-import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn } from './common.js';
+import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn, legacyType } from './common.js';
 import { sigCode } from './describe.js';
 import { jsDoc } from './jsdoc.js';
 import { classesCode as structClasses, mergeIRs } from '../structs.js';
@@ -168,10 +168,10 @@ const CLASS_RESERVED_MEMBERS = new Set(['constructor', 'ptr', 'from', 'at', 'del
  * whatever overrides the method in the object's real class. */
 function classFn(symbol, entry, thisType, opts, slot) {
   const cf = [...(thisType ? [thisType] : []), ...paramTypes(entry)];
-  const def = [...(thisType ? [thisType] : []), ...entry.defTypes.params];
+  const def = cf.map(legacyType);
   const virtual = slot !== undefined && opts.api !== 'define';
 
-  if(opts.api === 'define') return '__bind(' + jsLiteral(symbol) + ',' + jsLiteral(entry.defTypes.returnType || 'void') + def.map(t => ',' + jsLiteral(t)).join('') + ')';
+  if(opts.api === 'define') return '__bind(' + jsLiteral(symbol) + ',' + jsLiteral(legacyType(entry.returns || 'void')) + def.map(t => ',' + jsLiteral(t)).join('') + ')';
 
   const types = 'args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returns || 'void', opts);
 
@@ -281,7 +281,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
     if(opts.describe && c.constructors.length) sigs.push(sigCode(id, c.constructors));
     out += sigs.join('');
 
-    const dtor = c.destructor && (c.destructor.mangledName || c.destructor.vtableSlot !== undefined) ? '__lazy(()=>' + classFn(c.destructor.mangledName, { args: [], defTypes: { params: [] } }, thisType, opts, c.destructor.vtableSlot) + ')' : 'null';
+    const dtor = c.destructor && (c.destructor.mangledName || c.destructor.vtableSlot !== undefined) ? '__lazy(()=>' + classFn(c.destructor.mangledName, { args: [] }, thisType, opts, c.destructor.vtableSlot) + ')' : 'null';
     const zeroInit = !c.constructors.length && !c.abstract && !c.polymorphic;
     out += id + '.__info = { size: ' + c.size + ', ctors: ' + (c.constructors.length ? prefix + 'ctor' : 'null') + ', dtor: ' + dtor + (zeroInit ? ', zeroInit: true' : '') + ' };\n';
 

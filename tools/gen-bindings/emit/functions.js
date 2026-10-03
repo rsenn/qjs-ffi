@@ -1,4 +1,4 @@
-import { safeIdent, header, skippedComment, bindable, paramTypes, jsLiteral, cfType, structTypesCode, usedStructs, wrapReturn } from './common.js';
+import { safeIdent, header, skippedComment, bindable, paramTypes, jsLiteral, cfType, structTypesCode, usedStructs, wrapReturn, legacyType } from './common.js';
 import { prepareByValue } from '../by-value.js';
 import { describedFunction, DESCRIBE_HELPERS } from './describe.js';
 import { jsDoc } from './jsdoc.js';
@@ -127,9 +127,9 @@ export function generateDefine(ir, opts) {
   out += '\n';
 
   for(const fn of functions) {
-    const args = fn.defTypes.params.map(t => jsLiteral(t));
+    const args = paramTypes(fn).map(t => jsLiteral(legacyType(t)));
     const ident = safeIdent(fn.name);
-    const impl = '__bind(' + jsLiteral(fn.name) + ',' + jsLiteral(fn.defTypes.returnType) + (args.length ? ',' + args.join(',') : '') + ')';
+    const impl = '__bind(' + jsLiteral(fn.name) + ',' + jsLiteral(legacyType(fn.returns || 'void')) + (args.length ? ',' + args.join(',') : '') + ')';
 
     const doc = opts.jsdoc ? jsDoc([fn.name], [fn], new Set(classes.map(c => c.name)), '') : '';
 

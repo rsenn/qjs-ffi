@@ -149,19 +149,12 @@ await tests({
       assert(['struct', 'union', 'class'].includes(e.type), e.name + ': type is the tag, got ' + e.type);
       eq(undefined, e.kind);
       same(['name', 'type', 'size', 'align', 'line'], Object.keys(e).slice(0, 5));
-      same([], e.getters);
-      same([], e.setters);
-      assert(Array.isArray(e.methods) && Array.isArray(e.fields) && Array.isArray(e.prototypeChain), e.name + ' lacks a describeObject() member list');
+      assert(Array.isArray(e.methods) && Array.isArray(e.fields), e.name + ' lacks a member list');
+      eq(undefined, e.getters);
+      eq(undefined, e.setters);
+      eq(undefined, e.prototypeChain);
     }
     same([], find(ir.structs, 'geo::Point').methods);
-  },
-
-  'a class lists its ancestors in prototypeChain, like describeObject'() {
-    eq(1, shape.prototypeChain.length);
-    eq(0, shape.prototypeChain[0].level);
-    eq('geo::Base', shape.prototypeChain[0].constructorName);
-    same(['id'], shape.prototypeChain[0].fields.map(f => f.name));
-    same([], base.prototypeChain);
   },
 
   'every field has a byte offset and a byte size'() {

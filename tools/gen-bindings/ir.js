@@ -206,7 +206,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     if(m.supported) {
       const size = sizeOfC(m, t, typedefs, enumIndex);
 
-      return size === null ? null : { size, align: m.def === 'longdouble' ? 16 : size };
+      return size === null ? null : { size, align: size };
     }
 
     const l = layoutOf(cType) || (resolved && layoutOf(resolved));
@@ -336,7 +336,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
       if(access === 'public') fields.push(structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
     }
 
-    const s = { name, type: node.tagUsed || 'struct', size: layout ? layout.size : null, align: layout ? layout.align : null, line: node.line === undefined ? null : node.line, methods: [], getters: [], setters: [], fields, prototypeChain: [] };
+    const s = { name, type: node.tagUsed || 'struct', size: layout ? layout.size : null, align: layout ? layout.align : null, line: node.line === undefined ? null : node.line, methods: [], fields };
     if(aliases.length) s.typedefs = aliases;
     if(packed) s.packed = true;
     ir.structs.push(s);
@@ -416,7 +416,6 @@ export function collectIR(root, isSourceFile, idPrefix) {
       isConst: split.isConst,
       args: params.map(p => p.name + ': ' + p.type.cf),
       returns: retMap.cf,
-      defTypes: { returnType: retMap.def, params: params.map(p => p.type.def) },
       enums: [...new Set(used)].map(id => idPrefix + id),
       ...(byValue.length ? { byValue } : {}),
     };
@@ -461,7 +460,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     const layout = (root.layouts || {})[tag + ' ' + name];
     const info = node.definitionData || {};
     const offsets = layout ? layout.offsets : fallbackOffsets(node);
-    const cls = { name, type: tag, size: null, align: null, line: node.line === undefined ? null : node.line, bases: [], methods: [], getters: [], setters: [], fields: [], prototypeChain: [], constructors: [] };
+    const cls = { name, type: tag, size: null, align: null, line: node.line === undefined ? null : node.line, bases: [], methods: [], fields: [], constructors: [] };
     let access = tag === 'class' ? 'private' : 'public';
     let fieldIndex = 0;
     const sigs = new Map();
@@ -535,7 +534,6 @@ export function collectIR(root, isSourceFile, idPrefix) {
             if(child.pure) entry.pure = true;
           } else {
             delete description.returns;
-            delete description.defTypes.returnType;
           }
 
           Object.assign(entry, description);
@@ -564,9 +562,10 @@ export function collectIR(root, isSourceFile, idPrefix) {
 /* --- intermediate format (IR) --------------------------------------------- */
 
 /* the IR: what the clang AST is condensed to, and all generators read.
- * shaped like describeObject() output (qjs-modules lib/describe-object.js).
+ * the function entries are shaped like the symbol specs of dlopen().
  *
  *   key       holds
+ *   version   the IR format, 2; --from-ir refuses another
  *   methods   functions, one entry per overload
  *   fields    exported variables and constants
  *   enums     enums with their constants
@@ -584,7 +583,6 @@ export function collectIR(root, isSourceFile, idPrefix) {
  * { name: "geom_move", kind: "function",
  *   args: ["s: shape *", "dx: f64"],  // "name: type", an FFIType name
  *   returns: "i32",
- *   defTypes: { returnType: "sint32", params: [...] },  // for define()
  *   enums: ["0:0x5e10..."] }          // ids of the enums it uses
  * ```
  *
@@ -611,12 +609,12 @@ export function collectIR(root, isSourceFile, idPrefix) {
  *   record    the struct it names
  *   size      in bytes
  *
- * `structs`: describeObject()-shaped, for structs and unions.
+ * `structs`: C structs and unions.
  *
  *   name, type   type is "struct" or "union"
  *   size, align  in bytes; null where unknown
  *   line         source line; null where unknown
- *   methods, getters, setters, prototypeChain   empty lists
+ *   methods      always empty (a struct with methods is a class)
  *   fields       see below
  *   packed?      the struct is packed
  *   typedefs?    names that alias it
@@ -644,7 +642,6 @@ export function collectIR(root, isSourceFile, idPrefix) {
  *                   mangledName, no `returns`; none if abstract
  *   methods         see below
  *   destructor?     { mangledName, virtual?, vtableSlot? }
- *   prototypeChain  the ancestors, first base each (linkPrototypeChains())
  *
  * only public members are listed. a static field has `static: true` and
  * a `mangledName` instead of an offset and size.
@@ -659,27 +656,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
  * its `args` do not list `this`.
  */
 export function newIR() {
-  return { name: 'bindings', type: 'object', version: 1, methods: [], fields: [], getters: [], setters: [], enums: [], structs: [], classes: [], typedefs: [], skipped: [], prototypeChain: [] };
-}
-
-/* Fills each class's `prototypeChain` like describeObject() does for a JS
- * object: one { level, constructorName, methods, getters, setters, fields }
- * per ancestor, following the first base (the one a generated class extends).
- * Needs every class of the IR, so it runs after the sources are merged. */
-export function linkPrototypeChains(ir) {
-  const byName = new Map(ir.classes.map(c => [c.name, c]));
-
-  for(const c of ir.classes) {
-    const visited = new Set([c.name]);
-
-    c.prototypeChain = [];
-
-    for(let b = c; b.bases[0] && byName.has(b.bases[0].name) && !visited.has(b.bases[0].name); ) {
-      b = byName.get(b.bases[0].name);
-      visited.add(b.name);
-      c.prototypeChain.push({ level: c.prototypeChain.length, constructorName: b.name, methods: b.methods, getters: b.getters, setters: b.setters, fields: b.fields });
-    }
-  }
+  return { version: 2, methods: [], fields: [], enums: [], structs: [], classes: [], typedefs: [], skipped: [] };
 }
 
 /* Merges `from` into `into`, keeping the first declaration of a name (a

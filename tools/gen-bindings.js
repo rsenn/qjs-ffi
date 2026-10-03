@@ -7,8 +7,7 @@
  *      tokenized with json.JsonParser and condensed on the fly to just the
  *      nodes needed here (the condensed AST is cached, see --cache-dir), then
  *      the top-level, externally visible functions, enums, structs/unions and
- *      variables are extracted into an IR shaped like describeObject() /
- *      describeClass() output (qjs-modules lib/describe-*.js): `methods` holds
+ *      variables are extracted into the IR: `methods` holds
  *      kind:"function" entries with `args` ("name: type") and `returns`,
  *      `fields` holds variables, `enums`/`structs` the compound types.
  *   2. IR -> JS:     the IR alone (no clang) is turned into a JS module.

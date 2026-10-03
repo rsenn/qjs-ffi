@@ -67,7 +67,9 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--jsdoc` | a JSDoc comment on each function, method and class. |
 | `--emit-ir=<file>` | write the intermediate JSON and stop. |
 | `--emit-specs=<file>` | write the `dlopen()` symbol specs as JSON and stop, see [Specs from the IR](#specs-from-the-ir). Not with `--emit-ir`. |
+| `--emit-specs` | the same without a file name: the specs go to stdout (or `-o`) as a JS module, unless `--json`. |
 | `--js` | write the `--emit-ir` or `--emit-specs` file as a JS module, `export default { ... };`, instead of JSON. |
+| `--json` | write the `--emit-ir` or `--emit-specs` file as JSON. The default, except for a bare `--emit-specs`. Not with `--js`. |
 | `--from-ir=<file>` | generate from an IR instead of running clang. |
 | `--clang=<path>` | the clang binary (default `clang`). |
 | `--cache-dir=<dir>` | where the condensed AST is cached (default `.tmp/gen-bindings`). |
@@ -272,8 +274,7 @@ names:
 
 ```json
 { "name": "geom_abs", "kind": "function",
-  "args": ["v: i32"], "returns": "i32",
-  "defTypes": { "returnType": "sint32", "params": ["sint32"] }, "enums": [] }
+  "args": ["v: i32"], "returns": "i32", "enums": [] }
 { "name": "geom_move", "kind": "function",
   "args": ["s: shape *", "dx: f64", "dy: f64"], "returns": "i32", "enums": ["0:0x5e1031dee5d0"], ... }
 { "name": "geom_find", "kind": "function",
@@ -357,10 +358,6 @@ a struct with no methods and no bases stays a plain `structs` entry even in C++.
 With several sources, each one's IR is merged into one. The first declaration
 of a name wins, so a function or enum in two headers is bound once, and a
 variable declared without a value is upgraded by a later declaration with one.
-Then `linkPrototypeChains()` fills each class's `prototypeChain`, one entry per
-ancestor following the first base, as `describeObject()` does for a JavaScript
-object.
-
 A source with nothing to bind prints `warning: no bindable functions found in
 <source>` and the run continues.
 
@@ -737,7 +734,9 @@ export const geom_move = CFunction({ptr:__sym('geom_move'),args:['shape *','f64'
 `define()` once and a closure around `call()`, both imported from `legacy.js`
 (`import { define, call } from 'legacy.js'`, so that module has to be on
 `QUICKJS_MODULE_PATH`). It has no struct types, so a function with a struct by
-value is skipped:
+value is skipped. The legacy type names are made from the IR's `ffi` names when
+the module is written (`i32` becomes `sint32`, `cstring` becomes `char *`,
+`function` becomes `callback`); the IR holds no legacy types:
 
 ```js
 export const geom_abs = __bind('geom_abs','sint32','sint32');
@@ -751,11 +750,12 @@ export const geom_find = __bind('geom_find','shape *','char *');
 
 ## The IR on its own
 
-The two halves of the generator are separate runs. The IR is JSON, shaped like
-the output of `describeObject()` (qjs-modules): `methods` and `fields` for the
+The two halves of the generator are separate runs. The IR is JSON: `methods` and `fields` for the
 functions and variables, `enums`, `structs`, `classes`, `typedefs`, `skipped`,
 `byValue`, and `source`, which records how it was made (files, includes,
-defines, language) for the header of the output.
+defines, language) for the header of the output. `version` is the IR format
+(2); `--from-ir` refuses an IR of another version and says to make it again
+with `--emit-ir`.
 
 ```sh
 qjs-ffi-genbindings --emit-ir=api.json geom.h          # clang -> IR
@@ -843,6 +843,14 @@ qjs-ffi-genbindings --from-ir=geom.ir.json --library=/usr/lib/libgeom.so \
 ```js
 const { library, symbols } = JSON.parse(std.loadFile("geom.specs.json"));
 const lib = dlopen(library, symbols); // lib.symbols.geom_abs(-3), lib.symbols.counter
+```
+
+Without a file name, `--emit-specs` writes to stdout, as a JS module unless
+`--json` is given, so it pipes straight into a file or another tool:
+
+```sh
+qjs-ffi-genbindings --library=/usr/lib/libgeom.so --emit-specs geom.h > geom.specs.js
+qjs-ffi-genbindings --library=/usr/lib/libgeom.so --emit-specs --json geom.h | jq .symbols
 ```
 
 With `--js` the file is an ES module with the same data, written by `inspect()`

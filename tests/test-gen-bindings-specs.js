@@ -141,6 +141,30 @@ await tests({
     }
   },
 
+  'the IR is version 2: no defTypes, getters, setters or prototypeChain anywhere'() {
+    const ir = JSON.parse(std.loadFile(tmp + 'test-gen-bindings-specs.ir.json'));
+    const gone = ['defTypes', 'getters', 'setters', 'prototypeChain', 'name', 'type'];
+    const walk = (v, top) => (v && typeof v == 'object' ? Object.entries(v).some(([k, x]) => (!top && ['defTypes', 'getters', 'setters', 'prototypeChain'].includes(k)) || (top && gone.includes(k)) || walk(x, false)) : false);
+
+    eq(2, ir.version);
+    eq('version,methods,fields,enums,structs,classes,typedefs,skipped,source,byValue', Object.keys(ir).join());
+    assert(ir.methods.length > 0 && !walk(ir, true), 'a key that was removed is back');
+  },
+
+  '--from-ir refuses an IR of another version, and says how to make a new one'() {
+    const old = tmp + 'test-gen-bindings-specs.v1.json';
+    const ir = JSON.parse(std.loadFile(tmp + 'test-gen-bindings-specs.ir.json'));
+    const f = std.open(old, 'w');
+
+    ir.version = 1;
+    f.puts(JSON.stringify(ir));
+    f.close();
+
+    const out = sh('qjsm ' + root + 'tools/gen-bindings.js --from-ir=' + old + ' --emit-specs=/dev/null');
+
+    assert(/IR version 1, this is version 2; make it again with --emit-ir/.test(out), out);
+  },
+
   '--from-ir with a file that is no IR says so'() {
     const bad = tmp + 'test-gen-bindings-specs.bad.js';
     const f = std.open(bad, 'w');
@@ -150,8 +174,32 @@ await tests({
     assert(/cannot parse/.test(sh('qjsm ' + root + 'tools/gen-bindings.js --from-ir=' + bad + ' --emit-specs=/dev/null')));
   },
 
-  '--js needs --emit-ir or --emit-specs'() {
-    assert(/--js needs/.test(sh('qjsm ' + root + 'tools/gen-bindings.js --js ' + root + 'tests/cxx/vars.h')));
+  '--js and --json need --emit-ir or --emit-specs'() {
+    assert(/need --emit-ir/.test(sh('qjsm ' + root + 'tools/gen-bindings.js --js ' + root + 'tests/cxx/vars.h')));
+    assert(/need --emit-ir/.test(sh('qjsm ' + root + 'tools/gen-bindings.js --json ' + root + 'tests/cxx/vars.h')));
+    assert(/cannot be combined/.test(sh('qjsm ' + root + 'tools/gen-bindings.js --emit-specs --js --json ' + root + 'tests/cxx/vars.h')));
+  },
+
+  'a bare --emit-specs writes a JS module to stdout, --json forces JSON'() {
+    const lib = realpath(tmp + 'libvars.so')[0];
+    const run = (...a) => {
+      const p = std.popen(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--library=' + lib, ...a, root + 'tests/cxx/vars.h', '2>/dev/null'].join(' '), 'r');
+      const text = p.readAsString();
+
+      p.close();
+      return text;
+    };
+    const out = run('--emit-specs');
+    const json = run('--emit-specs', '--json');
+
+    assert(out.startsWith('export default {'), out.slice(0, 40));
+    eq(JSON.stringify(vars), JSON.stringify(JSON.parse(json)));
+    eq(JSON.stringify(vars), JSON.stringify(specsModule.default));
+    assert(out.includes("bump: { args: [], returns: 'i32' }"), 'the module is the same data as --js writes');
+  },
+
+  '--emit-specs= needs a file name'() {
+    assert(/needs a file name/.test(sh('qjsm ' + root + 'tools/gen-bindings.js --emit-specs= ' + root + 'tests/cxx/vars.h')));
   },
 
   '--emit-ir and --emit-specs cannot be combined'() {

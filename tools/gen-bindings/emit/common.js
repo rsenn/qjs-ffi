@@ -188,6 +188,20 @@ function structTypeName(name) {
   return '__s_' + safeIdent(name.slice('struct '.length).replace(/::/g, '_'));
 }
 
+/* the type name legacy.js's define() takes for an FFIType name.
+ *
+ *   i32          sint32
+ *   cstring      char *
+ *   function     callback
+ *   struct vec3  struct
+ *   T *          T *
+ */
+const LEGACY_TYPES = { void: 'void', bool: 'uint8', i8: 'sint8', u8: 'uint8', i16: 'sint16', u16: 'uint16', i32: 'sint32', u32: 'uint32', i64: 'sint64', u64: 'uint64', f32: 'float', f64: 'double', cstring: 'char *', function: 'callback' };
+
+export function legacyType(name) {
+  return LEGACY_TYPES[name] || (isByValue(name) ? 'struct' : name);
+}
+
 export function cfType(name, opts) {
   if(isByValue(name)) return structTypeName(name);
 
