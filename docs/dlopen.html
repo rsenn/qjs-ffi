@@ -41,7 +41,7 @@ behind everything else in <code>ffi</code>: <a href="c-function.html"><code>CFun
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span>, <span class="t-id">close</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-id">path</span>, <span class="t-id">symbolSpecs</span>);</code></pre></div>
 <p>Opens the library with <code>RTLD_NOW</code>, looks up every key of <code>symbolSpecs</code> and
 wraps it as a <a href="c-function.html"><code>CFunction</code></a>. The result is</p>
-<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code id="dlopenpath-symbols-symbols">symbols</code><a class="member-anchor" href="#dlopenpath-symbols-symbols" aria-hidden="true">#</a></td><td>An object with one function per key of <code>symbolSpecs</code>.</td></tr><tr><td><code id="dlopenpath-symbols-close">close()</code><a class="member-anchor" href="#dlopenpath-symbols-close" aria-hidden="true">#</a></td><td><code>dlclose()</code>s the library and returns its result (<code>0</code>). Calling it again does nothing and returns <code>0</code>.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code id="dlopenpath-symbols-symbols">symbols</code><a class="member-anchor" href="#dlopenpath-symbols-symbols" aria-hidden="true">#</a></td><td>An object with one function per key of <code>symbolSpecs</code>.</td></tr><tr><td><code id="dlopenpath-symbols-close">close()</code><a class="member-anchor" href="#dlopenpath-symbols-close" aria-hidden="true">#</a></td><td><code>dlclose()</code>s the library and returns its result (<code>0</code>). Calling it again does nothing and returns <code>0</code>.</td></tr><tr><td><code id="dlopenpath-symbols-symbol-dispose">[Symbol.dispose]()</code><a class="member-anchor" href="#dlopenpath-symbols-symbol-dispose" aria-hidden="true">#</a></td><td>The same as <code>close()</code>, so <code>using lib = dlopen(...)</code> closes it (the registered <code>Symbol.for("Symbol.dispose")</code> where the engine has none).</td></tr></tbody></table></div>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
 
 <span class="t-kw">const</span> <span class="t-id">lib</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libm.so.6"</span>, {
@@ -100,7 +100,8 @@ does (a <code>bigint</code> for <code>i64</code>, a pointer for <code>pointer</c
 <li>A struct type (an array, see <a href="types.html#structs-by-value">structs</a>) reads as
 an <code>ArrayBuffer</code> over the variable's own memory, with no copy: writes
 through a view reach the variable. This is also how a C array is exposed
-(list the element type once per element). It cannot be assigned.</li>
+(<code>{ array: "i32", length: 8 }</code>, see <a href="types.html#array-types">array types</a>). It
+cannot be assigned.</li>
 <li><code>cstring</code> reads the string a <code>char *</code> variable points to (<code>null</code> for NULL)
 and cannot be assigned. <code>function</code> reads as a pointer.</li>
 <li><code>void</code> (and <code>buffer_length</code>) is a <code>TypeError</code>.</li>

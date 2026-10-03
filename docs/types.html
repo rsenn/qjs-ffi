@@ -32,9 +32,14 @@
 <a href="c-function.html"><code>CFunction</code></a>, <a href="c-compiler.html"><code>cc()</code></a> and
 <a href="js-callback.html"><code>JSCallback</code></a> (which takes no struct types).</p>
 <div class="tablewrap"><table><thead><tr><th>Name</th><th>C type</th><th>JS value</th></tr></thead><tbody><tr><td><code>"void"</code></td><td><code>void</code></td><td><code>undefined</code> (only valid as <code>returns</code>)</td></tr><tr><td><code>"bool"</code></td><td><code>_Bool</code> / <code>uint8_t</code></td><td><code>boolean</code></td></tr><tr><td><code>"i8"</code>, <code>"u8"</code></td><td><code>int8_t</code>, <code>uint8_t</code></td><td><code>number</code></td></tr><tr><td><code>"i16"</code>, <code>"u16"</code></td><td><code>int16_t</code>, <code>uint16_t</code></td><td><code>number</code></td></tr><tr><td><code>"i32"</code></td><td><code>int32_t</code></td><td><code>number</code></td></tr><tr><td><code>"u32"</code></td><td><code>uint32_t</code></td><td><code>number</code></td></tr><tr><td><code>"i64"</code>, <code>"u64"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>bigint</code> -- exact, no precision loss</td></tr><tr><td><code>"i64_fast"</code>, <code>"u64_fast"</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>number</code> while the value is exact, else an exact <code>bigint</code>, see below</td></tr><tr><td><code>"f32"</code></td><td><code>float</code></td><td><code>number</code></td></tr><tr><td><code>"f64"</code></td><td><code>double</code></td><td><code>number</code></td></tr><tr><td><code>"pointer"</code> / <code>"ptr"</code> / <code>"function"</code></td><td><code>void *</code></td><td><code>null</code> for a NULL pointer; otherwise a <code>number</code>, or a <code>bigint</code> above 2^53 - 1</td></tr><tr><td>C-style aliases</td><td>as the short name</td><td><code>"int8_t"</code>/<code>"int16_t"</code>/<code>"int32_t"</code>/<code>"int"</code> = <code>i8</code>/<code>i16</code>/<code>i32</code>/<code>i32</code>; <code>"int64_t"</code>/<code>"isize"</code> = <code>i64</code>; <code>"uint8_t"</code>/<code>"uint16_t"</code>/<code>"uint32_t"</code> = <code>u8</code>/<code>u16</code>/<code>u32</code>; <code>"uint64_t"</code>/<code>"usize"</code> = <code>u64</code>; <code>"float"</code> = <code>f32</code>; <code>"double"</code> = <code>f64</code>; <code>"char"</code> = <code>i8</code>; <code>"buffer"</code>/<code>"fn"</code>/<code>"callback"</code> = <code>pointer</code> (bun:ffi's names)</td></tr><tr><td><code>"&lt;type&gt; *"</code></td><td><code>&lt;type&gt; *</code></td><td>same as <code>"pointer"</code>, for any <code>&lt;type&gt;</code> (<code>"int *"</code>, <code>"struct node **"</code>, <code>"void*"</code>): every name ending in <code>*</code> is a pointer and what precedes it is documentation. <code>"char *"</code> is therefore a plain pointer; use <code>"cstring"</code> for a string</td></tr><tr><td><code>"cstring"</code></td><td><code>char *</code></td><td><code>string</code> (return) / <code>string</code> (argument, copied via <code>JS_ToCString</code>) -- decoded/encoded as a NUL-terminated C string</td></tr><tr><td><code>[ &lt;type&gt;, ... ]</code></td><td>a struct passed or returned by value</td><td>an <code>ArrayBuffer</code> of the struct's bytes, see <a href="#structs-by-value">Structs by value</a></td></tr></tbody></table></div>
-<p>An unrecognized type name in <code>args</code> silently falls back to <code>"i32"</code>; an
-unrecognized <code>returns</code> falls back to <code>"void"</code>. This matches <code>JSCallback</code>'s
-behavior and is a known rough edge -- prefer sticking to the table above.</p>
+<p>An unrecognized type name in <code>args</code> or <code>returns</code> is a <code>TypeError</code> that names it
+(<code>unknown type: nope</code>, <code>unknown return type: nope</code>), as in bun, for <code>CFunction</code>
+and <code>JSCallback</code> alike.</p>
+<p>An argument converts like this: a <code>number</code>, a <code>bigint</code>, a boolean, <code>null</code> and
+<code>undefined</code> for any numeric type, an integer wrapping to its width (<code>abs(2n)</code> is
+2, <code>null</code> is 0, <code>true</code> is 1). A string or a <code>Symbol</code> where a number is declared is
+a <code>TypeError</code> (<code>cannot convert argument 1 to 'i32'</code>), and so is a <code>valueOf()</code>
+that throws, with that exception.</p>
 <p><code>"cstring"</code> arguments are converted with <code>JS_ToCString()</code> for the duration
 of the call and freed immediately afterward; the native function must not
 retain the pointer past the call returning.</p>
@@ -64,6 +69,17 @@ name or an array throws when the <code>CFunction</code> is made.</li>
 <li>A struct type also describes a <a href="dlopen.html#variables">variable</a>: it reads as
 an <code>ArrayBuffer</code> over the variable's memory.</li>
 </ul>
+<h3 id="array-types"><a class="anchor" href="#array-types" aria-hidden="true">#</a>Array types</h3>
+<p>A C array is <code>{ array: type, length: n }</code>. It is a struct of <code>n</code> elements, so it
+is passed, returned or held as a <a href="dlopen.html#variables">variable</a> the same way,
+and it nests (<code>int grid[3][2]</code> is `{ array: { array: "i32", length: 2 }, length:
+3 }`):</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">buf</span> <span class="t-op">=</span> { <span class="t-id">array</span><span class="t-op">:</span> <span class="t-str">"i8"</span>, <span class="t-id">length</span><span class="t-op">:</span> <span class="t-num">4096</span> }; <span class="t-cm">// char buf[4096]</span>
+<span class="t-kw">const</span> <span class="t-id">sum</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span>, <span class="t-id">args</span><span class="t-op">:</span> [{ <span class="t-id">array</span><span class="t-op">:</span> <span class="t-str">"i32"</span>, <span class="t-id">length</span><span class="t-op">:</span> <span class="t-num">3</span> }], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> });</code></pre></div>
+<p><code>length</code> is 1 to 2^20 (1048576), a bigger or missing one throws a <code>RangeError</code>,
+and an element that is <code>void</code> or not a type throws a <code>TypeError</code>. A plain
+struct list is still limited to 1024 members, so use an array type for a long
+array.</p>
 <h2 id="ffitype"><a class="anchor" href="#ffitype" aria-hidden="true">#</a>FFIType</h2>
 <p><code>FFIType</code> holds bun:ffi's type constants, so <code>FFIType.i32</code> can be used where
 <code>"i32"</code> is written, and the other way round:</p>
@@ -86,8 +102,7 @@ arguments the same way.</p>
 <p>Each of the numbers 0 to 17 is also a key that maps to itself (`FFIType[5] ===
 5`), as in bun, which has 61 members in all.</p>
 <p>Not every member can be used in a signature. <code>napi_env</code> and <code>napi_value</code> only
-mean something in Node-API: they are unknown types, which an argument reads as
-<code>i32</code> and a return as <code>void</code>.</p>
+mean something in Node-API: they are unknown types, a <code>TypeError</code> in a signature.</p>
 <h3 id="buffer_length"><a class="anchor" href="#buffer_length" aria-hidden="true">#</a><code>buffer_length</code></h3>
 <p>An argument whose value is the byte length of a view, as in bun:ffi. Pass the
 <em>same</em> view for it as for the <code>buffer</code> parameter before it; the pointer and the
@@ -110,7 +125,7 @@ argument-only: as a <code>returns</code>, in a struct or in a <code>JSCallback</
 <code>"default"</code>.</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/types.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#structs-by-value">Structs by value</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl3"><a href="#i64_fast-and-u64_fast">i64_fast and u64_fast</a></li><li class="lvl3"><a href="#buffer_length">buffer_length</a></li><li class="lvl2"><a href="#abi">ABI</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#structs-by-value">Structs by value</a></li><li class="lvl3"><a href="#array-types">Array types</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl3"><a href="#i64_fast-and-u64_fast">i64_fast and u64_fast</a></li><li class="lvl3"><a href="#buffer_length">buffer_length</a></li><li class="lvl2"><a href="#abi">ABI</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

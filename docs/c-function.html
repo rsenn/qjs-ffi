@@ -49,7 +49,7 @@ against that stored <code>cif</code>/function pointer with no string lookup invo
 <p><code>CFunction()</code> may be called with or without <code>new</code>, as in bun:ffi: either way it
 returns the callable function.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">fn</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span>, <span class="t-id">args</span>, <span class="t-id">returns</span>, <span class="t-id">abi</span> })</code></pre></div>
-<div class="tablewrap"><table><thead><tr><th>Option</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>yes</td><td>The native function pointer to call: a <code>number</code> or <code>bigint</code> address, e.g. from <code>dlsym()</code>. NULL, <code>undefined</code>, a view, a <code>JSCallback</code>, a string or anything else is not a function pointer: <code>TypeError</code>.</td></tr><tr><td><code>args</code></td><td>no</td><td>Array of types, names or <code>FFIType</code> numbers (see <a href="#types">Types</a>) declaring the parameter list, in order. Omit or use <code>[]</code> for a function that takes no arguments; a value with no usable <code>length</code> (not an object, or a <code>length</code> that is missing, negative or throws) is treated the same as omitted. Up to 32 arguments are supported; extras beyond that are dropped.</td></tr><tr><td><code>returns</code></td><td>no</td><td>Type name for the return value (see <a href="#types">Types</a>). Defaults to <code>"void"</code>.</td></tr><tr><td><code>abi</code></td><td>no</td><td>Call ABI name (see <a href="types.html#abi">ABI</a>). Defaults to <code>"default"</code>.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Option</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>ptr</code></td><td>yes</td><td>The native function pointer to call: a <code>number</code> or <code>bigint</code> address, e.g. from <code>dlsym()</code>. NULL, <code>undefined</code>, a view, a <code>JSCallback</code>, a string or anything else is not a function pointer: <code>TypeError</code>.</td></tr><tr><td><code>args</code></td><td>no</td><td>Array of types, names or <code>FFIType</code> numbers (see <a href="#types">Types</a>) declaring the parameter list, in order. Omit or use <code>[]</code> for a function that takes no arguments; a value that is not an array is a <code>TypeError</code>. At most 32 arguments are supported; more is a <code>TypeError</code>.</td></tr><tr><td><code>returns</code></td><td>no</td><td>Type name for the return value (see <a href="#types">Types</a>). Defaults to <code>"void"</code>.</td></tr><tr><td><code>abi</code></td><td>no</td><td>Call ABI name (see <a href="types.html#abi">ABI</a>). Defaults to <code>"default"</code>.</td></tr><tr><td><code>variadic</code></td><td>no</td><td><code>true</code> for a C function that ends in <code>...</code>; <code>args</code> then lists the fixed arguments only, see <a href="#variadic-functions">Variadic functions</a>.</td></tr></tbody></table></div>
 <p>If <code>ptr</code> is not a non-NULL <code>number</code> or <code>bigint</code>, or the declared types can't
 be turned into a working <code>ffi_cif</code>, <code>CFunction()</code> throws a <code>TypeError</code>.</p>
 <p>An argument declared <code>"pointer"</code>, <code>"function"</code> or <code>"T *"</code> is converted as
@@ -60,6 +60,29 @@ a <code>TypeError</code>.</p>
 arguments passed at call time are ignored; missing ones are treated as
 <code>undefined</code> (and converted per the declared type, e.g. <code>0</code>/<code>NaN</code>-like for
 numeric types).</p>
+<h2 id="variadic-functions"><a class="anchor" href="#variadic-functions" aria-hidden="true">#</a>Variadic functions</h2>
+<p>A C function that ends in <code>...</code> (<code>printf</code>, <code>snprintf</code>, <code>open</code>) is declared with
+<code>variadic: true</code> and the fixed arguments only. At each call the arguments after
+the fixed ones are <code>(type, value)</code> pairs, because the types of the <code>...</code>
+arguments are not known until the call:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">snprintf</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"snprintf"</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"cstring"</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span>,
+  <span class="t-id">variadic</span><span class="t-op">:</span> <span class="t-atom">true</span>,
+});
+
+<span class="t-kw">const</span> <span class="t-id">buf</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-num">64</span>);
+
+<span class="t-fn">snprintf</span>(<span class="t-id">buf</span>, <span class="t-num">64n</span>, <span class="t-str">"%d %s %.2f"</span>, <span class="t-str">"i32"</span>, <span class="t-num">42</span>, <span class="t-str">"cstring"</span>, <span class="t-str">"hi"</span>, <span class="t-str">"f64"</span>, <span class="t-num">2.5</span>);</code></pre></div>
+<p>A pair's type is a scalar type name or <code>FFIType</code> number (not a struct, <code>void</code> or
+<code>buffer_length</code>); an unpaired value, an unknown type or more than 32 arguments
+in all throws. The C default argument promotions are applied for you: <code>f32</code>
+is passed as a <code>double</code>, and <code>i8</code>, <code>u8</code>, <code>i16</code>, <code>u16</code> and <code>bool</code> as an <code>int</code>.</p>
+<p>A variadic call has to be prepared as one (<code>ffi_prep_cif_var</code>), which is why
+the function is declared variadic: calling <code>printf</code> as a fixed-argument function
+passes the wrong register count on x86-64 as soon as a <code>double</code> is an argument.
+The <code>length</code> of the function is the number of fixed arguments.</p>
 <h2 id="close"><a class="anchor" href="#close" aria-hidden="true">#</a>close()</h2>
 <p><code>fn.close()</code> frees the function's signature (the libffi <code>cif</code>) early, without
 waiting for the garbage collector. It returns <code>undefined</code> and may be called
@@ -114,7 +137,7 @@ function that takes a pointer, such as <code>ptr()</code> or <code>read</code>, 
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/c-function.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#close">close()</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#examples">Examples</a></li><li class="lvl2"><a href="#relationship-to-jscallback">Relationship to JSCallback</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#variadic-functions">Variadic functions</a></li><li class="lvl2"><a href="#close">close()</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#examples">Examples</a></li><li class="lvl2"><a href="#relationship-to-jscallback">Relationship to JSCallback</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

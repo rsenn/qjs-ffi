@@ -33,6 +33,7 @@ turn buffers into addresses and addresses into buffers, values or strings.</p>
 <li><a href="#ptr"><code>ptr()</code></a> and <a href="#topointer"><code>toPointer()</code></a>: address of a buffer</li>
 <li><a href="#toarraybuffer"><code>toArrayBuffer()</code>, <code>toBuffer()</code></a>: an <code>ArrayBuffer</code> over memory</li>
 <li><a href="#read"><code>read</code></a>: read a value from an address</li>
+<li><a href="#write"><code>write</code></a>: write a value to an address</li>
 <li><a href="#cstring"><code>CString</code></a> and <a href="#tostring"><code>toString()</code></a>: C strings</li>
 <li><a href="#pointersize"><code>pointerSize</code></a></li>
 </ul>
@@ -149,6 +150,24 @@ crashes the process.</p>
 <span class="t-id">read</span>.<span class="t-fn">u8</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">1</span>); <span class="t-cm">// 255</span>
 <span class="t-id">read</span>.<span class="t-fn">i8</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">1</span>); <span class="t-cm">// -1</span>
 <span class="t-id">read</span>.<span class="t-fn">u32</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">4</span>); <span class="t-cm">// 0x12345678</span></code></pre></div>
+<h2 id="write"><a class="anchor" href="#write" aria-hidden="true">#</a><code>write</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">write</span>.<span class="t-fn">i32</span>(<span class="t-id">ptr</span>, <span class="t-id">byteOffset</span>, <span class="t-id">value</span>);</code></pre></div>
+<p>The mirror of <a href="#read"><code>read</code></a>: stores a value directly at an address, without a
+<code>DataView</code> or an <code>ArrayBuffer</code>. <code>ptr</code> is an address, or an <code>ArrayBuffer</code> or view.
+The offset may be negative, is optional (<code>write.u8(ptr, 9)</code> writes at 0) and the
+write need not be aligned. NULL throws a <code>TypeError</code>.</p>
+<div class="tablewrap"><table><thead><tr><th>Function</th><th>Writes</th><th><code>value</code></th></tr></thead><tbody><tr><td><code>write.i8</code> / <code>write.u8</code></td><td>1 byte</td><td><code>number</code> or <code>bigint</code>, wrapped to the width</td></tr><tr><td><code>write.i16</code> / <code>write.u16</code></td><td>2 bytes</td><td>the same</td></tr><tr><td><code>write.i32</code> / <code>write.u32</code></td><td>4 bytes</td><td>the same</td></tr><tr><td><code>write.i64</code> / <code>write.u64</code></td><td>8 bytes</td><td>the same</td></tr><tr><td><code>write.f32</code> / <code>write.f64</code></td><td><code>float</code> / <code>double</code></td><td><code>number</code></td></tr><tr><td><code id="write-write-ptr">write.ptr</code><a class="member-anchor" href="#write-write-ptr" aria-hidden="true">#</a></td><td>a pointer</td><td>anything a pointer argument takes</td></tr><tr><td><code id="write-write-intptr">write.intptr</code><a class="member-anchor" href="#write-write-intptr" aria-hidden="true">#</a></td><td>a pointer-sized integer</td><td><code>number</code> or <code>bigint</code></td></tr><tr><td><code id="write-write-bytes">write.bytes</code><a class="member-anchor" href="#write-write-bytes" aria-hidden="true">#</a></td><td>the bytes of a buffer or view, <code>write.bytes(ptr, offset, source[, byteLength])</code></td><td>an <code>ArrayBuffer</code>, <code>TypedArray</code> or <code>DataView</code></td></tr><tr><td><code id="write-write-cstring">write.cstring</code><a class="member-anchor" href="#write-write-cstring" aria-hidden="true">#</a></td><td>UTF-8 and a NUL</td><td>a <code>string</code></td></tr></tbody></table></div>
+<p><code>write.bytes</code> and <code>write.cstring</code> return the number of bytes written (the NUL
+of <code>cstring</code> is not counted); the others return <code>undefined</code>. All writes are
+little-endian and unchecked: writing past the memory, or to a bad address,
+crashes the process.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">write</span>, <span class="t-id">read</span>, <span class="t-id">ptr</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">const</span> <span class="t-id">mem</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-num">16</span>);
+
+<span class="t-id">write</span>.<span class="t-fn">u32</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">4</span>, <span class="t-num">0x12345678</span>);
+<span class="t-id">write</span>.<span class="t-fn">cstring</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">8</span>, <span class="t-str">"hi"</span>); <span class="t-cm">// 2</span>
+<span class="t-id">read</span>.<span class="t-fn">u32</span>(<span class="t-fn">ptr</span>(<span class="t-id">mem</span>), <span class="t-num">4</span>); <span class="t-cm">// 0x12345678</span></code></pre></div>
 <h2 id="cstring"><a class="anchor" href="#cstring" aria-hidden="true">#</a><code>CString</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-fn">CString</span>(<span class="t-id">ptr</span>[, <span class="t-id">byteOffset</span>[, <span class="t-id">byteLength</span>]]);</code></pre></div>
 <p>The C string at <code>ptr + byteOffset</code>, decoded as UTF-8 into a JavaScript string.
@@ -182,7 +201,7 @@ structures of pointers and to step over arrays of them.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">read</span>.<span class="t-fn">ptr</span>(<span class="t-id">p</span>, <span class="t-id">i</span> <span class="t-op">*</span> <span class="t-id">pointerSize</span>);</code></pre></div></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/pointers.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#pointer-values">Pointer values</a></li><li class="lvl3"><a href="#offsets-and-lengths">Offsets and lengths</a></li><li class="lvl2"><a href="#ptr">ptr()</a></li><li class="lvl2"><a href="#topointer">toPointer()</a></li><li class="lvl2"><a href="#toarraybuffer">toArrayBuffer()</a></li><li class="lvl3"><a href="#freeing-the-memory-with-the-buffer">Freeing the memory with the buffer</a></li><li class="lvl3"><a href="#from-an-arraybuffer-or-a-string">From an ArrayBuffer or a string</a></li><li class="lvl2"><a href="#read">read</a></li><li class="lvl2"><a href="#cstring">CString</a></li><li class="lvl2"><a href="#tostring">toString()</a></li><li class="lvl2"><a href="#pointersize">pointerSize</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#pointer-values">Pointer values</a></li><li class="lvl3"><a href="#offsets-and-lengths">Offsets and lengths</a></li><li class="lvl2"><a href="#ptr">ptr()</a></li><li class="lvl2"><a href="#topointer">toPointer()</a></li><li class="lvl2"><a href="#toarraybuffer">toArrayBuffer()</a></li><li class="lvl3"><a href="#freeing-the-memory-with-the-buffer">Freeing the memory with the buffer</a></li><li class="lvl3"><a href="#from-an-arraybuffer-or-a-string">From an ArrayBuffer or a string</a></li><li class="lvl2"><a href="#read">read</a></li><li class="lvl2"><a href="#write">write</a></li><li class="lvl2"><a href="#cstring">CString</a></li><li class="lvl2"><a href="#tostring">toString()</a></li><li class="lvl2"><a href="#pointersize">pointerSize</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by
