@@ -94,11 +94,11 @@ New/changed tests get the 5x flakiness check per
 
 ### Next: `ffi.c` loader
 
-A loader in the `ffi` module that builds `CFunction`s (and constants) straight
-from the specs `--emit-specs` writes (`{ library, symbols, constants, omitted }`,
-[`doc/gen-bindings.md`](doc/gen-bindings.md#specs-from-the-ir)), so no generated
-`.js` is needed. The specs already carry the library and the struct types as
-arrays; what is left is a loader that reads the file and calls `dlopen()`.
+The specs `--emit-specs --js` writes (`{ library, symbols, constants, omitted }`,
+[`doc/gen-bindings.md`](doc/gen-bindings.md#specs-from-the-ir)) already need no
+generated `.js`: `dlopen(specs.library, specs.symbols)` is the loader. What is
+left is the constants (a loader that exports them) and the classes, which stay
+generated.
 
 ### Next: C++ gaps
 

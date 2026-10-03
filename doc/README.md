@@ -35,6 +35,7 @@ Start with the [overview](ffi.md).
 | Page | Covers |
 | ---- | ------ |
 | [Legacy API](legacy.md) | `define()` and `call()`, the module `legacy.js` |
+| [node:ffi](node-ffi.md) | the API of Node's `node:ffi` on top of `ffi`, the module `node-ffi.js` |
 
 ## Internals
 

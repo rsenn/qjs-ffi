@@ -182,6 +182,10 @@ install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
 configure_file(legacy.js "${CMAKE_CURRENT_BINARY_DIR}/legacy.js" COPYONLY)
 install(FILES legacy.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
 
+# node-ffi.js (the API of node:ffi on top of this module) sits next to it the same way.
+configure_file(node-ffi.js "${CMAKE_CURRENT_BINARY_DIR}/node-ffi.js" COPYONLY)
+install(FILES node-ffi.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
+
 if(NOT CMAKE_INSTALL_DATADIR)
   set(CMAKE_INSTALL_DATADIR share)
 endif(NOT CMAKE_INSTALL_DATADIR)
