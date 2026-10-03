@@ -98,12 +98,30 @@ An unrecognized type name in `args` or `returns` is a `TypeError` naming it.
 
 ## Exceptions thrown by `fn`
 
-If the wrapped JS function throws during an invocation, the exception is
-caught, stored on `.exception`, and the native return value is whatever the
-declared `returns` type converts `undefined` to (e.g. `0` for integer
-types, `NULL` for `"pointer"`/`"cstring"`). The native caller is not made
-aware that an exception occurred -- check `.exception` afterward if that
-matters.
+If the wrapped JS function throws while native code runs it, the native
+caller cannot be told, so the callback returns what the declared `returns` type
+converts `undefined` to (`0` for integer types, `NULL` for `"pointer"`), the
+native function carries on, and when it returns the [`CFunction`](c-function.md)
+call that started it **throws that exception**, as in bun:
+
+```js
+const cmp = new JSCallback(() => { throw new RangeError("boom"); }, { args: ["pointer", "pointer"], returns: "i32" });
+
+try {
+  qsort(data, 3, 4, cmp);
+} catch(e) {
+  e instanceof RangeError; // true: the exception of the comparator
+}
+```
+
+*   If the callback throws more than once during one call (a comparator does),
+    the first exception is the one thrown.
+*   A return value that cannot be converted (a `Symbol` for an `i32`) is thrown
+    the same way.
+*   Nested calls are separate: a callback that catches the exception of its own
+    `CFunction` call keeps the outer call clean.
+*   `.exception` holds the exception of the callback's latest invocation too, and
+    is the only record of one that happens outside a call.
 
 ## Example: using a JSCallback with qsort()
 

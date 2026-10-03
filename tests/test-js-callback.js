@@ -1,5 +1,5 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { JSCallback, dlsym, toArrayBuffer, RTLD_DEFAULT } from 'ffi';
+import { JSCallback, CFunction, dlsym, toArrayBuffer, RTLD_DEFAULT } from 'ffi';
 import { define, call } from '../legacy.js';
 
 function assertThrows(fn, msg) {
@@ -91,15 +91,77 @@ await tests({
     cb.close();
   },
 
-  'exceptions thrown inside the callback are captured, not propagated'() {
+  'an exception thrown inside the callback is thrown by the call that led to it, and kept in cb.exception'() {
+    const thrown = new RangeError('boom');
     const cb = new JSCallback(() => {
-      throw new Error('boom');
+      throw thrown;
+    }, { returns: 'i32' });
+    const probe = defineProbe(cb.ptr, 'sint32', []);
+    const e = assertThrows(() => probe());
+
+    assertStrictEquals(thrown, e);
+    assertStrictEquals(thrown, cb.exception);
+    eq(1, cb.called);
+    cb.close();
+  },
+
+  'a callback that does not throw leaves nothing behind for the next call'() {
+    let n = 0;
+    const cb = new JSCallback(() => {
+      if(n++ == 0) throw new Error('first');
+      return 7;
     }, { returns: 'i32' });
     const probe = defineProbe(cb.ptr, 'sint32', []);
 
-    const rc = probe(); // must not throw across the native boundary
-    eq(0, rc);
-    assert(cb.exception && cb.exception.message === 'boom', 'exception not captured: ' + cb.exception);
+    assertThrows(() => probe());
+    eq(7, probe());
+    eq(undefined, cb.exception);
+    cb.close();
+  },
+
+  'the first exception of a call wins: qsort calls the comparator many times'() {
+    const qsort = CFunction({ ptr: dlsym(RTLD_DEFAULT, 'qsort'), args: ['pointer', 'u64', 'u64', 'pointer'], returns: 'void' });
+    let calls = 0;
+    const cmp = new JSCallback(() => {
+      throw new Error('compare #' + ++calls);
+    }, { args: ['pointer', 'pointer'], returns: 'i32' });
+    const e = assertThrows(() => qsort(new Int32Array([3, 1, 2, 5, 4]), 5, 4, cmp));
+
+    assert(calls > 1, 'the comparator ran more than once');
+    eq('compare #1', e.message);
+    cmp.close();
+  },
+
+  'a callback that catches the exception of a nested call keeps the outer call clean'() {
+    const inner = new JSCallback(() => {
+      throw new Error('inner');
+    }, { returns: 'i32' });
+    const innerCall = CFunction({ ptr: inner.ptr, args: [], returns: 'i32' });
+    const outer = new JSCallback(() => {
+      try {
+        innerCall();
+      } catch(e) {
+        return 42;
+      }
+      return 0;
+    }, { returns: 'i32' });
+
+    eq(42, CFunction({ ptr: outer.ptr, args: [], returns: 'i32' })());
+    inner.close();
+    outer.close();
+  },
+
+  'a return value that cannot be converted is thrown by the call as well'() {
+    const cb = new JSCallback(() => Symbol('x'), { returns: 'i32' });
+
+    assert(assertThrows(() => CFunction({ ptr: cb.ptr, args: [], returns: 'i32' })()) instanceof TypeError);
+    cb.close();
+  },
+
+  'a bigint return converts for any integer kind'() {
+    const cb = new JSCallback(() => 5n, { returns: 'i32' });
+
+    eq(5, CFunction({ ptr: cb.ptr, args: [], returns: 'i32' })());
     cb.close();
   },
 

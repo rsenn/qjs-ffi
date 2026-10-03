@@ -236,7 +236,8 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
   ffi_cif vcif;
   int cstring_count = 0;
   union native_value rc;
-  JSValue ret;
+  CallbackScope scope;
+  JSValue ret, thrown;
 
   if(!cf)
     return JS_ThrowTypeError(ctx, "CFunction: invalid function");
@@ -318,12 +319,23 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
       goto done;
     }
 
+    js_callback_scope_begin(&scope);
     ffi_call(cif, cf->fp, out, n ? ptrs : NULL);
-    ret = JS_NewArrayBufferCopy(ctx, out, size);
+
+    if(js_callback_scope_end(&scope, &thrown))
+      ret = JS_Throw(ctx, thrown);
+    else
+      ret = JS_NewArrayBufferCopy(ctx, out, size);
+
     js_free(ctx, out);
   } else {
+    js_callback_scope_begin(&scope);
     ffi_call(cif, cf->fp, &rc, n ? ptrs : NULL);
-    ret = ffi_native_to_js(ctx, cf->sig.ret_kind, &rc);
+
+    if(js_callback_scope_end(&scope, &thrown))
+      ret = JS_Throw(ctx, thrown);
+    else
+      ret = ffi_native_to_js(ctx, cf->sig.ret_kind, &rc);
   }
 
 done:

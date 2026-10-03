@@ -7,81 +7,101 @@ static JSValue js_callback_proto;
 
 static struct list_head callback_list;
 
+/* the exception a callback threw inside the CFunction call now running,
+ * if any: the first one wins. */
+static JSValue pending_exception;
+static int pending_set;
+static int call_depth;
+
+void
+js_callback_scope_begin(CallbackScope* scope) {
+  scope->outer = pending_exception;
+  scope->outer_set = pending_set;
+  pending_exception = JS_UNDEFINED;
+  pending_set = 0;
+  call_depth++;
+}
+
+int
+js_callback_scope_end(CallbackScope* scope, JSValue* thrown) {
+  int set = pending_set;
+
+  *thrown = pending_exception;
+  pending_exception = scope->outer;
+  pending_set = scope->outer_set;
+  call_depth--;
+  return set;
+}
+
+/* keeps the exception now pending in `ctx` as cl->exception, and for the
+ * call that is running to throw; with no call running it stays in
+ * cl->exception only. */
+static void
+callback_threw(JSContext* ctx, JSCallback* cl) {
+  JSValue e = JS_GetException(ctx);
+
+  JS_FreeValue(ctx, cl->exception);
+  cl->exception = JS_DupValue(ctx, e);
+
+  if(call_depth > 0 && !pending_set) {
+    pending_exception = e;
+    pending_set = 1;
+  } else {
+    JS_FreeValue(ctx, e);
+  }
+}
+
 /* converts the JS function's return value into the native return slot.
  *
  * an integer narrower than a word is written as a full ffi_arg, sign- or
  * zero-extended: libffi closures require it, and a narrower write
  * corrupts the return register. arguments keep their declared size.
+ *
+ *   returns  0, or -1 with an exception pending
  */
-static void
+static int
 js_to_native_ret(JSContext* ctx, int kind, void* ret, JSValueConst v) {
-  int32_t i32 = 0;
   int64_t i64 = 0;
   double d = 0;
 
   switch(kind) {
-    case K_VOID: break;
-
-    case K_BOOL: *(ffi_arg*)ret = (ffi_arg)(JS_ToBool(ctx, v) > 0); break;
-
-    case K_I8:
-      JS_ToInt32(ctx, &i32, v);
-      *(ffi_arg*)ret = (ffi_arg)(ffi_sarg)(int8_t)i32;
-      break;
-
-    case K_U8:
-      JS_ToInt32(ctx, &i32, v);
-      *(ffi_arg*)ret = (ffi_arg)(uint8_t)i32;
-      break;
-
-    case K_I16:
-      JS_ToInt32(ctx, &i32, v);
-      *(ffi_arg*)ret = (ffi_arg)(ffi_sarg)(int16_t)i32;
-      break;
-
-    case K_U16:
-      JS_ToInt32(ctx, &i32, v);
-      *(ffi_arg*)ret = (ffi_arg)(uint16_t)i32;
-      break;
-
-    case K_I32:
-      JS_ToInt32(ctx, &i32, v);
-      *(ffi_arg*)ret = (ffi_arg)(ffi_sarg)i32;
-      break;
-
-    case K_U32:
-      JS_ToInt32(ctx, &i32, v);
-      *(ffi_arg*)ret = (ffi_arg)(uint32_t)i32;
-      break;
-
-    case K_I64:
-    case K_I64_FAST:
-      JS_ToInt64Ext(ctx, &i64, v);
-      *(int64_t*)ret = i64;
-      break;
-
-    case K_U64:
-    case K_U64_FAST:
-      JS_ToInt64Ext(ctx, &i64, v);
-      *(uint64_t*)ret = (uint64_t)i64;
-      break;
+    case K_VOID: return 0;
+    case K_BOOL: *(ffi_arg*)ret = (ffi_arg)(JS_ToBool(ctx, v) > 0); return 0;
 
     case K_F32:
-      JS_ToFloat64(ctx, &d, v);
+      if(JS_ToFloat64(ctx, &d, v))
+        return -1;
+
       *(float*)ret = (float)d;
-      break;
+      return 0;
 
     case K_F64:
-      JS_ToFloat64(ctx, &d, v);
-      *(double*)ret = d;
-      break;
+      if(JS_ToFloat64(ctx, &d, v))
+        return -1;
 
-    case K_POINTER:
-    case K_CSTRING:
-      JS_ToInt64Ext(ctx, &i64, v);
-      *(void**)ret = (void*)(intptr_t)i64;
-      break;
+      *(double*)ret = d;
+      return 0;
   }
+
+  if(JS_ToInt64Ext(ctx, &i64, v))
+    return -1;
+
+  switch(kind) {
+    case K_I8: *(ffi_arg*)ret = (ffi_arg)(ffi_sarg)(int8_t)i64; break;
+    case K_U8: *(ffi_arg*)ret = (ffi_arg)(uint8_t)i64; break;
+    case K_I16: *(ffi_arg*)ret = (ffi_arg)(ffi_sarg)(int16_t)i64; break;
+    case K_U16: *(ffi_arg*)ret = (ffi_arg)(uint16_t)i64; break;
+    case K_I32: *(ffi_arg*)ret = (ffi_arg)(ffi_sarg)(int32_t)i64; break;
+    case K_U32: *(ffi_arg*)ret = (ffi_arg)(uint32_t)i64; break;
+    case K_I64:
+    case K_I64_FAST: *(int64_t*)ret = i64; break;
+    case K_U64:
+    case K_U64_FAST: *(uint64_t*)ret = (uint64_t)i64; break;
+    case K_POINTER:
+    case K_CSTRING: *(void**)ret = (void*)(intptr_t)i64; break;
+  }
+
+  return 0;
 }
 
 static JSCallback*
@@ -92,7 +112,8 @@ callback_dup(JSCallback* cl) {
 
 /* the libffi closure trampoline, which native code calls through
  * cl->code: converts the arguments, calls the JS function, converts
- * the result back. an exception is kept in cl->exception, not thrown. */
+ * the result back. an exception is kept in cl->exception and thrown by
+ * the CFunction call that led here (see CallbackScope). */
 static void
 js_callback_handler(ffi_cif* cif, void* ret, void** args, void* user_data) {
   JSCallback* cl = user_data;
@@ -114,12 +135,15 @@ js_callback_handler(ffi_cif* cif, void* ret, void** args, void* user_data) {
   cl->called++;
 
   if(JS_IsException(r)) {
-    cl->exception = JS_GetException(ctx);
-    JS_FreeValue(ctx, r);
+    callback_threw(ctx, cl);
     r = JS_UNDEFINED;
   }
 
-  js_to_native_ret(ctx, cl->sig.ret_kind, ret, r);
+  if(js_to_native_ret(ctx, cl->sig.ret_kind, ret, r)) {
+    callback_threw(ctx, cl);
+    memset(ret, 0, sizeof(ffi_arg));
+  }
+
   JS_FreeValue(ctx, r);
 }
 
@@ -167,7 +191,9 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   cl->exception = JS_UNDEFINED;
   cl->func = JS_DupValue(ctx, func_obj);
 
-  if(!(cl->closure = ffi_closure_alloc(sizeof(ffi_closure), &cl->code)) || ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->sig.argc, cl->sig.ret_type, cl->sig.arg_types) != FFI_OK ||
+  if(!(cl->closure = ffi_closure_alloc(sizeof(ffi_closure), &cl->code)) ||
+     ffi_prep_cif(&cl->cif, FFI_DEFAULT_ABI, cl->sig.argc, cl->sig.ret_type, cl->sig.arg_types) !=
+         FFI_OK ||
      ffi_prep_closure_loc(cl->closure, &cl->cif, js_callback_handler, cl, cl->code) != FFI_OK) {
     JS_FreeValue(ctx, cl->func);
     js_callback_release(ctx, cl);
@@ -284,7 +310,8 @@ js_callback_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       if(callback_list.next)
         list_for_each(el, &callback_list) {
-          JSValue element = js_callback_wrap(ctx, js_callback_proto, callback_dup(list_entry(el, JSCallback, link)));
+          JSValue element = js_callback_wrap(ctx, js_callback_proto,
+                                             callback_dup(list_entry(el, JSCallback, link)));
           JS_SetPropertyUint32(ctx, ret, i++, element);
         }
 
@@ -362,7 +389,8 @@ js_callback_define_dispose(JSContext* ctx, JSValueConst proto) {
   if(JS_IsSymbol(sym)) {
     JSAtom atom = JS_ValueToAtom(ctx, sym);
 
-    JS_DefinePropertyValue(ctx, proto, atom, JS_GetPropertyStr(ctx, proto, "close"), JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
+    JS_DefinePropertyValue(ctx, proto, atom, JS_GetPropertyStr(ctx, proto, "close"),
+                           JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
     JS_FreeAtom(ctx, atom);
   }
 
@@ -377,14 +405,17 @@ js_callback_init(JSContext* ctx, JSModuleDef* m, JSValueConst defaults) {
   JS_NewClass(JS_GetRuntime(ctx), js_callback_class_id, &js_callback_class);
 
   js_callback_proto = JS_NewObject(ctx);
-  JS_SetPropertyFunctionList(ctx, js_callback_proto, js_callback_proto_funcs, countof(js_callback_proto_funcs));
+  JS_SetPropertyFunctionList(ctx, js_callback_proto, js_callback_proto_funcs,
+                             countof(js_callback_proto_funcs));
   js_callback_define_dispose(ctx, js_callback_proto);
   JS_SetClassProto(ctx, js_callback_class_id, js_callback_proto);
 
-  JSValue ctor = JS_NewCFunction2(ctx, js_callback_constructor, "JSCallback", 1, JS_CFUNC_constructor, 0);
+  JSValue ctor =
+      JS_NewCFunction2(ctx, js_callback_constructor, "JSCallback", 1, JS_CFUNC_constructor, 0);
 
   JS_SetConstructor(ctx, ctor, js_callback_proto);
-  JS_SetPropertyFunctionList(ctx, ctor, js_callback_static_funcs, countof(js_callback_static_funcs));
+  JS_SetPropertyFunctionList(ctx, ctor, js_callback_static_funcs,
+                             countof(js_callback_static_funcs));
 
   if(JS_IsObject(defaults))
     JS_SetPropertyStr(ctx, defaults, "JSCallback", JS_DupValue(ctx, ctor));

@@ -51,6 +51,30 @@ extern JSClassID js_callback_class_id;
  */
 int js_callback_init(JSContext*, JSModuleDef*, JSValueConst defaults);
 
+/* the exception of a callback that threw during a CFunction call, which
+ * the call throws when the native function returns, as in bun. a call
+ * opens a scope before ffi_call() and closes it after; calls nest.
+ *
+ * ```c
+ * CallbackScope scope;
+ * JSValue thrown;
+ *
+ * js_callback_scope_begin(&scope);
+ * ffi_call(...);
+ * if(js_callback_scope_end(&scope, &thrown))
+ *   return JS_Throw(ctx, thrown);
+ * ```
+ *
+ *   returns  1 with the exception in *thrown (the caller owns it), else 0
+ */
+typedef struct {
+  JSValue outer;
+  int outer_set;
+} CallbackScope;
+
+void js_callback_scope_begin(CallbackScope* scope);
+int js_callback_scope_end(CallbackScope* scope, JSValue* thrown);
+
 /* sets `proto[Symbol.dispose]` to `proto.close`, so `using` works. */
 void js_callback_define_dispose(JSContext*, JSValueConst proto);
 
