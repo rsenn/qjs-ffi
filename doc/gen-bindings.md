@@ -73,6 +73,7 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--clang=<path>` | the clang binary (default `clang`). |
 | `--cache-dir=<dir>` | where the condensed AST is cached (default `.tmp/gen-bindings`). |
 | `--no-cache` | do not read or write that cache. |
+| `--no-auto-include` | do not add `-I<dir>` for a header clang could not find in a parent of the source; the missing header is only a warning. |
 | `-h`, `--help` | the usage text. |
 
 Companions in `tools/`: `gen-structs.js` (`qjs-ffi-genstructs`) makes the struct
@@ -191,7 +192,20 @@ For each source, `clang.js` runs
 clang -Xclang -ast-dump=json -fsyntax-only [-x c++ -std=<std>] -I<dir>... -D<def>... <source>
 ```
 
-and reads clang's JSON AST from the pipe. That AST is huge (megabytes for
+and reads clang's JSON AST from the pipe and its errors from stderr, which
+goes to a file in the cache directory during the same run. An error leaves
+the AST wrong from there on: a declaration whose macros (`XMLPUBFUN`) are
+undefined turns into a variable. So the generator acts on what clang said:
+
+*   a header it could not find (`<libxml/xmlversion.h>`) is looked for in the
+    source's own directory and its parents; the nearest one that has it is added
+    as `-I<dir>` (a note says so, `/usr/include/libxml2` for `libxml/tree.h`),
+    for the other sources and the layout probe too, and clang runs again, at
+    most four times (`--no-auto-include` skips this)
+*   anything left over is a warning with the error count and the first message,
+    and, for a header still not found, a hint to add `-I<dir>` yourself
+
+That AST is huge (megabytes for
 `cairo.h`), almost all of it source ranges, function bodies and attributes the
 generator never uses. So it is not parsed as one value: `json.JsonParser`
 yields tokens and `condense.js` keeps only what is needed, deciding from a
@@ -541,8 +555,8 @@ shape.fields = {id:{type:'i32',offset:0},name:{type:'cstring',offset:8},origin:{
 ```
 
 *   A member is an accessor at the byte offset of the IR: it reads with
-    [`read`](pointers.md#read) and writes through a `DataView`. 64-bit integers
-    are `bigint`.
+    [`read`](pointers.md#read) and writes with [`write`](pointers.md#write).
+    64-bit integers are `bigint`.
 *   `new shape()` allocates zeroed memory of the struct's size; `new
     shape(bytes)` copies an `ArrayBuffer` or view. `shape.at(ptr)` makes a view
     of native memory (not copied, not owned), and `s.ptr` is the address.

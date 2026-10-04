@@ -52,6 +52,7 @@ export function generateCFunction(ir, opts) {
     opts.ffiType ? 'FFIType' : null,
     views ? 'toArrayBuffer' : null,
     views ? 'read as __rd' : null,
+    views ? 'write as __wr' : null,
     views ? 'ptr as __ptr' : null,
     views ? 'toString as __cstr' : null,
     'dlsym',

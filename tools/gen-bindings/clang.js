@@ -49,7 +49,7 @@ function mtime(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 7;
+const AST_CACHE_VERSION = 8;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
@@ -259,7 +259,71 @@ export function runLayoutDump(opts, source, ast) {
   return layouts;
 }
 
+/* The errors in clang's stderr: how many, the first, and every header it
+ * could not find, or null when there is none. clang still dumps an AST
+ * after an error, but what depended on it is wrong: an undefined XMLPUBFUN
+ * makes `XMLPUBFUN void f(void)` a variable.
+ *
+ * ```js
+ * { count: 1, first: "tree.h:17:10: fatal error: 'libxml/xmlversion.h' file not found", missing: ["libxml/xmlversion.h"] }
+ * ```
+ */
+function parseDiagnostics(text) {
+  const errors = [];
+  const missing = [];
+
+  for(const line of text.split('\n')) {
+    if(!/\berror: /.test(line)) continue;
+
+    const m = /'([^']+)' file not found/.exec(line);
+
+    errors.push(line);
+    if(m && !missing.includes(m[1])) missing.push(m[1]);
+  }
+
+  return errors.length ? { count: errors.length, first: errors[0], missing } : null;
+}
+
+/* The -I directories that would find the headers in `missing`: for each,
+ * the nearest of the source's own directory and its parents that holds it
+ * (/usr/include/libxml2 for libxml/tree.h wanting <libxml/xmlversion.h>).
+ * Directories already in opts.includes are not offered again. */
+function includeDirsFor(opts, source, missing) {
+  const dirs = [];
+
+  for(const inc of missing) {
+    for(let dir = source.replace(/\/?[^/]*$/, ''); dir !== ''; dir = dir.replace(/\/?[^/]*$/, '')) {
+      if(opts.includes.includes(dir)) continue;
+
+      if(!stat(dir + '/' + inc)[1]) {
+        if(!dirs.includes(dir)) dirs.push(dir);
+        break;
+      }
+    }
+  }
+
+  return dirs;
+}
+
+/* The condensed AST of `source`. A header clang could not find is looked for
+ * in the source's parent directories; the one that has it joins
+ * opts.includes (so later sources, the layout probe and the IR see it) and
+ * clang runs again, at most four times. */
 export function runClangAstDump(opts, source) {
+  for(let round = 0; ; round++) {
+    const ast = runClangOnce(opts, source);
+    const dirs = ast.clangErrors && opts.autoInclude && round < 4 ? includeDirsFor(opts, source, ast.clangErrors.missing) : [];
+
+    if(!dirs.length) return ast;
+
+    for(const dir of dirs) {
+      std.err.puts('gen-bindings.js: note: ' + source + ' needs ' + ast.clangErrors.missing.join(', ') + ', adding -I' + dir + '\n');
+      opts.includes.push(dir);
+    }
+  }
+}
+
+function runClangOnce(opts, source) {
   const parts = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only', ...langArgs(opts, source)];
 
   for(const inc of opts.includes) parts.push('-I' + inc);
@@ -274,7 +338,11 @@ export function runClangAstDump(opts, source) {
     if(hit) return hit;
   }
 
-  const f = std.popen(cmd + ' 2>/dev/null', 'r');
+  // stdout is the pipe, so clang's stderr goes to a file next to the cache
+  mkdirs(opts.cacheDir);
+
+  const errFile = opts.cacheDir.replace(/\/*$/, '/') + 'clang-' + fnv1a(source + Date.now()) + '.err';
+  const f = std.popen(cmd + ' 2>' + shquote(errFile), 'r');
   let ast = null,
     error = null;
 
@@ -286,19 +354,19 @@ export function runClangAstDump(opts, source) {
 
   f.close();
 
-  if(!ast || !ast.inner) {
-    // Re-run to surface clang's diagnostics for the error message.
-    const ef = std.popen(cmd + ' 2>&1 1>/dev/null', 'r');
-    const errText = ef.readAsString();
-    ef.close();
-    throw new Error((error ? 'failed to parse clang AST JSON output: ' + error.message + '; ' : 'clang produced no output; ') + 'stderr was:\n' + errText);
-  }
+  const errText = std.loadFile(errFile) || '';
+
+  remove(errFile);
+
+  if(!ast || !ast.inner) throw new Error((error ? 'failed to parse clang AST JSON output: ' + error.message + '; ' : 'clang produced no output; ') + 'stderr was:\n' + errText);
+
+  const diagnostics = parseDiagnostics(errText);
+
+  if(diagnostics) ast.clangErrors = diagnostics;
 
   ast.layouts = runLayoutDump(opts, source, ast);
 
   if(opts.cache) {
-    mkdirs(opts.cacheDir);
-    
     const out = std.open(cache, 'w');
     if(out) {
       out.puts(JSON.stringify({ files: astFiles(ast), ast }));

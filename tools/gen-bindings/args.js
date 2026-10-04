@@ -47,6 +47,7 @@ const OPTIONS = [
   { names: ['--from-ir'], arg: '<file>', key: 'fromIr', help: 'generate from this IR (JSON, or JS from --js) instead of running clang' },
   { names: ['--cache-dir'], arg: '<dir>', key: 'cacheDir', def: '.tmp/gen-bindings', help: 'condensed-AST cache directory (default: .tmp/gen-bindings)' },
   { names: ['--no-cache'], key: 'cache', set: false, def: true, help: 'ignore and do not write the condensed-AST cache' },
+  { names: ['--no-auto-include'], key: 'autoInclude', set: false, def: true, help: 'do not add -I for a header clang could not find (it is only a warning)' },
   { names: ['-o', '--output'], arg: '<path>', key: 'output', next: true, help: 'write generated JS here instead of stdout' },
   { names: ['-h', '--help'], key: 'help', help: 'show this help' },
 ];

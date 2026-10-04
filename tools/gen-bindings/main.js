@@ -56,6 +56,13 @@ export function main() {
         std.exit(1);
       }
 
+      if(root.clangErrors) {
+        const e = root.clangErrors;
+
+        std.err.puts('gen-bindings.js: warning: clang reported ' + e.count + ' error(s) in ' + source + ', what it could not parse is missing or wrong: ' + e.first + '\n');
+        if(e.missing.length) std.err.puts('gen-bindings.js: warning: not found: ' + e.missing.join(', ') + '; add the directory that has it with -I<dir>\n');
+      }
+
       const isSourceFile = sourceFilter(opts, source);
       const found = collectIR(root, isSourceFile, i + ':');
 

@@ -26,20 +26,14 @@ function __read(p, type, off) {
   }
 }
 
-function __write(dv, type, off, v) {
+function __write(p, type, off, v) {
   if(type.endsWith("*")) type = "pointer";
   switch(type) {
-    case "bool": return dv.setUint8(off, v ? 1 : 0);
-    case "i8": return dv.setInt8(off, v);
-    case "u8": return dv.setUint8(off, v);
-    case "i16": return dv.setInt16(off, v, true);
-    case "u16": return dv.setUint16(off, v, true);
-    case "i32": return dv.setInt32(off, v, true);
-    case "u32": return dv.setUint32(off, v, true);
-    case "i64": case "i64_fast": return dv.setBigInt64(off, BigInt(v), true);
-    case "u64": case "u64_fast": case "pointer": case "ptr": case "function": return dv.setBigUint64(off, v === null ? 0n : BigInt(v), true);
-    case "f32": return dv.setFloat32(off, v, true);
-    case "f64": return dv.setFloat64(off, v, true);
+    case "bool": return __wr.u8(p, off, v ? 1 : 0);
+    case "i8": case "u8": case "i16": case "u16": case "i32": case "u32": case "i64": case "u64": case "f32": case "f64": return __wr[type](p, off, v);
+    case "i64_fast": return __wr.i64(p, off, BigInt(v));
+    case "u64_fast": return __wr.u64(p, off, BigInt(v));
+    case "pointer": case "ptr": case "function": return __wr.u64(p, off, __ptrIn(v));
   }
   throw new TypeError("cannot write a " + type + " field");
 }
@@ -47,8 +41,7 @@ function __write(dv, type, off, v) {
 function __variable(name, type) {
   const v = { get ptr() { return __sym(name); } };
   if(__sz(type) !== undefined) {
-    const dv = () => new DataView(toArrayBuffer(__sym(name), 0, __sz(type)));
-    Object.defineProperty(v, "value", { enumerable: true, get: () => __read(__sym(name), type, 0), set: x => __write(dv(), type, 0, x) });
+    Object.defineProperty(v, "value", { enumerable: true, get: () => __read(__sym(name), type, 0), set: x => __write(__sym(name), type, 0, x) });
   }
   return v;
 }
