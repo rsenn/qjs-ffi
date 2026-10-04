@@ -268,7 +268,13 @@ being true.
    gives the `CFunction`; an exception in an unwrapped call throws at once.
 6. **Signatures and variables** → a constructor in `args`, `returns` and
    `{ type: Point }`; NULL in and out; a buffer shorter than the type is a
-   `RangeError`.
+   `RangeError`. The argument check: `K_STRUCT_PTR` carries its `StructType`;
+   the marshaller in `c-function.c` takes an instance only when its
+   prototype's `StructType` is that one (compare the pointer, no layout
+   comparison), else a `TypeError` naming both types; `"pointer"` and
+   `"T *"` keep today's untyped path. Methods run the same check on `this`.
+   → verify: `Glob` into a `Stat` argument throws, into `"pointer"` passes,
+   `Stat.at(glob)` passes; same for `Point.prototype.len.call(stat)`.
 7. **Docs/examples** → `doc/struct.md` re-read against the tests; switch one
    example in `examples/` from generated classes to `FFIStruct`.
 

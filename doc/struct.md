@@ -276,11 +276,49 @@ A constructor can be used where a type is expected:
 
 | Where | Meaning |
 | ----- | ------- |
-| `args: [Point]` | a pointer to the instance's bytes (`Point *`); an instance, or a buffer of at least `Point.size`, or `null` |
+| `args: [Point]` | a pointer to the instance's bytes (`Point *`); an instance of `Point`, a plain buffer of at least `Point.size`, or `null`. An instance of another `FFIStruct` is a `TypeError`, see [Type checking](#type-checking) |
 | `returns: Point` | the returned pointer, as `Point.at()`; `null` for NULL |
 | `{ type: Point }` as a variable | the variable's own memory as an instance, where it used to be a plain `ArrayBuffer` |
 | a field `type: Point` | the type embedded, not a pointer |
 | a field `type: "pointer"` | a plain address |
+
+### Type checking
+
+A constructor in a signature is a typed pointer, and an instance is checked
+against it. A plain `"pointer"` is not typed, so it takes any instance:
+
+```js
+const Glob = FFIStruct({ name: "glob_t", fields: { gl_pathc: "u64", /* ... */ } });
+const Stat = FFIStruct({ name: "stat", fields: { st_dev: "u64", /* ... */ } });
+
+const { symbols } = dlopen(null, {
+  glob:  { args: ["cstring", "i32", "pointer", Glob], returns: "i32" },
+  stat:  { args: ["cstring", Stat], returns: "i32" },
+  fill:  { args: ["pointer"], returns: "void" },
+});
+
+const g = new Glob();
+symbols.glob("*.js", 0, null, g);  // ok: a Glob where Glob is declared
+symbols.fill(g);                   // ok: "pointer" takes any instance
+symbols.stat(".", g);              // TypeError: argument 2 must be a stat, not a glob_t
+symbols.stat(".", Stat.at(g));     // ok: an explicit cast, the same bytes as a stat
+```
+
+| Declared as | An instance of the same type | An instance of another type | A plain buffer | `null` |
+| ----------- | ---------------------------- | --------------------------- | -------------- | ------ |
+| a constructor (`Stat`) | accepted | `TypeError` | accepted if at least `Stat.size` bytes, else `RangeError` | NULL |
+| `"pointer"`, `"ptr"`, `"function"`, `"buffer"` | accepted | accepted | accepted | NULL |
+| `"T *"` (`"struct stat *"`) | accepted | accepted | accepted | NULL |
+
+The match is on the exact constructor: there is no subtype or "same layout"
+rule, and a `struct` is not a `union` of the same fields. A `"T *"` string is
+only documentation, as everywhere in [Types](types.md), so it checks nothing;
+declare the constructor to get the check. `Type.at(buffer)` is the cast: it
+views the bytes of an instance or buffer as `Type`, with the `RangeError`
+if the buffer is too short.
+
+The same check covers a method: `Point.prototype.len.call(stat)` is a
+`TypeError`.
 
 A struct passed by value stays the array form (`["f32", "f32"]`), see
 [Structs by value](types.md#structs-by-value); `FFIStruct` is for memory that has
@@ -299,8 +337,8 @@ symbols.origin.x = 5;               // writes the library's variable
 
 | Thrown | When |
 | ------ | ---- |
-| `TypeError` | a field type that is unknown, a by-value array form or an `FFIStruct` that is not yet complete (self-embedding); `fields` missing or not an object; an unknown name in `set()` or `offsetof()`; a write to a read-only member (an array or embedded struct); a method name that is taken; `cstring` assigned a string; a `function` field assigned a plain function; an access on a detached instance |
-| `RangeError` | no fields; `count` below 1; an `offset` or `size` that makes fields overlap in a `struct` or does not fit the type; `align` not a power of two; `at()` on a buffer shorter than the type |
+| `TypeError` | an instance of one `FFIStruct` passed where another constructor is declared (`argument 2 must be a stat, not a glob_t`); a field type that is unknown, a by-value array form or an `FFIStruct` that is not yet complete (self-embedding); `fields` missing or not an object; an unknown name in `set()` or `offsetof()`; a write to a read-only member (an array or embedded struct); a method name that is taken; `cstring` assigned a string; a `function` field assigned a plain function; an access on a detached instance |
+| `RangeError` | no fields; `count` below 1; an `offset` or `size` that makes fields overlap in a `struct` or does not fit the type; `align` not a power of two; `at()` on a buffer shorter than the type, or such a buffer passed where a constructor is declared |
 | the exception from the field | a field's `args`/`returns` that does not parse: as in [`CFunction`](c-function.md) |
 
 A struct that contains itself is a `TypeError`; one that points to itself is
