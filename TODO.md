@@ -158,3 +158,146 @@ Ordered roughly by how likely bun code is to trip over it.
        the array works.
 
 Order of work: 5.1.2 (`viewSource`, postponed), and 5.1.1 (`threadsafe`) last.
+
+---
+
+## 6. FFIStruct: structs, unions and classes as ArrayBuffers
+
+API: [`doc/struct.md`](doc/struct.md), written first; this is how to build it.
+
+### Design
+
+An instance is a **real `ArrayBuffer`** (`JS_CLASS_ARRAY_BUFFER`) made by
+`JS_NewArrayBuffer(ctx, base, size, free_fn, opaque, FALSE)` and given a
+per-type prototype with `JS_SetPrototype()`:
+
+```
+instance -> Type.prototype -> FFIStruct.prototype -> ArrayBuffer.prototype
+```
+
+*   `JS_GetArrayBuffer()` yields the base pointer, so `read`, `write`,
+    `js_buffer_get`, `CFunction` buffer arguments, typed arrays and `DataView`
+    work with no change. The inherited `byteLength`, `slice` and the rest are
+    correct.
+*   No native state per instance. Each field accessor is a
+    `JS_NewCFunctionData` closure holding its `FieldDesc`; it fetches the base
+    with `JS_GetArrayBuffer(this)`, so a detached buffer throws on its own.
+*   An exotic class was rejected: `JS_GetOpaque2(this, JS_CLASS_ARRAY_BUFFER)`
+    checks the object's own class, so a class that only inherits from
+    `ArrayBuffer.prototype` throws in every inherited method.
+
+Trade-offs taken, and why each is acceptable:
+
+| Cost | Handling |
+| ---- | -------- |
+| fields are prototype accessors, not own properties | `toJSON()`, an inspect hook, `Type.fields` |
+| `p.typo = 1` makes a property | `JS_PreventExtensions()` on every instance |
+| no per-instance slot (the ArrayBuffer opaque is QuickJS's) | the two things that need one, the keep-alive reference of a view and the function-pointer cache, go in a symbol-keyed hidden property |
+| `count` of structs cannot be indexed natively | a frozen `Array` of views |
+| `transfer()`/`resize()` | `transfer()` copies (the memory is not ours to move), `resize()` throws |
+
+### Files
+
+| File | Holds |
+| ---- | ----- |
+| `ffi-struct.h` / `ffi-struct.c` | `js_ffistruct_init()`, the `FFIStruct` factory, the constructor statics, `Type.at()`, the prototype builder. One header block per JS-facing function, as in the other `.h` files |
+| `ffi-struct-layout.c` | `StructType`, `ffi_struct_layout()`: offsets, size, align, validation. No JS beyond reading the spec; testable alone |
+| `ffi-struct-field.c` | the accessors: `field_get()`/`field_set()` per kind, the numeric-array to typed-array map, `toJSON`, `set` |
+| `ffi.c` | `FFIStruct` in `js_funcs`; `js_ffistruct_init()` from the module init |
+| `c-function.c` | `dlopen`/`linkSymbols` learn a constructor as a type and attach methods; `js_variable_define()` returns an instance for `{ type: Point }` |
+| `ffi-type.c` | `ffi_resolve_scalar()` and `ffi_sig_parse()` accept a constructor: a new kind `K_STRUCT_PTR` |
+| `compiler.c` | `cc()` attaches methods the same way as `dlopen()` |
+| `CMakeLists.txt` | the new sources into the `quickjs-ffi` MODULE |
+
+### Data
+
+```c
+typedef struct FieldDesc {
+  JSAtom name;
+  uint32_t offset;
+  uint32_t count;          /* 0: a scalar, not an array */
+  int kind;                /* K_* from ffi-type.h, or K_STRUCT, K_FUNCTION */
+  struct StructType* sub;  /* K_STRUCT: the embedded type */
+  FFISignature sig;        /* K_FUNCTION */
+  uint8_t self;            /* K_FUNCTION: instance goes first */
+} FieldDesc;
+
+typedef struct StructType {
+  int refcount;            /* shared by the prototype and the accessors */
+  uint32_t size, align;
+  int is_union;
+  uint32_t nfields;
+  FieldDesc* fields;
+  JSValue proto;           /* Type.prototype */
+} StructType;
+```
+
+Accessors get the `StructType` through the closure's data slot (a `JSValue`
+holding a small opaque object whose finalizer drops the refcount); no global
+registry.
+
+### Phases
+
+Each phase ends with a suite in `tests/` and its part of `doc/struct.md`
+being true.
+
+1. **Layout** (`ffi-struct-layout.c`) → verify: `Type.size`, `Type.align` and
+   every `offsetof(name)` equal the C compiler's for a header of cases
+   (padding, a `u8` before a `u64`, a union, explicit `offset`, `size` larger,
+   a `count`), built with `cc()`.
+2. **Scalars** → `FFIStruct()`, `new`, `Type.at(ptr)`, field get/set for
+   every scalar kind, `toJSON`, `set`, `p.type`, the non-extensible check,
+   `instanceof ArrayBuffer`, `byteLength`, `new Uint8Array(p)`.
+   → `tests/test-struct.js`
+3. **Nested and arrays** → typed array per numeric `count`, an embedded view
+   that keeps its parent alive (drop the parent, `gc`, read the child),
+   `Array` of views, `Type.at(ptr, n)`.
+4. **Methods** → `methods:` option; `dlopen()`/`linkSymbols()`/`cc()` attach a
+   function whose first argument is a constructor, with the `<Name>_` rule,
+   `method: name | false`, and the clash `TypeError`; a small library built
+   with `cc()` in the test.
+5. **Function pointers** → `type: "function"`, `self`, `native`; assign number,
+   `CFunction`, `JSCallback`, `null`; a plain function is a `TypeError`
+   (the struct never creates a `JSCallback`, so it never closes one); the
+   rebuilt-on-change rule. Reading unwraps an open callback: add
+   `js_callback_find(ctx, code)` to `js-callback.h/.c` (scan of
+   `callback_list` by `code`, same runtime), return `cl->func`, or for `self` a
+   wrapper passing `ptr(this)` first; no unwrap when the parameter count
+   differs from the field's. → verify: `ops.add === fn` after
+   `ops.add = cb`; after `cb.close()` it reads a `CFunction`; `native: true`
+   gives the `CFunction`; an exception in an unwrapped call throws at once.
+6. **Signatures and variables** → a constructor in `args`, `returns` and
+   `{ type: Point }`; NULL in and out; a buffer shorter than the type is a
+   `RangeError`.
+7. **Docs/examples** → `doc/struct.md` re-read against the tests; switch one
+   example in `examples/` from generated classes to `FFIStruct`.
+
+### Open points to settle while building
+
+1.  `JS_SetPrototype()` on a fresh ArrayBuffer, then `JS_PreventExtensions()`:
+    confirm in this fork's `quickjs.c` that neither is refused for the
+    ArrayBuffer class.
+2.  Cost of an embedded view: one `JS_NewArrayBuffer` + `JS_SetPrototype` per
+    read. If it shows in a profile, cache the child in the hidden property,
+    keyed by the field and the parent's base pointer.
+3.  The hidden property holds `{ parent, fnCache }` (nothing owned: no
+    callback is created by the struct); check that
+    `structuredClone` does not copy it (it would be a dangling alias).
+4.  Methods attached by `dlopen()` mutate the shared prototype. The doc
+    allows adding one after instances exist; keep that unless a test shows a
+    problem.
+5.  C++: `this` adjustment for a base-class subobject (multiple inheritance) is
+    not covered, the same gap as "C++ gaps" in section 4. Virtual calls are
+    `self: true` function-pointer fields until
+    [`internals/cxx-virtual-dispatch.md`](doc/internals/cxx-virtual-dispatch.md)
+    lands; `gen-bindings` could then emit `FFIStruct` specs instead of classes.
+6.  Auto-creating a `JSCallback` for `ops.add = function(){}` is postponed.
+    Owning it by the slot (closed on overwrite, and on collection of an
+    instance that owns its memory) is the likely policy, but a callback the C
+    side copied elsewhere would dangle; it needs a `keep: true` field option
+    for that case. `js_callback_find()` exists by then, so the read side
+    already round-trips.
+7.  `js_callback_find()` scans a list per read; make it a hash if a
+    function-pointer field in a hot loop shows in a profile.
+8.  Bit-fields: not supported; a spec option `bits: [lo, hi]` on an integer
+    field is the likely extension.

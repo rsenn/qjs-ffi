@@ -21,6 +21,7 @@ Start with the [overview](ffi.md).
 | [CFunction](c-function.md) | a native function pointer as a JavaScript function |
 | [JSCallback](js-callback.md) | a JavaScript function as a native function pointer |
 | [Pointers and memory](pointers.md) | `ptr()`, `toPointer()`, `toArrayBuffer()`, `toBuffer()`, `read`, `write`, `CString`, `toString()`, `pointerSize` |
+| [FFIStruct](struct.md) | C structs, unions and classes as `ArrayBuffer`s with field accessors, methods and function pointers |
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
 
@@ -57,6 +58,7 @@ doc/
   types.md                    types, structs by value, ABI
   c-function.md  js-callback.md
   pointers.md                 ptr, toArrayBuffer, read, CString, toString
+  struct.md                   FFIStruct
   c-compiler.md               cc()
   misc.md                     JSContext, debug
   gen-bindings.md             the binding generators

@@ -146,7 +146,7 @@ uncaught errors in module mode.
 *   A struct passed or returned by value needs its member types spelled out (no
     unions, no C++ classes, not in a `JSCallback`).
 *   Little-endian targets only.
-*   C structures are accessed through generated classes (see
-    [doc/gen-bindings.md](doc/gen-bindings.md)), or with `read` and
+*   C structures are accessed through [`FFIStruct`](doc/struct.md), generated
+    classes (see [doc/gen-bindings.md](doc/gen-bindings.md)), or with `read` and
     `toArrayBuffer()`.
 *   The [legacy API](doc/legacy.md) returns every result as a `double`.

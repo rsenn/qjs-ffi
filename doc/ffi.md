@@ -23,7 +23,7 @@ Everything is imported from `"ffi"`:
 
 ```js
 import { dlopen, dlsym, dlclose, dlerror, errno,
-         linkSymbols, CFunction, JSCallback, cc,
+         linkSymbols, CFunction, JSCallback, FFIStruct, cc,
          ptr, toBuffer, toArrayBuffer, toPointer, toString, read, write, CString,
          FFIType, suffix, pointerSize, JSContext, debug,
          RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
@@ -46,6 +46,7 @@ where the platform defines them. Run scripts with `qjsm`, see
 | [Types and ABI](types.md) | `FFIType` and its numbers, the type names, structs by value, ABI names |
 | [CFunction](c-function.md) | a function pointer as a callable function |
 | [JSCallback](js-callback.md) | a JavaScript function as a function pointer |
+| [FFIStruct](struct.md) | a C struct, union or class as an `ArrayBuffer` with fields and methods |
 | [Pointers and memory](pointers.md) | `ptr()`, `toArrayBuffer()`, `read`, `write`, `CString`, `toString()`, `toPointer()`, `pointerSize` |
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
