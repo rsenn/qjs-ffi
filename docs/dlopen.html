@@ -115,6 +115,27 @@ A variable that is not in the library is a <code>TypeError</code> as for functio
 </ul>
 <p>The address is the library's: after <code>close()</code> a variable dangles as the
 functions do.</p>
+<h2 id="constants"><a class="anchor" href="#constants" aria-hidden="true">#</a>Constants</h2>
+<p>An extension: a spec with <code>value</code> or <code>enum</code> is a constant, a plain
+<code>#define</code> or <code>enum</code> that has no symbol in the library, so nothing is
+<code>dlsym()</code>ed. It works the same in <code>dlopen()</code>, <code>linkSymbols()</code> and
+<a href="c-compiler.html"><code>cc()</code></a>, and <code>dlopen(null, { ... })</code> with only constants is
+valid:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libfoo.so"</span>, {
+  <span class="t-type">FOO_MAX</span><span class="t-op">:</span> { <span class="t-id">value</span><span class="t-op">:</span> <span class="t-num">4096</span> },
+  <span class="t-type">FOO_MASK</span><span class="t-op">:</span> { <span class="t-id">value</span><span class="t-op">:</span> <span class="t-num">0xffffffffffffffffn</span>, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"u64"</span> },
+  <span class="t-type">Color</span><span class="t-op">:</span> { <span class="t-id">enum</span><span class="t-op">:</span> { <span class="t-type">RED</span><span class="t-op">:</span> <span class="t-num">0</span>, <span class="t-type">GREEN</span><span class="t-op">:</span> <span class="t-num">1</span>, <span class="t-type">BLUE</span><span class="t-op">:</span> <span class="t-num">4</span> }, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"u32"</span> },
+  <span class="t-type">Flags</span><span class="t-op">:</span> { <span class="t-id">enum</span><span class="t-op">:</span> { <span class="t-type">A</span><span class="t-op">:</span> <span class="t-num">1</span>, <span class="t-type">B</span><span class="t-op">:</span> <span class="t-num">2</span>, <span class="t-type">C</span><span class="t-op">:</span> <span class="t-num">4</span> }, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"u8"</span>, <span class="t-id">flags</span><span class="t-op">:</span> <span class="t-atom">true</span> },
+});
+
+<span class="t-id">symbols</span>.<span class="t-type">FOO_MAX</span>;    <span class="t-cm">// 4096</span>
+<span class="t-id">symbols</span>.<span class="t-type">Color</span>.<span class="t-type">BLUE</span>; <span class="t-cm">// 4</span>
+<span class="t-id">symbols</span>.<span class="t-type">Color</span>[<span class="t-num">4</span>];   <span class="t-cm">// "BLUE" (reverse map, not enumerable)</span></code></pre></div>
+<div class="tablewrap"><table><thead><tr><th>Key</th><th>Meaning</th></tr></thead><tbody><tr><td><code>value</code></td><td>a number, bigint, string or boolean, stored as is</td></tr><tr><td><code>type</code></td><td>optional scalar the value must fit: <code>{ value: 300, type: "u8" }</code> is a <code>RangeError</code>; 64-bit types give a bigint</td></tr><tr><td><code>enum</code></td><td><code>{ NAME: value }</code>; <code>type</code> defaults to <code>i32</code>; two names with one value are aliases, the reverse map keeps the first</td></tr><tr><td><code>flags</code></td><td>enum only; <code>true</code> requires disjoint bits, else <code>RangeError</code></td></tr></tbody></table></div>
+<p>A constant is an enumerable, read-only data property of <code>symbols</code> (not a
+getter) and survives <code>close()</code>. <code>value</code> and <code>enum</code> together, or either mixed
+with <code>args</code>, <code>returns</code> or <code>type</code>-only variable keys, is a <code>TypeError</code>.
+<code>qjs-ffi-genbindings</code> writes these entries for <code>#define</code>s and <code>enum</code>s.</p>
 <h2 id="raw-libdl"><a class="anchor" href="#raw-libdl" aria-hidden="true">#</a>Raw libdl</h2>
 <p><code>dlopen()</code> takes a second argument of two kinds, told apart by its type: an
 object is the symbol table above, a number is the <code>flags</code> of the raw call.
@@ -159,7 +180,7 @@ global scope and the libraries loaded after the caller. A constant is only
 exported where the platform's <code>&lt;dlfcn.h&gt;</code> defines it.</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/dlopen.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#dlopenpath-symbols-types">dlopen(path, symbols[, types])</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#variables">Variables</a></li><li class="lvl2"><a href="#raw-libdl">Raw libdl</a></li><li class="lvl3"><a href="#dlopenpath-flags">dlopen(path, flags)</a></li><li class="lvl3"><a href="#dlsymhandle-name">dlsym(handle, name)</a></li><li class="lvl3"><a href="#dlclosehandle">dlclose(handle)</a></li><li class="lvl3"><a href="#dlerror">dlerror()</a></li><li class="lvl2"><a href="#errno">errno()</a></li><li class="lvl2"><a href="#suffix">suffix</a></li><li class="lvl2"><a href="#rtld-constants">RTLD constants</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#dlopenpath-symbols-types">dlopen(path, symbols[, types])</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#variables">Variables</a></li><li class="lvl2"><a href="#constants">Constants</a></li><li class="lvl2"><a href="#raw-libdl">Raw libdl</a></li><li class="lvl3"><a href="#dlopenpath-flags">dlopen(path, flags)</a></li><li class="lvl3"><a href="#dlsymhandle-name">dlsym(handle, name)</a></li><li class="lvl3"><a href="#dlclosehandle">dlclose(handle)</a></li><li class="lvl3"><a href="#dlerror">dlerror()</a></li><li class="lvl2"><a href="#errno">errno()</a></li><li class="lvl2"><a href="#suffix">suffix</a></li><li class="lvl2"><a href="#rtld-constants">RTLD constants</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

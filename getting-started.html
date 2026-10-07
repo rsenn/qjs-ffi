@@ -38,7 +38,7 @@ integers and structs passed by value,</li>
 <li>use a buffer class (usually extending <code>ArrayBuffer</code>) as the type of an argument, a return
 or a variable (<code>args: [Point]</code>, or <code>"Point *"</code> with a <code>types</code> object),</li>
 <li>generate bindings from C and C++ headers (<code>tools/gen-bindings.js</code>), for this
-module or for bun:ffi (<code>--target=bun</code>).</li>
+module, for bun:ffi (<code>--target=bun</code>) or for Deno (<code>--target=deno</code>).</li>
 </ul>
 <p>The API follows <a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi</a>: <code>dlopen()</code> with a
 symbol table returns directly callable functions, and there is no name lookup at
