@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Types and ABI — qjs-ffi</title>
-<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
 <link rel="stylesheet" href="../assets/base.css">
 <link rel="stylesheet" href="../assets/theme.css">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html" class="here">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html" class="here">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="types-and-abi"><a class="anchor" href="#types-and-abi" aria-hidden="true">#</a>Types and ABI</h1>
 <p>The names a signature is written with, matching <a href="https://bun.com/docs/runtime/ffi#ffitype" target="_blank" rel="noopener">bun:ffi's
@@ -43,6 +43,12 @@ that throws, with that exception.</p>
 <p><code>"cstring"</code> arguments are converted with <code>JS_ToCString()</code> for the duration
 of the call and freed immediately afterward; the native function must not
 retain the pointer past the call returning.</p>
+<h2 id="classes"><a class="anchor" href="#classes" aria-hidden="true">#</a>Classes</h2>
+<p>A class that inherits from <code>ArrayBuffer</code> and has a static <code>size</code> is a type
+too: in <code>args</code> it is a pointer to the instance's bytes, in <code>returns</code> a pointer
+that comes back as an instance, and <code>{ type: Class }</code> is a variable. It can
+also be named by a string, <code>"Point *"</code>, when the spec is given a <code>types</code>
+object. <a href="struct.html">Classes as types</a> describes both and the checks made.</p>
 <h2 id="structs-by-value"><a class="anchor" href="#structs-by-value" aria-hidden="true">#</a>Structs by value</h2>
 <p>A type given as an array is a struct passed (in <code>args</code>) or returned (as
 <code>returns</code>) by value. The array lists the struct's members in memory order, each
@@ -125,7 +131,7 @@ argument-only: as a <code>returns</code>, in a struct or in a <code>JSCallback</
 <code>"default"</code>.</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/types.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#structs-by-value">Structs by value</a></li><li class="lvl3"><a href="#array-types">Array types</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl3"><a href="#i64_fast-and-u64_fast">i64_fast and u64_fast</a></li><li class="lvl3"><a href="#buffer_length">buffer_length</a></li><li class="lvl2"><a href="#abi">ABI</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#classes">Classes</a></li><li class="lvl2"><a href="#structs-by-value">Structs by value</a></li><li class="lvl3"><a href="#array-types">Array types</a></li><li class="lvl2"><a href="#ffitype">FFIType</a></li><li class="lvl3"><a href="#i64_fast-and-u64_fast">i64_fast and u64_fast</a></li><li class="lvl3"><a href="#buffer_length">buffer_length</a></li><li class="lvl2"><a href="#abi">ABI</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

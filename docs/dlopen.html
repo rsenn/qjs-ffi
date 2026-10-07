@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Libraries and symbols — qjs-ffi</title>
-<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
 <link rel="stylesheet" href="../assets/base.css">
 <link rel="stylesheet" href="../assets/theme.css">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html" class="here">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html" class="here">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="libraries-and-symbols"><a class="anchor" href="#libraries-and-symbols" aria-hidden="true">#</a>Libraries and symbols</h1>
 <p>Opening shared libraries and finding symbols in them. These are the functions
@@ -37,11 +37,11 @@ behind everything else in <code>ffi</code>: <a href="c-function.html"><code>CFun
 <li><a href="#errno"><code>errno()</code></a></li>
 <li><a href="#suffix"><code>suffix</code></a> and the <a href="#rtld-constants">RTLD constants</a></li>
 </ul>
-<h2 id="dlopenpath-symbols"><a class="anchor" href="#dlopenpath-symbols" aria-hidden="true">#</a><code>dlopen(path, symbols)</code></h2>
+<h2 id="dlopenpath-symbols-types"><a class="anchor" href="#dlopenpath-symbols-types" aria-hidden="true">#</a><code>dlopen(path, symbols[, types])</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span>, <span class="t-id">close</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-id">path</span>, <span class="t-id">symbolSpecs</span>);</code></pre></div>
 <p>Opens the library with <code>RTLD_NOW</code>, looks up every key of <code>symbolSpecs</code> and
 wraps it as a <a href="c-function.html"><code>CFunction</code></a>. The result is</p>
-<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code id="dlopenpath-symbols-symbols">symbols</code><a class="member-anchor" href="#dlopenpath-symbols-symbols" aria-hidden="true">#</a></td><td>An object with one function per key of <code>symbolSpecs</code>, each named after its symbol. Not enumerable, so <code>Object.keys(lib)</code> is <code>["close"]</code>, as in bun.</td></tr><tr><td><code id="dlopenpath-symbols-close">close()</code><a class="member-anchor" href="#dlopenpath-symbols-close" aria-hidden="true">#</a></td><td><code>dlclose()</code>s the library and returns <code>undefined</code>, as in bun. Calling it again does nothing.</td></tr><tr><td><code id="dlopenpath-symbols-symbol-dispose">[Symbol.dispose]()</code><a class="member-anchor" href="#dlopenpath-symbols-symbol-dispose" aria-hidden="true">#</a></td><td>The same as <code>close()</code>, so <code>using lib = dlopen(...)</code> closes it (the registered <code>Symbol.for("Symbol.dispose")</code> where the engine has none).</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code id="dlopenpath-symbols-types-symbols">symbols</code><a class="member-anchor" href="#dlopenpath-symbols-types-symbols" aria-hidden="true">#</a></td><td>An object with one function per key of <code>symbolSpecs</code>, each named after its symbol. Not enumerable, so <code>Object.keys(lib)</code> is <code>["close"]</code>, as in bun.</td></tr><tr><td><code id="dlopenpath-symbols-types-close">close()</code><a class="member-anchor" href="#dlopenpath-symbols-types-close" aria-hidden="true">#</a></td><td><code>dlclose()</code>s the library and returns <code>undefined</code>, as in bun. Calling it again does nothing.</td></tr><tr><td><code id="dlopenpath-symbols-types-symbol-dispose">[Symbol.dispose]()</code><a class="member-anchor" href="#dlopenpath-symbols-types-symbol-dispose" aria-hidden="true">#</a></td><td>The same as <code>close()</code>, so <code>using lib = dlopen(...)</code> closes it (the registered <code>Symbol.for("Symbol.dispose")</code> where the engine has none).</td></tr></tbody></table></div>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
 
 <span class="t-kw">const</span> <span class="t-id">lib</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libm.so.6"</span>, {
@@ -76,6 +76,10 @@ functions from pointers you got elsewhere in one call:</p>
 <span class="t-id">symbols</span>.<span class="t-fn">strlen</span>(<span class="t-str">"hello"</span>); <span class="t-cm">// 5n</span></code></pre></div>
 <p>A symbol that is not found throws a <code>TypeError</code>. Only available where the
 platform defines <code>RTLD_DEFAULT</code>.</p>
+<p>A third argument is an object of <a href="struct.html#naming-a-class-types">classes</a>,
+<code>dlopen(path, symbols, { Point })</code>: a <code>"Point *"</code> in a spec is then a pointer
+typed by <code>Point</code>. <code>linkSymbols(symbols, types)</code> and <code>cc({ ..., types })</code> take it
+the same way.</p>
 <h2 id="variables"><a class="anchor" href="#variables" aria-hidden="true">#</a>Variables</h2>
 <p>An extension: bun exposes only functions. A spec with <code>type</code> and no <code>args</code> or
 <code>returns</code> is a variable (a spec with both throws a <code>TypeError</code>). It works the
@@ -155,7 +159,7 @@ global scope and the libraries loaded after the caller. A constant is only
 exported where the platform's <code>&lt;dlfcn.h&gt;</code> defines it.</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/dlopen.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#dlopenpath-symbols">dlopen(path, symbols)</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#variables">Variables</a></li><li class="lvl2"><a href="#raw-libdl">Raw libdl</a></li><li class="lvl3"><a href="#dlopenpath-flags">dlopen(path, flags)</a></li><li class="lvl3"><a href="#dlsymhandle-name">dlsym(handle, name)</a></li><li class="lvl3"><a href="#dlclosehandle">dlclose(handle)</a></li><li class="lvl3"><a href="#dlerror">dlerror()</a></li><li class="lvl2"><a href="#errno">errno()</a></li><li class="lvl2"><a href="#suffix">suffix</a></li><li class="lvl2"><a href="#rtld-constants">RTLD constants</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#dlopenpath-symbols-types">dlopen(path, symbols[, types])</a></li><li class="lvl2"><a href="#linksymbols">linkSymbols</a></li><li class="lvl2"><a href="#variables">Variables</a></li><li class="lvl2"><a href="#raw-libdl">Raw libdl</a></li><li class="lvl3"><a href="#dlopenpath-flags">dlopen(path, flags)</a></li><li class="lvl3"><a href="#dlsymhandle-name">dlsym(handle, name)</a></li><li class="lvl3"><a href="#dlclosehandle">dlclose(handle)</a></li><li class="lvl3"><a href="#dlerror">dlerror()</a></li><li class="lvl2"><a href="#errno">errno()</a></li><li class="lvl2"><a href="#suffix">suffix</a></li><li class="lvl2"><a href="#rtld-constants">RTLD constants</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

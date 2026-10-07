@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qjs-ffi — qjs-ffi</title>
-<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
 <link rel="stylesheet" href="assets/base.css">
 <link rel="stylesheet" href="assets/theme.css">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="getting-started.html" class="here">Getting started</a></li><li><a href="docs/ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="docs/dlopen.html">Libraries and symbols</a></li><li><a href="docs/types.html">Types and ABI</a></li><li><a href="docs/c-function.html">CFunction</a></li><li><a href="docs/js-callback.html">JSCallback</a></li><li><a href="docs/pointers.html">Pointers and memory</a></li><li><a href="docs/c-compiler.html">C compiler</a></li><li><a href="docs/misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="docs/gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="docs/legacy.html">Legacy API</a></li><li><a href="docs/internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="getting-started.html" class="here">Getting started</a></li><li><a href="docs/ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="docs/dlopen.html">Libraries and symbols</a></li><li><a href="docs/types.html">Types and ABI</a></li><li><a href="docs/c-function.html">CFunction</a></li><li><a href="docs/js-callback.html">JSCallback</a></li><li><a href="docs/pointers.html">Pointers and memory</a></li><li><a href="docs/struct.html">Classes as types</a></li><li><a href="docs/c-compiler.html">C compiler</a></li><li><a href="docs/misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="docs/gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="docs/node-ffi.html">node:ffi</a></li><li><a href="docs/legacy.html">Legacy API</a></li><li><a href="docs/internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="qjs-ffi"><a class="anchor" href="#qjs-ffi" aria-hidden="true">#</a>qjs-ffi</h1>
 <h2 id="what-is-it"><a class="anchor" href="#what-is-it" aria-hidden="true">#</a>What is it?</h2>
@@ -35,7 +35,10 @@ integers and structs passed by value,</li>
 <li>hand JavaScript functions back to C as function pointers (<code>JSCallback</code>),</li>
 <li>read and write native memory (<code>ptr()</code>, <code>read</code>, <code>toArrayBuffer()</code>, <code>CString</code>),</li>
 <li>compile and run C code in memory (<code>cc()</code>, optional, uses TinyCC),</li>
-<li>generate bindings from C and C++ headers (<code>tools/gen-bindings.js</code>).</li>
+<li>use a class inheriting from <code>ArrayBuffer</code> as the type of an argument, a return
+or a variable (<code>args: [Point]</code>, or <code>"Point *"</code> with a <code>types</code> object),</li>
+<li>generate bindings from C and C++ headers (<code>tools/gen-bindings.js</code>), for this
+module or for bun:ffi (<code>--target=bun</code>).</li>
 </ul>
 <p>The API follows <a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi</a>: <code>dlopen()</code> with a
 symbol table returns directly callable functions, and there is no name lookup at
@@ -133,12 +136,11 @@ libraries (cairo, freetype, SDL2, zlib, portmidi).</p>
 uncaught errors in module mode.</p>
 <h2 id="limitations"><a class="anchor" href="#limitations" aria-hidden="true">#</a>Limitations</h2>
 <ul>
-<li>No varargs.</li>
 <li>A struct passed or returned by value needs its member types spelled out (no
 unions, no C++ classes, not in a <code>JSCallback</code>).</li>
 <li>Little-endian targets only.</li>
-<li>C structures are accessed through generated classes (see
-<a href="docs/gen-bindings.html">doc/gen-bindings.md</a>), or with <code>read</code> and
+<li>C structures are accessed through <a href="docs/struct.html">classes as types</a>, generated
+classes (see <a href="docs/gen-bindings.html">doc/gen-bindings.md</a>), or with <code>read</code> and
 <code>toArrayBuffer()</code>.</li>
 <li>The <a href="docs/legacy.html">legacy API</a> returns every result as a <code>double</code>.</li>
 </ul></article>

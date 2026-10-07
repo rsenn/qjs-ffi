@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pointers and memory — qjs-ffi</title>
-<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
 <link rel="stylesheet" href="../assets/base.css">
 <link rel="stylesheet" href="../assets/theme.css">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html" class="here">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html" class="here">Pointers and memory</a></li><li><a href="struct.html">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="pointers-and-memory"><a class="anchor" href="#pointers-and-memory" aria-hidden="true">#</a>Pointers and memory</h1>
 <p>Native memory is addressed by numbers. This page covers the functions that
@@ -67,6 +67,10 @@ function, a <code>Number</code> object) and a <strong>string</strong>. A string 
 encode it as a buffer to pass its bytes (see <a href="#topointer"><code>toPointer()</code></a>;
 only the legacy <code>toArrayBuffer(string, size, false)</code> form still reads one).</li>
 </ul>
+<p>A class instance (an <code>ArrayBuffer</code> subclass, see <a href="struct.html">Classes as types</a>)
+is a buffer, so it is accepted as any buffer is, and a pointer that C returned
+becomes an instance with `Object.setPrototypeOf(toArrayBuffer(p, 0, size),
+Class.prototype)<code>, which is what a function declared </code>returns: Class` does.</p>
 <h3 id="offsets-and-lengths"><a class="anchor" href="#offsets-and-lengths" aria-hidden="true">#</a>Offsets and lengths</h3>
 <p>A <code>byteOffset</code> or <code>byteLength</code> (of <code>ptr()</code>, <code>toPointer()</code>, <code>read</code>, <code>CString</code>,
 <code>toArrayBuffer()</code>) is converted to an integer like <code>Math.trunc(Number(x))</code>, and a

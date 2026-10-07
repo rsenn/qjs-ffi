@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cc(): compile and run C from JavaScript — qjs-ffi</title>
-<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
 <link rel="stylesheet" href="../assets/base.css">
 <link rel="stylesheet" href="../assets/theme.css">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html" class="here">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html">Classes as types</a></li><li><a href="c-compiler.html" class="here">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="cc-compile-and-run-c-from-javascript"><a class="anchor" href="#cc-compile-and-run-c-from-javascript" aria-hidden="true">#</a>cc(): compile and run C from JavaScript</h1>
 <p><code>cc()</code> compiles C source in memory with <a href="https://bellard.org/tcc/" target="_blank" rel="noopener">TinyCC</a>
@@ -98,6 +98,9 @@ or <code>cc()</code> throws a <code>TypeError</code> (<code>cc: symbol not found
 does not (its <code>symbols</code> is typed <code>Record&lt;string, FFIFunction&gt;</code>); see
 <a href="dlopen.html#variables">Variables</a>. <code>cc()</code> code is never freed, so such an
 address stays valid.</p>
+<h3 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a><code>types</code></h3>
+<p>An optional object of <a href="struct.html#naming-a-class-types">classes</a>, <code>{ Point }</code>:
+a <code>"Point *"</code> in <code>symbols</code> is then a pointer typed by <code>Point</code>. An extension.</p>
 <h3 id="library"><a class="anchor" href="#library" aria-hidden="true">#</a><code>library</code></h3>
 <div class="codeblock" data-lang="ts"><pre><code class="language-ts">type Library = string | string[];
 
@@ -127,7 +130,7 @@ are strings.</p>
 <h3 id="return-value"><a class="anchor" href="#return-value" aria-hidden="true">#</a>Return value</h3>
 <div class="codeblock" data-lang="ts"><pre><code class="language-ts">{ symbols: { [name: string]: Function } }</code></pre></div>
 <p>One function per entry of <code>symbols</code>, in the same order.</p>
-<h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
+<h2 id="types-1"><a class="anchor" href="#types-1" aria-hidden="true">#</a>Types</h2>
 <p><code>cc()</code> shares the <a href="types.html">type table</a>: <code>"i8"</code> ...
 <code>"u64"</code>, <code>"i64_fast"</code>, <code>"u64_fast"</code>, <code>"f32"</code>, <code>"f64"</code>, <code>"bool"</code>, <code>"pointer"</code>
 (<code>"ptr"</code>, <code>"function"</code>, and any name ending in <code>*</code>), <code>"cstring"</code> and, for
@@ -183,7 +186,7 @@ it was built.</p>
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/c-compiler.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#reference">Reference</a></li><li class="lvl3"><a href="#source">source</a></li><li class="lvl3"><a href="#symbols">symbols</a></li><li class="lvl3"><a href="#library">library</a></li><li class="lvl3"><a href="#include">include</a></li><li class="lvl3"><a href="#flags">flags</a></li><li class="lvl3"><a href="#define">define</a></li><li class="lvl3"><a href="#return-value">Return value</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#errors">Errors</a></li><li class="lvl2"><a href="#lifetime">Lifetime</a></li><li class="lvl2"><a href="#differences-from-bun">Differences from Bun</a></li><li class="lvl2"><a href="#building">Building</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#reference">Reference</a></li><li class="lvl3"><a href="#source">source</a></li><li class="lvl3"><a href="#symbols">symbols</a></li><li class="lvl3"><a href="#types">types</a></li><li class="lvl3"><a href="#library">library</a></li><li class="lvl3"><a href="#include">include</a></li><li class="lvl3"><a href="#flags">flags</a></li><li class="lvl3"><a href="#define">define</a></li><li class="lvl3"><a href="#return-value">Return value</a></li><li class="lvl2"><a href="#types-1">Types</a></li><li class="lvl2"><a href="#errors">Errors</a></li><li class="lvl2"><a href="#lifetime">Lifetime</a></li><li class="lvl2"><a href="#differences-from-bun">Differences from Bun</a></li><li class="lvl2"><a href="#building">Building</a></li><li class="lvl2"><a href="#see-also">See also</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Foreign function interface — qjs-ffi</title>
-<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
 <link rel="stylesheet" href="../assets/base.css">
 <link rel="stylesheet" href="../assets/theme.css">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html" class="here">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html" class="here">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="foreign-function-interface"><a class="anchor" href="#foreign-function-interface" aria-hidden="true">#</a>Foreign function interface</h1>
 <p><code>ffi</code> is a QuickJS module that loads shared libraries, calls their C
@@ -55,10 +55,12 @@ values), as bun:ffi does: <code>import ffi from "ffi"; ffi.dlopen(...)</code>.</
 where the platform defines them. Run scripts with <code>qjsm</code>, see
 <a href="../getting-started.html#installation">Installation</a>.</p>
 <h2 id="contents"><a class="anchor" href="#contents" aria-hidden="true">#</a>Contents</h2>
-<div class="tablewrap"><table><thead><tr><th>Page</th><th>What it covers</th></tr></thead><tbody><tr><td><a href="dlopen.html">Libraries and symbols</a></td><td><code>dlopen()</code>, <code>linkSymbols()</code>, <code>dlsym()</code>, <code>dlclose()</code>, <code>dlerror()</code>, <code>errno()</code>, <code>suffix</code>, <code>RTLD_*</code></td></tr><tr><td><a href="types.html">Types and ABI</a></td><td><code>FFIType</code> and its numbers, the type names, structs by value, ABI names</td></tr><tr><td><a href="c-function.html">CFunction</a></td><td>a function pointer as a callable function</td></tr><tr><td><a href="js-callback.html">JSCallback</a></td><td>a JavaScript function as a function pointer</td></tr><tr><td><a href="pointers.html">Pointers and memory</a></td><td><code>ptr()</code>, <code>toArrayBuffer()</code>, <code>read</code>, <code>write</code>, <code>CString</code>, <code>toString()</code>, <code>toPointer()</code>, <code>pointerSize</code></td></tr><tr><td><a href="c-compiler.html">C compiler</a></td><td><code>cc()</code>: compile and run C from JavaScript</td></tr><tr><td><a href="misc.html">Miscellaneous</a></td><td><code>JSContext()</code>, <code>debug()</code></td></tr><tr><td><a href="gen-bindings.html">Generating bindings</a></td><td><code>tools/gen-bindings.js</code>, a binding generator for C and C++ headers</td></tr><tr><td><a href="legacy.html">Legacy API</a></td><td><code>define()</code> and <code>call()</code>, in the module <code>legacy.js</code></td></tr><tr><td><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/node-ffi.md" target="_blank" rel="noopener">node:ffi</a></td><td>the API of Node's <code>node:ffi</code> on top of <code>ffi</code>, in the module <code>node-ffi.js</code>, and the hook file that maps <code>node:ffi</code> and <code>bun:ffi</code> to the right module</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Page</th><th>What it covers</th></tr></thead><tbody><tr><td><a href="dlopen.html">Libraries and symbols</a></td><td><code>dlopen()</code>, <code>linkSymbols()</code>, <code>dlsym()</code>, <code>dlclose()</code>, <code>dlerror()</code>, <code>errno()</code>, <code>suffix</code>, <code>RTLD_*</code></td></tr><tr><td><a href="types.html">Types and ABI</a></td><td><code>FFIType</code> and its numbers, the type names, structs by value, ABI names</td></tr><tr><td><a href="c-function.html">CFunction</a></td><td>a function pointer as a callable function</td></tr><tr><td><a href="js-callback.html">JSCallback</a></td><td>a JavaScript function as a function pointer</td></tr><tr><td><a href="struct.html">Classes as types</a></td><td>a class inheriting from <code>ArrayBuffer</code> as a type in a spec</td></tr><tr><td><a href="pointers.html">Pointers and memory</a></td><td><code>ptr()</code>, <code>toArrayBuffer()</code>, <code>read</code>, <code>write</code>, <code>CString</code>, <code>toString()</code>, <code>toPointer()</code>, <code>pointerSize</code></td></tr><tr><td><a href="c-compiler.html">C compiler</a></td><td><code>cc()</code>: compile and run C from JavaScript</td></tr><tr><td><a href="misc.html">Miscellaneous</a></td><td><code>JSContext()</code>, <code>debug()</code></td></tr><tr><td><a href="gen-bindings.html">Generating bindings</a></td><td><code>tools/gen-bindings.js</code>, a binding generator for C and C++ headers</td></tr><tr><td><a href="legacy.html">Legacy API</a></td><td><code>define()</code> and <code>call()</code>, in the module <code>legacy.js</code></td></tr><tr><td><a href="node-ffi.html">node:ffi</a></td><td>the API of Node's <code>node:ffi</code> on top of <code>ffi</code>, in the module <code>node-ffi.js</code>, and the hook file that maps <code>node:ffi</code> and <code>bun:ffi</code> to the right module</td></tr></tbody></table></div>
 <h2 id="usage"><a class="anchor" href="#usage" aria-hidden="true">#</a>Usage</h2>
-<p><code>dlopen(path, symbols)</code> opens a library and returns <code>{ symbols, close }</code>.
-Each entry of the symbol table becomes a function:</p>
+<p><code>dlopen(path, symbols[, types])</code> opens a library and returns <code>{ symbols, close }</code>.
+Each entry of the symbol table becomes a function (the optional third argument
+is an object of <a href="struct.html#naming-a-class-types">classes</a> that a <code>"Point *"</code>
+names):</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-type">FFIType</span>, <span class="t-id">suffix</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
 
 <span class="t-kw">const</span> <span class="t-id">path</span> <span class="t-op">=</span> <span class="t-str">`libsqlite3.${suffix}`</span>;
@@ -163,7 +165,8 @@ pointer outlives nothing. In particular</p>
 alive while the buffer is used, <code>.slice(0)</code> the buffer to copy it, or pass a
 native deallocator to be called when the buffer is garbage collected, see
 <a href="pointers.html#toarraybuffer">Pointers and memory</a>.</li>
-<li>A <code>JSCallback</code> pointer is valid until <code>close()</code>.</li>
+<li>A <code>JSCallback</code> pointer is valid until <code>close()</code>, even when nothing references
+the object any more (a callback is never freed by the garbage collector).</li>
 <li>After <code>dlopen()</code>'s <code>close()</code> the library's functions and data are gone.</li>
 <li>A pointer derived from a <code>cstring</code> argument is valid only for that call.</li>
 </ul>
@@ -171,8 +174,8 @@ native deallocator to be called when the buffer is garbage collected, see
 <ul>
 <li>64-bit values: <code>i64</code>/<code>u64</code> are exact <code>bigint</code>s. An argument may be a
 <code>number</code> or a <code>bigint</code>.</li>
-<li>Structs by value are supported, with the member types spelled out. Varargs
-are not.</li>
+<li>Structs by value are supported, with the member types spelled out, and so are
+<a href="c-function.html#variadic-functions">variadic functions</a> (<code>variadic: true</code>).</li>
 <li>Little-endian targets only. Linux x86_64 is the main target; mingw64 cross
 builds compile but are untested.</li>
 <li><code>qjsm</code>, not <code>qjs</code>, runs the scripts and tests of this project.</li>
@@ -186,8 +189,22 @@ items are tracked in <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md
 <code>true</code>, and the callback still runs on the JS thread alone. <code>viewSource</code> is
 missing.</li>
 </ul>
-<p>An extension: a spec with <code>type</code> instead of <code>args</code>/<code>returns</code> exposes a
-<a href="dlopen.html#variables">variable</a>, which bun does not.</p>
+<p>Extensions, which bun does not have (none of them changes what a bun:ffi
+script does):</p>
+<ul>
+<li>a spec with <code>type</code> instead of <code>args</code>/<code>returns</code> exposes a
+<a href="dlopen.html#variables">variable</a>;</li>
+<li><a href="c-function.html#variadic-functions">variadic functions</a> (<code>variadic: true</code>) and
+<a href="types.html#structs-by-value">structs by value</a>;</li>
+<li>a <a href="struct.html">class inheriting from <code>ArrayBuffer</code></a> as the type of an
+argument, a return or a variable, and the <code>types</code> object that names such
+classes in a spec (<code>dlopen(path, symbols, types)</code>, `linkSymbols(symbols,
+types)<code>, </code>cc({ ..., types })`);</li>
+<li>the <a href="node-ffi.html">node:ffi</a> API and the hook file that maps <code>node:ffi</code> and
+<code>bun:ffi</code>.</li>
+</ul>
+<p><code>tests/test-bun-diff.js</code> runs 77 probe cases under bun and under this module;
+they give the same output (checked against bun 1.4.2).</p>
 <p>Different on purpose or for now:</p>
 <ul>
 <li><code>toBuffer()</code> returns an <code>ArrayBuffer</code> (QuickJS has no <code>Buffer</code>).</li>

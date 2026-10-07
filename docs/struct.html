@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classes as types — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html" class="here">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="classes-as-types"><a class="anchor" href="#classes-as-types" aria-hidden="true">#</a>Classes as types</h1>
+<p>A class that inherits from <code>ArrayBuffer</code> can be used as a type in <code>args</code>,
+<code>returns</code> and <code>{ type }</code> of a symbol spec. An instance is a real
+<code>ArrayBuffer</code>, so <code>read</code>, <code>write</code>, <code>ptr()</code>, typed arrays and <code>DataView</code> take
+it unchanged. This is an extension; bun:ffi has no equivalent. The class is
+plain JS: <a href="gen-bindings.html"><code>gen-bindings</code></a> writes it (<code>--structs</code>, <code>--c++</code>,
+<code>--class-types</code>) with the layout clang computed, qjs-ffi only learns that
+such a constructor is a type.</p>
+<ul>
+<li><a href="#usage">Usage</a></li>
+<li><a href="#the-class">The class</a></li>
+<li><a href="#in-a-spec">In a spec</a></li>
+<li><a href="#type-checking">Type checking</a></li>
+<li><a href="#callbacks">Callbacks</a></li>
+<li><a href="#errors">Errors</a></li>
+</ul>
+<h2 id="usage"><a class="anchor" href="#usage" aria-hidden="true">#</a>Usage</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">read</span>, <span class="t-id">write</span>, <span class="t-id">toArrayBuffer</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+
+<span class="t-kw">class</span> <span class="t-type">Point</span> <span class="t-kw">extends</span> <span class="t-type">ArrayBuffer</span> {
+  <span class="t-kw">static</span> <span class="t-id">size</span> <span class="t-op">=</span> <span class="t-num">16</span>; <span class="t-cm">// sizeof(Point), required</span>
+  <span class="t-fn">constructor</span>() { <span class="t-kw">super</span>(<span class="t-type">Point</span>.<span class="t-prop">size</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">x</span>() { <span class="t-kw">return</span> <span class="t-id">read</span>.<span class="t-fn">f64</span>(<span class="t-kw">this</span>, <span class="t-num">0</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">x</span>(<span class="t-id">v</span>) { <span class="t-id">write</span>.<span class="t-fn">f64</span>(<span class="t-kw">this</span>, <span class="t-num">0</span>, <span class="t-id">v</span>); }
+  <span class="t-kw">get</span> <span class="t-fn">y</span>() { <span class="t-kw">return</span> <span class="t-id">read</span>.<span class="t-fn">f64</span>(<span class="t-kw">this</span>, <span class="t-num">8</span>); }
+  <span class="t-kw">set</span> <span class="t-fn">y</span>(<span class="t-id">v</span>) { <span class="t-id">write</span>.<span class="t-fn">f64</span>(<span class="t-kw">this</span>, <span class="t-num">8</span>, <span class="t-id">v</span>); }
+}
+
+<span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libgeom.so"</span>, {
+  <span class="t-type">Point_len</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-type">Point</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
+  <span class="t-type">Point_new</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-type">Point</span> },
+  <span class="t-id">origin</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-type">Point</span> }, <span class="t-cm">// a global `Point origin;`</span>
+});
+
+<span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-id">symbols</span>.<span class="t-fn">Point_new</span>(<span class="t-num">3</span>, <span class="t-num">4</span>); <span class="t-cm">// a Point over the pointer C returned</span>
+<span class="t-id">p</span>.<span class="t-prop">x</span>; <span class="t-cm">// 3</span>
+<span class="t-id">symbols</span>.<span class="t-fn">Point_len</span>(<span class="t-id">p</span>); <span class="t-cm">// 5</span>
+<span class="t-id">p</span> <span class="t-kw">instanceof</span> <span class="t-type">ArrayBuffer</span>; <span class="t-cm">// true</span></code></pre></div>
+<h2 id="the-class"><a class="anchor" href="#the-class" aria-hidden="true">#</a>The class</h2>
+<p>A constructor is a type when its <code>prototype</code> inherits from
+<code>ArrayBuffer.prototype</code> (<code>ArrayBuffer</code> itself is not one) and it has a static
+<code>size</code>, a non-negative integer, read once when the spec is parsed. A missing
+<code>size</code> is a <code>TypeError</code>.</p>
+<p>C++ single inheritance is JS <code>extends</code>: <code>class Dog extends Animal</code> takes the
+base's place wherever <code>Animal</code> is declared (the base sits at offset 0).</p>
+<h2 id="in-a-spec"><a class="anchor" href="#in-a-spec" aria-hidden="true">#</a>In a spec</h2>
+<div class="tablewrap"><table><thead><tr><th>Where</th><th>Meaning</th></tr></thead><tbody><tr><td><code>args: [C]</code></td><td>a pointer to the instance's bytes; see <a href="#type-checking">Type checking</a></td></tr><tr><td><code>returns: C</code></td><td><code>null</code> for NULL, else a new non-owning <code>ArrayBuffer</code> of <code>C.size</code> bytes over the pointer, with <code>C.prototype</code>; the constructor does not run</td></tr><tr><td><code>{ type: C }</code></td><td>the variable's own memory as an instance; it cannot be assigned</td></tr><tr><td><code>"pointer"</code>, <code>"T *"</code></td><td>unchanged: untyped, they take any instance</td></tr></tbody></table></div>
+<p>The memory of a returned or variable instance is C's: after <code>close()</code> or a
+<code>free()</code> it dangles as any <a href="pointers.html">pointer</a> does. Two instances over
+the same address see each other's writes. A struct passed by value stays the
+array form (<code>["f32", "f32"]</code>), see <a href="types.html#structs-by-value">Structs by value</a>.</p>
+<h2 id="naming-a-class-types"><a class="anchor" href="#naming-a-class-types" aria-hidden="true">#</a>Naming a class: <code>types</code></h2>
+<p>A spec can also say <code>"Point *"</code> and be given the classes by name, in an
+object. It reads like the C declaration, and a table of specs stays plain data
+(a JSON file the generator wrote, <code>--emit-specs</code>) while the classes are code:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libgeom.so"</span>, {
+  <span class="t-type">Point_len</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"Point *"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
+  <span class="t-type">Point_new</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"Point *"</span> },
+  <span class="t-id">origin</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"Point"</span> }, <span class="t-cm">// a global `Point origin;`</span>
+}, { <span class="t-type">Point</span> });               <span class="t-cm">// the third argument: name -&gt; class</span></code></pre></div>
+<div class="tablewrap"><table><thead><tr><th>Given to</th><th>As</th></tr></thead><tbody><tr><td><code>dlopen(path, symbols, types)</code></td><td>the third argument</td></tr><tr><td><code>linkSymbols(symbols, types)</code></td><td>the second argument</td></tr><tr><td><code>cc({ source, symbols, types })</code></td><td>the option</td></tr><tr><td><code>CFunction({ ptr, args, returns, types })</code>, <code>JSCallback(fn, { args, returns, types })</code>, one entry of a symbol table</td><td>the property <code>types</code>; it is looked up before the table's</td></tr></tbody></table></div>
+<p>A name matches the class of that key after <code>const</code>, <code>volatile</code> and
+<code>struct</code>/<code>union</code>/<code>class</code> are dropped: <code>"const struct Point *"</code> is <code>Point</code>. A
+qualified name (<code>"geo::Shape *"</code>) matches its own key, else its last segment
+(<code>Shape</code>). Exactly one <code>*</code> makes a pointer to the class, and means what the
+constructor in the same place means (<a href="#in-a-spec">In a spec</a>). <code>{ type: "Point" }</code>
+without a star is a variable: the memory itself as an instance. A name that is
+not a key, a pointer to a pointer (<code>"Point **"</code>) and <code>"Point *"</code> as the <code>type</code>
+of a variable (a variable that holds a pointer) stay plain pointers.</p>
+<h2 id="type-checking"><a class="anchor" href="#type-checking" aria-hidden="true">#</a>Type checking</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">symbols</span>.<span class="t-fn">stat</span>(<span class="t-str">"."</span>, <span class="t-kw">new</span> <span class="t-fn">Glob</span>()); <span class="t-cm">// TypeError: argument 2 must be a Stat, not a Glob</span></code></pre></div>
+<div class="tablewrap"><table><thead><tr><th>Argument</th><th>Accepted for a declared class <code>C</code></th></tr></thead><tbody><tr><td>an instance of <code>C</code> or of a subclass</td><td>yes</td></tr><tr><td>an instance of another class</td><td><code>TypeError</code> naming both</td></tr><tr><td>a plain <code>ArrayBuffer</code> or a view</td><td>yes, if at least <code>C.size</code> bytes, else <code>RangeError</code></td></tr><tr><td><code>null</code>, <code>undefined</code></td><td>NULL</td></tr><tr><td>a number or bigint</td><td>the address</td></tr></tbody></table></div>
+<p>The check is <code>instanceof C</code>: there is no layout comparison, and a <code>struct</code> is
+not a <code>union</code> of the same fields.</p>
+<h2 id="callbacks"><a class="anchor" href="#callbacks" aria-hidden="true">#</a>Callbacks</h2>
+<p>The same types work in a <a href="js-callback.html"><code>JSCallback</code></a>: an argument of class
+<code>C</code> reaches the function as an instance over the pointer, and a return of
+class <code>C</code> takes an instance (or <code>null</code>) and gives its address.</p>
+<h2 id="errors"><a class="anchor" href="#errors" aria-hidden="true">#</a>Errors</h2>
+<div class="tablewrap"><table><thead><tr><th>Thrown</th><th>When</th></tr></thead><tbody><tr><td><code>TypeError</code></td><td>a class without a static <code>size</code>; an instance of an unrelated class; an object that is no buffer; a write to a class-typed variable</td></tr><tr><td><code>RangeError</code></td><td>a buffer shorter than <code>C.size</code></td></tr></tbody></table></div></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/struct.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#the-class">The class</a></li><li class="lvl2"><a href="#in-a-spec">In a spec</a></li><li class="lvl2"><a href="#naming-a-class-types">Naming a class: types</a></li><li class="lvl2"><a href="#type-checking">Type checking</a></li><li class="lvl2"><a href="#callbacks">Callbacks</a></li><li class="lvl2"><a href="#errors">Errors</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

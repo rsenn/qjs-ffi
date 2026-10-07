@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>node:ffi on top of ffi — qjs-ffi</title>
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar" data-site="qjs-ffi" data-root="../">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">ffi</span> <span class="brand-name">qjs-ffi</span></a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/ffi.html">Overview</a>
+    <a href="../docs/types.html">Types</a>
+    <a href="../docs/c-compiler.html">C compiler</a>
+    <a href="https://github.com/rsenn/qjs-ffi" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html" class="here">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="nodeffi-on-top-of-ffi"><a class="anchor" href="#nodeffi-on-top-of-ffi" aria-hidden="true">#</a><code>node:ffi</code> on top of <code>ffi</code></h1>
+<p>Node 26 has an experimental <a href="https://nodejs.org/api/ffi.html" target="_blank" rel="noopener"><code>node:ffi</code></a>. Its
+API is not bun:ffi's, which is what the module <code>ffi</code> follows, and two names
+mean different things in them (<code>toArrayBuffer(pointer, length)</code> against
+<code>toArrayBuffer(ptr, byteOffset, byteLength)</code>). So the Node API is a separate
+module, <code>node-ffi.js</code>, installed next to <code>ffi</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">getInt32</span>, <span class="t-id">setInt32</span> } <span class="t-kw">from</span> <span class="t-str">"node-ffi.js"</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">lib</span>, <span class="t-id">functions</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libm.so.6"</span>, {
+  <span class="t-id">cos</span><span class="t-op">:</span> { <span class="t-id">arguments</span><span class="t-op">:</span> [<span class="t-str">"float64"</span>], <span class="t-kw">return</span><span class="t-op">:</span> <span class="t-str">"float64"</span> },
+});
+
+<span class="t-id">functions</span>.<span class="t-fn">cos</span>(<span class="t-num">0</span>); <span class="t-cm">// 1</span>
+<span class="t-id">lib</span>.<span class="t-fn">close</span>();</code></pre></div>
+<h2 id="running-a-script-written-for-nodeffi"><a class="anchor" href="#running-a-script-written-for-nodeffi" aria-hidden="true">#</a>Running a script written for <code>node:ffi</code></h2>
+<p>A script that says <code>import { dlopen } from "node:ffi"</code> runs unchanged with the
+hook file installed next to the module:</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjsm</span> <span class="t-op">-I</span> <span class="t-id">ffi-hooks.js</span> <span class="t-id">script.js</span></code></pre></div>
+<p><code>-I</code> runs the hook first and it stays for every later import, dynamic ones too.
+It maps <code>node:ffi</code> to <code>node-ffi.js</code>, and <code>bun:ffi</code> to <code>ffi</code>, so a script written
+for Bun runs the same way.</p>
+<p><strong>Without the hook <code>qjsm</code> reads <code>node:ffi</code> as plain <code>ffi</code></strong>, which is the bun
+API under Node's name: <code>dlopen()</code> then returns <code>{ symbols, close }</code>, not
+<code>{ lib, functions }</code>, and a script written for Node misbehaves without saying
+why.</p>
+<h2 id="what-it-has"><a class="anchor" href="#what-it-has" aria-hidden="true">#</a>What it has</h2>
+<div class="tablewrap"><table><thead><tr><th><code>node:ffi</code></th><th>Here</th></tr></thead><tbody><tr><td><code>dlopen(path, definitions)</code></td><td><code>{ lib, functions }</code>, closable with <code>using</code></td></tr><tr><td><code>dlclose(handle)</code>, <code>dlsym(handle, name)</code></td><td>a <code>DynamicLibrary</code> or a raw handle; <code>dlsym</code> gives a <code>bigint</code></td></tr><tr><td><code>class DynamicLibrary</code></td><td><code>getFunction</code>, <code>getFunctions</code>, <code>getSymbol</code>, <code>getSymbols</code>, <code>registerCallback</code>, <code>unregisterCallback</code>, <code>refCallback</code>, <code>unrefCallback</code>, <code>close</code>, <code>[Symbol.dispose]</code></td></tr><tr><td><code>fn.pointer</code></td><td>the function's address as a <code>bigint</code></td></tr><tr><td><code>getInt8</code> ... <code>getFloat64</code>, <code>setInt8</code> ... <code>setFloat64</code></td><td><a href="pointers.html#read"><code>read</code></a> and <a href="pointers.html#write"><code>write</code></a> under Node's names</td></tr><tr><td><code>toString</code>, <code>toBuffer</code>, <code>toArrayBuffer</code></td><td><code>(pointer[, length[, copy]])</code> as in Node: a copy unless <code>copy</code> is <code>false</code></td></tr><tr><td><code>exportString</code>, <code>exportBuffer</code>, <code>exportArrayBuffer</code>, <code>exportArrayBufferView</code></td><td>copy into native memory, with a length check</td></tr><tr><td><code>getRawPointer(source)</code></td><td>the address of a buffer, as a <code>bigint</code></td></tr><tr><td><code>suffix</code></td><td><code>"so"</code>, <code>"dylib"</code> or <code>"dll"</code></td></tr></tbody></table></div>
+<h2 id="where-it-follows-node-not-ffi"><a class="anchor" href="#where-it-follows-node-not-ffi" aria-hidden="true">#</a>Where it follows Node, not <code>ffi</code></h2>
+<ul>
+<li>A pointer is always a <code>bigint</code>, <code>0n</code> for NULL (<code>ffi</code> gives a <code>number</code> or
+<code>null</code>). A pointer argument takes a <code>bigint</code>, <code>null</code>, a buffer, a typed
+array or a <code>DataView</code>.</li>
+<li>A 64-bit integer is a <code>bigint</code>; 8, 16 and 32-bit integers and floats are
+<code>number</code>s. <code>bool</code> is a <code>u8</code> number and <code>char</code> an <code>i8</code>.</li>
+<li><code>string</code> as an argument is a UTF-8 string for the duration of the call; as a
+return it is the address, like every pointer. <code>buffer</code>, <code>arraybuffer</code> and
+<code>function</code> are pointers.</li>
+<li><code>toBuffer</code> gives a <code>Uint8Array</code>, as QuickJS has no <code>Buffer</code>.</li>
+<li>The type names are Node's (<code>int32</code>, <code>float64</code>, <code>string</code>, ...), and a
+signature is <code>{ arguments, return }</code>.</li>
+</ul>
+<h2 id="what-is-not-there"><a class="anchor" href="#what-is-not-there" aria-hidden="true">#</a>What is not there</h2>
+<ul>
+<li><code>getCurrentEventLoop()</code> and the permission flags.</li>
+<li>A callback is not checked: it may throw, return a promise, or close its own
+library, which Node calls undefined behavior. It has to run on the thread
+that made it, as for <a href="js-callback.html"><code>JSCallback</code></a>.</li>
+<li><code>refCallback</code> and <code>unrefCallback</code> change nothing that matters: a callback
+lives until <code>unregisterCallback()</code> or <code>lib.close()</code>, however it is
+referenced (see <a href="js-callback.html#lifetime">Lifetime</a>), where Node lets an
+unreferenced one be collected.</li>
+</ul>
+<h2 id="not-in-nodeffi-but-here"><a class="anchor" href="#not-in-nodeffi-but-here" aria-hidden="true">#</a>Not in <code>node:ffi</code>, but here</h2>
+<p><a href="types.html#structs-by-value">Structs by value</a>, <a href="dlopen.html#variables">variables</a>,
+<a href="c-function.html#variadic-functions">variadic functions</a>, <code>errno()</code> and <code>cc()</code> are
+in <code>ffi</code>, not in this module's Node API; import them from <code>"ffi"</code>.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/node-ffi.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#running-a-script-written-for-nodeffi">Running a script written for node:ffi</a></li><li class="lvl2"><a href="#what-it-has">What it has</a></li><li class="lvl2"><a href="#where-it-follows-node-not-ffi">Where it follows Node, not ffi</a></li><li class="lvl2"><a href="#what-is-not-there">What is not there</a></li><li class="lvl2"><a href="#not-in-nodeffi-but-here">Not in node:ffi, but here</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-ffi — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generating bindings — qjs-ffi</title>
-<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
+<meta name="description" content="qjs-ffi — Call any C library from QuickJS. libffi and dlopen as a loadable QuickJS module: define C prototypes, call functions, pass callbacks, use ArrayBuffer classes as struct types, plus ready-made bindings for cairo, SDL2, freetype, libcurl and more.">
 <link rel="stylesheet" href="../assets/base.css">
 <link rel="stylesheet" href="../assets/theme.css">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
   <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
 </header>
 <div class="layout">
-<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html" class="here">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html" class="here">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="generating-bindings"><a class="anchor" href="#generating-bindings" aria-hidden="true">#</a>Generating bindings</h1>
 <p><code>tools/gen-bindings.js</code> reads a C or C++ header with clang and writes a
@@ -66,7 +66,7 @@ both take the same options. Run from a checkout:</p>
 <p>The generator needs <code>clang</code> and <code>qjsm</code> with the <code>json</code> module of qjs-modules.
 The generated module needs only <code>ffi</code>, and one with <code>read</code> (see
 <a href="pointers.html#read">Pointers and memory</a>).</p>
-<div class="tablewrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>&lt;source&gt;...</code></td><td>headers or sources to bind. Several are merged into one module.</td></tr><tr><td><code>--library=&lt;path&gt;</code></td><td><code>dlopen()</code> this shared library; without it the symbols are looked up in the running process (<code>RTLD_DEFAULT</code>).</td></tr><tr><td><code>-o</code>, <code>--output=&lt;path&gt;</code></td><td>write the module here instead of to standard output.</td></tr><tr><td><code>-I&lt;dir&gt;</code>, <code>-D&lt;name[=value]&gt;</code></td><td>passed on to clang; repeatable. <code>--include=</code> and <code>--define=</code> are the long forms.</td></tr><tr><td><code>--follow-includes</code></td><td>also bind headers that a source includes from under its own directory (<code>SDL.h</code> brings in <code>SDL_video.h</code>).</td></tr><tr><td><code>--exclude=&lt;name&gt;</code></td><td>do not bind this function or class; repeatable.</td></tr><tr><td><code>--c++</code></td><td>parse the sources as C++. Implied by <code>.cc</code>, <code>.cpp</code>, <code>.cxx</code>, <code>.hh</code>, <code>.hpp</code>, <code>.hxx</code>; a <code>.h</code> needs it.</td></tr><tr><td><code>--std=&lt;std&gt;</code></td><td>the C++ standard for clang, e.g. <code>c++17</code>.</td></tr><tr><td><code>--namespace=&lt;name&gt;</code></td><td>drop the C++ namespace prefix <code>name::</code> from the names; repeatable.</td></tr><tr><td><code>--structs</code></td><td>also wrap every struct and union as an <code>ArrayBuffer</code> class, and every extern variable.</td></tr><tr><td><code>--finalize</code></td><td>destroy a C++ object made with <code>new</code> when it is garbage collected, too.</td></tr><tr><td><code>--ffitype</code></td><td>write types as <code>FFIType.i32</code> instead of <code>'i32'</code>.</td></tr><tr><td><code>--describe</code></td><td>give each function its parameter names, and describe its C types for <code>describeObject()</code>.</td></tr><tr><td><code>--jsdoc</code></td><td>a JSDoc comment on each function, method and class.</td></tr><tr><td><code>--emit-ir=&lt;file&gt;</code></td><td>write the intermediate JSON and stop.</td></tr><tr><td><code>--emit-specs=&lt;file&gt;</code></td><td>write the <code>dlopen()</code> symbol specs as JSON and stop, see <a href="#specs-from-the-ir">Specs from the IR</a>. Not with <code>--emit-ir</code>.</td></tr><tr><td><code>--emit-specs</code></td><td>the same without a file name: the specs go to stdout (or <code>-o</code>) as a JS module, unless <code>--json</code>.</td></tr><tr><td><code>--js</code></td><td>write the <code>--emit-ir</code> or <code>--emit-specs</code> file as a JS module, <code>export default { ... };</code>, instead of JSON.</td></tr><tr><td><code>--json</code></td><td>write the <code>--emit-ir</code> or <code>--emit-specs</code> file as JSON. The default, except for a bare <code>--emit-specs</code>. Not with <code>--js</code>.</td></tr><tr><td><code>--from-ir=&lt;file&gt;</code></td><td>generate from an IR instead of running clang.</td></tr><tr><td><code>--clang=&lt;path&gt;</code></td><td>the clang binary (default <code>clang</code>).</td></tr><tr><td><code>--cache-dir=&lt;dir&gt;</code></td><td>where the condensed AST is cached (default <code>.tmp/gen-bindings</code>).</td></tr><tr><td><code>--no-cache</code></td><td>do not read or write that cache.</td></tr><tr><td><code>-h</code>, <code>--help</code></td><td>the usage text.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>&lt;source&gt;...</code></td><td>headers or sources to bind. Several are merged into one module.</td></tr><tr><td><code>--library=&lt;path&gt;</code></td><td><code>dlopen()</code> this shared library; without it the symbols are looked up in the running process (<code>RTLD_DEFAULT</code>).</td></tr><tr><td><code>-o</code>, <code>--output=&lt;path&gt;</code></td><td>write the module here instead of to standard output.</td></tr><tr><td><code>-I&lt;dir&gt;</code>, <code>-D&lt;name[=value]&gt;</code></td><td>passed on to clang; repeatable. <code>--include=</code> and <code>--define=</code> are the long forms.</td></tr><tr><td><code>--follow-includes</code></td><td>also bind headers that a source includes from under its own directory (<code>SDL.h</code> brings in <code>SDL_video.h</code>).</td></tr><tr><td><code>--exclude=&lt;name&gt;</code></td><td>do not bind this function or class; repeatable.</td></tr><tr><td><code>--c++</code></td><td>parse the sources as C++. Implied by <code>.cc</code>, <code>.cpp</code>, <code>.cxx</code>, <code>.hh</code>, <code>.hpp</code>, <code>.hxx</code>; a <code>.h</code> needs it.</td></tr><tr><td><code>--std=&lt;std&gt;</code></td><td>the C++ standard for clang, e.g. <code>c++17</code>.</td></tr><tr><td><code>--namespace=&lt;name&gt;</code></td><td>drop the C++ namespace prefix <code>name::</code> from the names; repeatable.</td></tr><tr><td><code>--structs</code></td><td>also wrap every struct and union as an <code>ArrayBuffer</code> class, and every extern variable.</td></tr><tr><td><code>--target=&lt;runtime&gt;</code></td><td><code>qjs</code> (default) or <code>bun</code>: with <code>bun</code> the module imports <code>bun:ffi</code> and runs under bun, see <a href="#bun">Bun</a>.</td></tr><tr><td><code>--class-types</code></td><td>with the classes of <code>--structs</code> or <code>--c++</code>: write the class itself as the type of a <code>T *</code> argument or return (<code>args: [Point]</code>, <code>returns: Point</code>) instead of <code>"Point *"</code>, and give each such class a static <code>size</code>. Needs a qjs-ffi that takes a constructor as a type (<a href="struct.html">classes as types</a>); off by default.</td></tr><tr><td><code>--finalize</code></td><td>destroy a C++ object made with <code>new</code> when it is garbage collected, too.</td></tr><tr><td><code>--ffitype</code></td><td>write types as <code>FFIType.i32</code> instead of <code>'i32'</code>.</td></tr><tr><td><code>--describe</code></td><td>give each function its parameter names, and describe its C types for <code>describeObject()</code>.</td></tr><tr><td><code>--jsdoc</code></td><td>a JSDoc comment on each function, method and class.</td></tr><tr><td><code>--emit-ir=&lt;file&gt;</code></td><td>write the intermediate JSON and stop.</td></tr><tr><td><code>--emit-specs=&lt;file&gt;</code></td><td>write the <code>dlopen()</code> symbol specs as JSON and stop, see <a href="#specs-from-the-ir">Specs from the IR</a>. Not with <code>--emit-ir</code>.</td></tr><tr><td><code>--emit-specs</code></td><td>the same without a file name: the specs go to stdout (or <code>-o</code>) as a JS module, unless <code>--json</code>.</td></tr><tr><td><code>--js</code></td><td>write the <code>--emit-ir</code> or <code>--emit-specs</code> file as a JS module, <code>export default { ... };</code>, instead of JSON.</td></tr><tr><td><code>--json</code></td><td>write the <code>--emit-ir</code> or <code>--emit-specs</code> file as JSON. The default, except for a bare <code>--emit-specs</code>. Not with <code>--js</code>.</td></tr><tr><td><code>--from-ir=&lt;file&gt;</code></td><td>generate from an IR instead of running clang.</td></tr><tr><td><code>--clang=&lt;path&gt;</code></td><td>the clang binary (default <code>clang</code>).</td></tr><tr><td><code>--cache-dir=&lt;dir&gt;</code></td><td>where the condensed AST is cached (default <code>.tmp/gen-bindings</code>).</td></tr><tr><td><code>--no-cache</code></td><td>do not read or write that cache.</td></tr><tr><td><code>--no-auto-include</code></td><td>do not add <code>-I&lt;dir&gt;</code> for a header clang could not find in a parent of the source; the missing header is only a warning.</td></tr><tr><td><code>-h</code>, <code>--help</code></td><td>the usage text.</td></tr></tbody></table></div>
 <p>Companions in <code>tools/</code>: <code>gen-structs.js</code> (<code>qjs-ffi-genstructs</code>) makes the struct
 classes, or a C header, from an IR on its own, and <code>describe-module.sh</code> lists
 what a module, object or class has. Both are covered
@@ -154,7 +154,20 @@ it was made with, so that it can say how to regenerate it:</p>
 <h3 id="2-running-clang"><a class="anchor" href="#2-running-clang" aria-hidden="true">#</a>2. Running clang</h3>
 <p>For each source, <code>clang.js</code> runs</p>
 <div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">clang</span> <span class="t-op">-Xclang</span> <span class="t-op">-ast-dump</span>=<span class="t-id">json</span> <span class="t-op">-fsyntax-only</span> [<span class="t-op">-x</span> <span class="t-id">c</span>++ <span class="t-op">-std</span>=&lt;<span class="t-id">std</span>&gt;] <span class="t-op">-I</span>&lt;<span class="t-id">dir</span>&gt;... <span class="t-op">-D</span>&lt;<span class="t-id">def</span>&gt;... &lt;<span class="t-kw">source</span>&gt;</code></pre></div>
-<p>and reads clang's JSON AST from the pipe. That AST is huge (megabytes for
+<p>and reads clang's JSON AST from the pipe and its errors from stderr, which
+goes to a file in the cache directory during the same run. An error leaves
+the AST wrong from there on: a declaration whose macros (<code>XMLPUBFUN</code>) are
+undefined turns into a variable. So the generator acts on what clang said:</p>
+<ul>
+<li>a header it could not find (<code>&lt;libxml/xmlversion.h&gt;</code>) is looked for in the
+source's own directory and its parents; the nearest one that has it is added
+as <code>-I&lt;dir&gt;</code> (a note says so, <code>/usr/include/libxml2</code> for <code>libxml/tree.h</code>),
+for the other sources and the layout probe too, and clang runs again, at
+most four times (<code>--no-auto-include</code> skips this)</li>
+<li>anything left over is a warning with the error count and the first message,
+and, for a header still not found, a hint to add <code>-I&lt;dir&gt;</code> yourself</li>
+</ul>
+<p>That AST is huge (megabytes for
 <code>cairo.h</code>), almost all of it source ranges, function bodies and attributes the
 generator never uses. So it is not parsed as one value: <code>json.JsonParser</code>
 yields tokens and <code>condense.js</code> keeps only what is needed, deciding from a
@@ -244,10 +257,17 @@ offset and size of its storage unit. The numbers come from the
     { "name": "visible", "type": "unsigned int", "offset": 24, "size": 4, "bits": 1, "bitOffset": 0, "ffi": "u32" } ],
   "typedefs": ["shape"] }</code></pre></div></li>
 <li><p><strong><code>typedefs</code></strong>: every <code>typedef</code> and <code>using</code> alias, with the type it stands
-for and the record it names.</p></li>
-<li><p><strong><code>skipped</code></strong>: what could not be bound and why. Operators and C++ variadic
-functions are skipped here, an unknown type or a union by value by the
-mapping (a variadic <em>C</em> function is bound, with <code>"variadic": true</code>):</p>
+for and the record it names. One declared inside a namespace or class is
+known by its qualified name and by the bare one clang spells where it is in
+scope (<code>stk::StkFloat</code> and <code>StkFloat</code>), so a method returning it binds.</p></li>
+<li><p><strong><code>warnings</code></strong>: bound, but with a caveat: <code>{ name, reason }</code> for a virtual
+method of a class that is not <code>final</code> and got no vtable slot, so it is bound
+to its own symbol and a call through a base class wrapper is not virtual.
+They are written as <code>// Warnings:</code> at the end of the module and counted on
+stderr. An IR file from before this key has none.</p></li>
+<li><p><strong><code>skipped</code></strong>: what could not be bound and why. Operators are skipped
+here, an unknown type or a union by value by the mapping (a variadic
+function, C or C++, is bound, with <code>"variadic": true</code>):</p>
 <div class="codeblock" data-lang="json"><pre><code class="language-json">[{ "name": "geom_ops", "reason": "operators are not supported" }]</code></pre></div></li>
 </ul>
 <p>A C++ class is the same, plus its bases, its public constructors, methods and
@@ -351,7 +371,10 @@ enum's name (or <code>(anonymous)</code>) as a comment:</p>
 <span class="t-kw">export</span> <span class="t-kw">const</span> <span class="t-id">geom_log</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({<span class="t-id">ptr</span><span class="t-op">:</span><span class="t-fn">__sym</span>(<span class="t-str">'geom_log'</span>),<span class="t-id">args</span><span class="t-op">:</span>[<span class="t-str">'cstring'</span>],<span class="t-id">returns</span><span class="t-op">:</span><span class="t-str">'i32'</span>,<span class="t-id">variadic</span><span class="t-op">:</span><span class="t-atom">true</span>});</code></pre></div>
 <p>A variadic C function such as <code>geom_log</code> is bound with <code>variadic: true</code> and its
 fixed arguments, and called with <code>(type, value)</code> pairs for the rest, see
-<a href="c-function.html#variadic-functions">Variadic functions</a>.</p>
+<a href="c-function.html#variadic-functions">Variadic functions</a>. A variadic C++
+function or method is bound the same way; among a class's overloads it takes
+any call with at least its fixed arguments, so <code>acc.add(2, "i32", 1, "i32", 2)</code>
+and <code>acc.add("label")</code> pick different ones (<code>tests/test-gen-bindings-variadic.js</code>).</p>
 <div class="tablewrap"><table><thead><tr><th>C</th><th>JavaScript</th></tr></thead><tbody><tr><td><code>int geom_abs(int)</code></td><td><code>geom_abs(-5)</code> is <code>5</code></td></tr><tr><td><code>const char *geom_version()</code></td><td>a string: <code>'geom 3'</code></td></tr><tr><td><code>shape *geom_find(const char *)</code></td><td>a pointer: <code>null</code>, a <code>number</code> or a <code>bigint</code></td></tr><tr><td><code>geom_status geom_move(shape *, double, double)</code></td><td>pass a pointer, or a struct class; returns the status as a number</td></tr><tr><td><code>void geom_each(geom_visit_fn, void *)</code></td><td>pass a <a href="js-callback.html"><code>JSCallback</code></a>'s <code>.ptr</code></td></tr><tr><td><code>double geom_length(vec2)</code></td><td>pass an <code>ArrayBuffer</code> of at least 8 bytes, or a <code>vec2</code> instance</td></tr><tr><td><code>vec2 geom_add(vec2, vec2)</code></td><td>returns an <code>ArrayBuffer</code> of 8 bytes (a <code>vec2</code> with <code>--structs</code>)</td></tr></tbody></table></div>
 <p>The wrappers are used like any <code>CFunction</code>:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> <span class="t-op">*</span> <span class="t-id">as</span> <span class="t-id">geom</span> <span class="t-kw">from</span> <span class="t-str">'./geom.js'</span>;
@@ -403,8 +426,8 @@ is. For <code>vec2</code> and <code>shape</code> the generator writes</p>
 <span class="t-id">shape</span>.<span class="t-prop">fields</span> <span class="t-op">=</span> {<span class="t-id">id</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'i32'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">0</span>},<span class="t-id">name</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'cstring'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">8</span>},<span class="t-id">origin</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'vec2'</span>,<span class="t-id">offset</span><span class="t-op">:</span><span class="t-num">16</span>},<span class="t-id">visible</span><span class="t-op">:</span>{<span class="t-id">type</span><span class="t-op">:</span><span class="t-str">'u32'</span>,<span class="t-id">bits</span><span class="t-op">:</span><span class="t-num">1</span>,<span class="t-id">bitOffset</span><span class="t-op">:</span><span class="t-num">192</span>}};</code></pre></div>
 <ul>
 <li>A member is an accessor at the byte offset of the IR: it reads with
-<a href="pointers.html#read"><code>read</code></a> and writes through a <code>DataView</code>. 64-bit integers
-are <code>bigint</code>.</li>
+<a href="pointers.html#read"><code>read</code></a> and writes with <a href="pointers.html#write"><code>write</code></a>.
+64-bit integers are <code>bigint</code>.</li>
 <li><code>new shape()</code> allocates zeroed memory of the struct's size; `new
 shape(bytes)<code>copies an</code>ArrayBuffer<code>or view.</code>shape.at(ptr)` makes a view
 of native memory (not copied, not owned), and <code>s.ptr</code> is the address.</li>
@@ -575,7 +598,7 @@ with <code>--emit-ir</code>.</p>
 <p><code>--from-ir</code> reads the IR as JSON, or as the JS module <code>--emit-ir --js</code> writes
 (<code>export default { ... };</code>).</p>
 <p><code>--from-ir</code> takes no sources and takes the options of the emitting phase
-(<code>--api</code>, <code>--structs</code>, <code>--describe</code>, <code>--namespace</code>, ...) as before. The IR can
+(<code>--structs</code>, <code>--describe</code>, <code>--target</code>, <code>--namespace</code>, ...) as before. The IR can
 be edited or checked in between, and a binding can be regenerated on a machine
 without clang.</p>
 <p><code>gen-structs.js</code> makes just the struct, union and class wrappers from an IR:</p>
@@ -640,14 +663,13 @@ of qjs-modules, so a script can import it (<code>--emit-ir</code> takes <code>--
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> <span class="t-id">specs</span> <span class="t-kw">from</span> <span class="t-str">'./geom.specs.js'</span>;
 
 <span class="t-kw">const</span> <span class="t-id">lib</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-id">specs</span>.<span class="t-prop">library</span>, <span class="t-id">specs</span>.<span class="t-prop">symbols</span>);</code></pre></div>
-<p>The file is <code>{ library, symbols, constants, omitted }</code>:</p>
-<div class="tablewrap"><table><thead><tr><th>Key</th><th>Holds</th></tr></thead><tbody><tr><td><code>library</code></td><td>the <code>--library</code> path, else <code>null</code></td></tr><tr><td><code>symbols</code></td><td><code>{ name: spec }</code>: <code>{ args, returns }</code> for a function, <code>{ type, readonly? }</code> for a variable</td></tr><tr><td><code>constants</code></td><td>the values of constants that have no symbol (<code>static const int N = 5</code>), to be JS constants</td></tr><tr><td><code>omitted</code></td><td><code>{ name, reason }</code> for everything that has no spec</td></tr></tbody></table></div>
+<p>The file is <code>{ library, symbols, constants, types, omitted }</code>:</p>
+<div class="tablewrap"><table><thead><tr><th>Key</th><th>Holds</th></tr></thead><tbody><tr><td><code>library</code></td><td>the <code>--library</code> path, else <code>null</code></td></tr><tr><td><code>symbols</code></td><td><code>{ name: spec }</code>: <code>{ args, returns }</code> for a function, <code>{ type, readonly? }</code> for a variable</td></tr><tr><td><code>constants</code></td><td>the values of constants that have no symbol (<code>static const int N = 5</code>), to be JS constants</td></tr><tr><td><code>types</code></td><td>the names of the structs and unions that have a size: pass the classes of those names as <code>dlopen(specs.library, specs.symbols, { pt })</code> and a <code>"struct pt *"</code> in <code>symbols</code> is a pointer typed by the class <code>pt</code> (<a href="struct.html#naming-a-class-types">naming a class</a>)</td></tr><tr><td><code>omitted</code></td><td><code>{ name, reason }</code> for everything that has no spec</td></tr></tbody></table></div>
 <p>From the IR entry to the spec:</p>
 <div class="tablewrap"><table><thead><tr><th>IR</th><th>Spec</th></tr></thead><tbody><tr><td><code>args: ["dx: f64"]</code></td><td><code>args: ["f64"]</code>, the names dropped</td></tr><tr><td><code>"struct vec3"</code></td><td>the member types from <code>byValue</code>: <code>["f32", "f32", "f32"]</code></td></tr><tr><td><code>type: "int[3][2]"</code></td><td>nested <a href="types.html#array-types">array types</a>: <code>{ array: { array: "i32", length: 2 }, length: 3 }</code></td></tr><tr><td><code>const: true</code></td><td><code>readonly: true</code></td></tr><tr><td><code>value</code> on a constant</td><td>not a symbol: goes to <code>constants</code></td></tr></tbody></table></div>
 <p>Left out, with the reason in <code>omitted</code>:</p>
 <ul>
-<li>what the IR already <code>skipped</code> (C++ variadic functions, unions and unplaceable
-structs by value);</li>
+<li>what the IR already <code>skipped</code> (unions and unplaceable structs by value);</li>
 <li>C++ functions (the symbol is mangled) and classes (<code>this</code>, virtual dispatch
 and constructors are not part of a spec: use the generated classes);</li>
 <li>an array of more than 2^20 elements or of unknown size (<code>int tail[]</code>);</li>
@@ -672,8 +694,8 @@ script's imports against the path it is run as, not a symlink's target.</li>
 </ul>
 <h2 id="limitations"><a class="anchor" href="#limitations" aria-hidden="true">#</a>Limitations</h2>
 <ul>
-<li>Operators, C++ variadic functions and arrays by value are skipped, as are
-unions and (for C++) classes by value.</li>
+<li>Operators and arrays by value are skipped, as are unions and (for C++)
+classes by value.</li>
 <li>A struct by value needs a layout libffi can reproduce: not a packed struct.</li>
 <li>Preprocessor macros are not bound (they are not in the AST), only enums and
 <code>const</code> variables with a literal value.</li>
@@ -681,10 +703,36 @@ unions and (for C++) classes by value.</li>
 against <code>nm -D</code> of a compiled fixture and runs the module,
 <code>test-gen-bindings-virtual.js</code> and <code>-finalize.js</code> the vtable and finalizer
 paths, <code>test-gen-structs.js</code> and <code>test-struct-by-value.js</code> the structs.</li>
-</ul></article>
+</ul>
+<h2 id="bun"><a class="anchor" href="#bun" aria-hidden="true">#</a>Bun</h2>
+<p><code>--target=bun</code> writes a module for bun's <code>bun:ffi</code> instead of this one's <code>ffi</code>:</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs-ffi-genbindings</span> <span class="t-op">--target</span>=<span class="t-id">bun</span> <span class="t-op">--library</span>=./<span class="t-id">libgeom.so</span> <span class="t-op">--structs</span> <span class="t-op">-o</span> <span class="t-id">geom.mjs</span> <span class="t-id">geom.h</span>
+<span class="t-id">bun</span> <span class="t-id">run-it.mjs</span>   <span class="t-cm"># import * as geom from "./geom.mjs"</span></code></pre></div>
+<p>The functions, enums, constants, <code>--structs</code> classes, extern variables and
+C++ classes of the default output are the same code; what differs:</p>
+<ul>
+<li>it needs <code>--library</code>: bun:ffi has no <code>RTLD_DEFAULT</code>, so a symbol's address
+is the <code>.ptr</code> of a one-symbol <code>dlopen()</code>. <code>--finalize</code> and <code>--class-types</code>
+are refused (they need <code>calloc</code>/<code>free</code> lookup and a constructor as a type).</li>
+<li>every typed pointer (<code>"struct pt *"</code>) is <code>"pointer"</code>; a function returning a
+pointer to a generated class gives an instance of that class (<code>Class.at()</code>),
+and an instance is passed back as a pointer argument as it is.</li>
+<li>a struct passed or returned by value, and a variadic function, are not in
+bun:ffi: they are skipped, with the reason in the comment at the end.</li>
+<li><code>read</code> and <code>write</code> of the module are a <code>DataView</code> over the buffer (or over
+<code>toArrayBuffer()</code> of an address), since bun has no <code>write()</code>.</li>
+</ul>
+<p><code>tests/test-gen-bindings-bun.js</code> runs the same probes through this target
+under bun and through the default one under qjsm and compares the output.</p>
+<h3 id="other-runtimes"><a class="anchor" href="#other-runtimes" aria-hidden="true">#</a>Other runtimes</h3>
+<p><code>--target</code> takes <code>qjs</code> and <code>bun</code> only. A <code>deno</code> target (<code>Deno.dlopen</code> with
+<code>parameters</code>/<code>result</code>, one <code>dlopen()</code> for all functions, <code>UnsafePointerView</code> for
+memory, by-value structs as <code>{ struct: [...] }</code>) and a <code>node</code> target (Node's
+<code>node:ffi</code>, see <a href="node-ffi.html">node:ffi</a>) are planned, not written; the design
+is in <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md#8-gen-bindings-for-bun-deno-and-node-planned" target="_blank" rel="noopener">TODO.md</a>.</p></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/gen-bindings.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#synopsis">Synopsis</a></li><li class="lvl2"><a href="#the-examples">The examples</a></li><li class="lvl2"><a href="#pipeline">Pipeline</a></li><li class="lvl3"><a href="#1-command-line">1. Command line</a></li><li class="lvl3"><a href="#2-running-clang">2. Running clang</a></li><li class="lvl3"><a href="#3-layout-probes">3. Layout probes</a></li><li class="lvl3"><a href="#4-collecting-the-ir">4. Collecting the IR</a></li><li class="lvl3"><a href="#5-merging-sources">5. Merging sources</a></li><li class="lvl3"><a href="#6-structs-by-value">6. Structs by value</a></li><li class="lvl3"><a href="#7-names">7. Names</a></li><li class="lvl3"><a href="#8-emitting-javascript">8. Emitting JavaScript</a></li><li class="lvl2"><a href="#structs-and-variables---structs">Structs and variables (--structs)</a></li><li class="lvl2"><a href="#c-classes">C++ classes</a></li><li class="lvl2"><a href="#output-options">Output options</a></li><li class="lvl2"><a href="#the-ir-on-its-own">The IR on its own</a></li><li class="lvl2"><a href="#specs-from-the-ir">Specs from the IR</a></li><li class="lvl2"><a href="#using-the-result">Using the result</a></li><li class="lvl2"><a href="#limitations">Limitations</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#synopsis">Synopsis</a></li><li class="lvl2"><a href="#the-examples">The examples</a></li><li class="lvl2"><a href="#pipeline">Pipeline</a></li><li class="lvl3"><a href="#1-command-line">1. Command line</a></li><li class="lvl3"><a href="#2-running-clang">2. Running clang</a></li><li class="lvl3"><a href="#3-layout-probes">3. Layout probes</a></li><li class="lvl3"><a href="#4-collecting-the-ir">4. Collecting the IR</a></li><li class="lvl3"><a href="#5-merging-sources">5. Merging sources</a></li><li class="lvl3"><a href="#6-structs-by-value">6. Structs by value</a></li><li class="lvl3"><a href="#7-names">7. Names</a></li><li class="lvl3"><a href="#8-emitting-javascript">8. Emitting JavaScript</a></li><li class="lvl2"><a href="#structs-and-variables---structs">Structs and variables (--structs)</a></li><li class="lvl2"><a href="#c-classes">C++ classes</a></li><li class="lvl2"><a href="#output-options">Output options</a></li><li class="lvl2"><a href="#the-ir-on-its-own">The IR on its own</a></li><li class="lvl2"><a href="#specs-from-the-ir">Specs from the IR</a></li><li class="lvl2"><a href="#using-the-result">Using the result</a></li><li class="lvl2"><a href="#limitations">Limitations</a></li><li class="lvl2"><a href="#bun">Bun</a></li><li class="lvl3"><a href="#other-runtimes">Other runtimes</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-ffi — MIT. Built from the repo's own markdown by
