@@ -43,6 +43,11 @@ the conversion is bun:ffi's:
     encode it as a buffer to pass its bytes (see [`toPointer()`](#topointer);
     only the legacy `toArrayBuffer(string, size, false)` form still reads one).
 
+A class instance (an `ArrayBuffer` subclass, see [Classes as types](struct.md))
+is a buffer, so it is accepted as any buffer is, and a pointer that C returned
+becomes an instance with `Object.setPrototypeOf(toArrayBuffer(p, 0, size),
+Class.prototype)`, which is what a function declared `returns: Class` does.
+
 ### Offsets and lengths
 
 A `byteOffset` or `byteLength` (of `ptr()`, `toPointer()`, `read`, `CString`,

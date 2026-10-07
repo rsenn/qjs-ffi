@@ -39,6 +39,14 @@ that throws, with that exception.
 of the call and freed immediately afterward; the native function must not
 retain the pointer past the call returning.
 
+## Classes
+
+A buffer class (usually extending `ArrayBuffer`) with a static `size` is a type
+too: in `args` it is a pointer to the instance's bytes, in `returns` a pointer
+that comes back as an instance, and `{ type: Class }` is a variable. It can
+also be named by a string, `"Point *"`, when the spec is given a `types`
+object. [Classes as types](struct.md) describes both and the checks made.
+
 ## Structs by value
 
 A type given as an array is a struct passed (in `args`) or returned (as

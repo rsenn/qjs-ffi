@@ -212,3 +212,17 @@ as the main program. A plain script run without `-m` already supports
 "the way to get module support", it's a different, unrelated loading
 path, and using it to run a script is a category error, not just a
 stylistic difference.
+
+## Git commits
+
+Omit the `Co-Authored-By: ...` trailer from commit messages. This overrides
+any default attribution line Claude Code would otherwise append.
+
+
+## Source layout
+
+The `diet-coding` skill's one-function-per-source-file rule does not apply
+here. A source file groups what belongs together (a class, a JS-facing
+module, a helper family), as `c-function.c`, `ffi-type.c` and
+`js-helpers.c` already do. The rest of the skill (explicit lengths, no
+stdio/printf in hot paths, measuring with `size`/`nm`) still holds.

@@ -60,6 +60,8 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--std=<std>` | the C++ standard for clang, e.g. `c++17`. |
 | `--namespace=<name>` | drop the C++ namespace prefix `name::` from the names; repeatable. |
 | `--structs` | also wrap every struct and union as an `ArrayBuffer` class, and every extern variable. |
+| `--target=<runtime>` | `qjs` (default) or `bun`: with `bun` the module imports `bun:ffi` and runs under bun, see [Bun](#bun). |
+| `--class-types` | with the classes of `--structs` or `--c++`: write the class itself as the type of a `T *` argument or return (`args: [Point]`, `returns: Point`) instead of `"Point *"`, and give each such class a static `size`. Needs a qjs-ffi that takes a constructor as a type ([classes as types](struct.md)); off by default. |
 | `--finalize` | destroy a C++ object made with `new` when it is garbage collected, too. |
 | `--ffitype` | write types as `FFIType.i32` instead of `'i32'`. |
 | `--describe` | give each function its parameter names, and describe its C types for `describeObject()`. |
@@ -284,13 +286,13 @@ qjs-ffi-genbindings --emit-ir=geom.ir.json geom.h
 A function becomes an entry of `methods`, its C types mapped to `ffi` type
 names:
 
-```json
-{ "name": "geom_abs", "kind": "function",
-  "args": ["v: i32"], "returns": "i32", "enums": [] }
-{ "name": "geom_move", "kind": "function",
-  "args": ["s: shape *", "dx: f64", "dy: f64"], "returns": "i32", "enums": ["0:0x5e1031dee5d0"], ... }
-{ "name": "geom_find", "kind": "function",
-  "args": ["name: cstring"], "returns": "shape *", ... }
+```js
+{ name: 'geom_abs', kind: 'function',
+  args: ['v: i32'], returns: 'i32', enums: [] }
+{ name: 'geom_move', kind: 'function',
+  args: ['s: shape *', 'dx: f64', 'dy: f64'], returns: 'i32', enums: ['0:0x5e1031dee5d0'], ... }
+{ name: 'geom_find', kind: 'function',
+  args: ['name: cstring'], returns: 'shape *', ... }
 ```
 
 `types.js` does the mapping, one C type at a time (`typedef`s are resolved
@@ -324,40 +326,47 @@ Everything else the IR holds:
     offset and size of its storage unit. The numbers come from the
     [probes](#3-layout-probes), or else from the type alone.
 
-    ```json
-    { "name": "shape", "type": "struct", "size": 32, "align": 8, "line": 12,
-      "fields": [
-        { "name": "id", "type": "int", "offset": 0, "size": 4, "ffi": "i32" },
-        { "name": "name", "type": "const char *", "offset": 8, "size": 8, "ffi": "cstring" },
-        { "name": "origin", "type": "vec2", "offset": 16, "size": 8, "ffi": "vec2" },
-        { "name": "visible", "type": "unsigned int", "offset": 24, "size": 4, "bits": 1, "bitOffset": 0, "ffi": "u32" } ],
-      "typedefs": ["shape"] }
+    ```js
+    { name: 'shape', type: 'struct', size: 32, align: 8, line: 12,
+      fields: [
+        { name: 'id', type: 'int', offset: 0, size: 4, ffi: 'i32' },
+        { name: 'name', type: 'const char *', offset: 8, size: 8, ffi: 'cstring' },
+        { name: 'origin', type: 'vec2', offset: 16, size: 8, ffi: 'vec2' },
+        { name: 'visible', type: 'unsigned int', offset: 24, size: 4, bits: 1, bitOffset: 0, ffi: 'u32' } ],
+      typedefs: ['shape'] }
     ```
 
 *   **`typedefs`**: every `typedef` and `using` alias, with the type it stands
-    for and the record it names.
-*   **`skipped`**: what could not be bound and why. Operators and C++ variadic
-    functions are skipped here, an unknown type or a union by value by the
-    mapping (a variadic *C* function is bound, with `"variadic": true`):
+    for and the record it names. One declared inside a namespace or class is
+    known by its qualified name and by the bare one clang spells where it is in
+    scope (`stk::StkFloat` and `StkFloat`), so a method returning it binds.
+*   **`warnings`**: bound, but with a caveat: `{ name, reason }` for a virtual
+    method of a class that is not `final` and got no vtable slot, so it is bound
+    to its own symbol and a call through a base class wrapper is not virtual.
+    They are written as `// Warnings:` at the end of the module and counted on
+    stderr. An IR file from before this key has none.
+*   **`skipped`**: what could not be bound and why. Operators are skipped
+    here, an unknown type or a union by value by the mapping (a variadic
+    function, C or C++, is bound, with `variadic: true`):
 
-    ```json
-    [{ "name": "geom_ops", "reason": "operators are not supported" }]
+    ```js
+    ir.skipped = [{ name: 'geom_ops', reason: 'operators are not supported' }];
     ```
 
 A C++ class is the same, plus its bases, its public constructors, methods and
 destructor with their `mangledName` (what to `dlsym()`), and for each virtual
 method and the destructor its `vtableSlot`:
 
-```json
-{ "name": "geo::Shape", "type": "class", "size": 24, "align": 8, "abstract": true, "polymorphic": true,
-  "bases": [], "constructors": [],
-  "fields": [{ "name": "id", "type": "int", "offset": 8, "size": 4, "ffi": "i32" }],
-  "methods": [
-    { "name": "area", "mangledName": "_ZNK3geo5Shape4areaEv", "virtual": true, "pure": true, "const": true,
-      "args": [], "returns": "f64", "vtableSlot": 2 },
-    { "name": "setScale", "mangledName": "_ZN3geo5Shape8setScaleEd", "args": ["s: f64"], "returns": "void" },
-    { "name": "count", "mangledName": "_ZN3geo5Shape5countEv", "static": true, "args": [], "returns": "i32", ... } ],
-  "destructor": { "mangledName": "_ZN3geo5ShapeD1Ev", "virtual": true, "vtableSlot": 0 } }
+```js
+{ name: 'geo::Shape', type: 'class', size: 24, align: 8, abstract: true, polymorphic: true,
+  bases: [], constructors: [],
+  fields: [{ name: 'id', type: 'int', offset: 8, size: 4, ffi: 'i32' }],
+  methods: [
+    { name: 'area', mangledName: '_ZNK3geo5Shape4areaEv', virtual: true, pure: true, const: true,
+      args: [], returns: 'f64', vtableSlot: 2 },
+    { name: 'setScale', mangledName: '_ZN3geo5Shape8setScaleEd', args: ['s: f64'], returns: 'void' },
+    { name: 'count', mangledName: '_ZN3geo5Shape5countEv', static: true, args: [], returns: 'i32', ... } ],
+  destructor: { mangledName: '_ZN3geo5ShapeD1Ev', virtual: true, vtableSlot: 0 } }
 ```
 
 Overloads are separate entries. A constructor carries the mangled name of the
@@ -384,8 +393,8 @@ the list out the way libffi does and compares it with the IR: every member must
 land on the offset the IR has, and the size must match. If it does, the list
 goes into `ir.byValue`:
 
-```json
-"byValue": { "vec2": ["f32", "f32"] }
+```js
+ir.byValue = { vec2: ['f32', 'f32'] };
 ```
 
 and the function's types become `struct vec2`. If not, the function is skipped
@@ -485,7 +494,10 @@ export const geom_log = CFunction({ptr:__sym('geom_log'),args:['cstring'],return
 
 A variadic C function such as `geom_log` is bound with `variadic: true` and its
 fixed arguments, and called with `(type, value)` pairs for the rest, see
-[Variadic functions](c-function.md#variadic-functions).
+[Variadic functions](c-function.md#variadic-functions). A variadic C++
+function or method is bound the same way; among a class's overloads it takes
+any call with at least its fixed arguments, so `acc.add(2, "i32", 1, "i32", 2)`
+and `acc.add("label")` pick different ones (`tests/test-gen-bindings-variadic.js`).
 
 | C | JavaScript |
 | - | ---------- |
@@ -763,7 +775,7 @@ qjs-ffi-genbindings --from-ir=api.json --library=libgeom.so \
 (`export default { ... };`).
 
 `--from-ir` takes no sources and takes the options of the emitting phase
-(`--api`, `--structs`, `--describe`, `--namespace`, ...) as before. The IR can
+(`--structs`, `--describe`, `--target`, `--namespace`, ...) as before. The IR can
 be edited or checked in between, and a binding can be regenerated on a machine
 without clang.
 
@@ -861,13 +873,14 @@ import specs from './geom.specs.js';
 const lib = dlopen(specs.library, specs.symbols);
 ```
 
-The file is `{ library, symbols, constants, omitted }`:
+The file is `{ library, symbols, constants, types, omitted }`:
 
 | Key | Holds |
 | --- | --- |
 | `library` | the `--library` path, else `null` |
 | `symbols` | `{ name: spec }`: `{ args, returns }` for a function, `{ type, readonly? }` for a variable |
 | `constants` | the values of constants that have no symbol (`static const int N = 5`), to be JS constants |
+| `types` | the names of the structs and unions that have a size: pass the classes of those names as `dlopen(specs.library, specs.symbols, { pt })` and a `"struct pt *"` in `symbols` is a pointer typed by the class `pt` ([naming a class](struct.md#naming-a-class-types)) |
 | `omitted` | `{ name, reason }` for everything that has no spec |
 
 From the IR entry to the spec:
@@ -882,8 +895,7 @@ From the IR entry to the spec:
 
 Left out, with the reason in `omitted`:
 
-*   what the IR already `skipped` (C++ variadic functions, unions and unplaceable
-    structs by value);
+*   what the IR already `skipped` (unions and unplaceable structs by value);
 *   C++ functions (the symbol is mangled) and classes (`this`, virtual dispatch
     and constructors are not part of a spec: use the generated classes);
 *   an array of more than 2^20 elements or of unknown size (`int tail[]`);
@@ -909,8 +921,8 @@ Enums, typedefs and structs are not part of the specs.
 
 ## Limitations
 
-*   Operators, C++ variadic functions and arrays by value are skipped, as are
-    unions and (for C++) classes by value.
+*   Operators and arrays by value are skipped, as are unions and (for C++)
+    classes by value.
 *   A struct by value needs a layout libffi can reproduce: not a packed struct.
 *   Preprocessor macros are not bound (they are not in the AST), only enums and
     `const` variables with a literal value.
@@ -918,3 +930,37 @@ Enums, typedefs and structs are not part of the specs.
     against `nm -D` of a compiled fixture and runs the module,
     `test-gen-bindings-virtual.js` and `-finalize.js` the vtable and finalizer
     paths, `test-gen-structs.js` and `test-struct-by-value.js` the structs.
+
+## Bun
+
+`--target=bun` writes a module for bun's `bun:ffi` instead of this one's `ffi`:
+
+```sh
+qjs-ffi-genbindings --target=bun --library=./libgeom.so --structs -o geom.mjs geom.h
+bun run-it.mjs   # import * as geom from "./geom.mjs"
+```
+
+The functions, enums, constants, `--structs` classes, extern variables and
+C++ classes of the default output are the same code; what differs:
+
+*   it needs `--library`: bun:ffi has no `RTLD_DEFAULT`, so a symbol's address
+    is the `.ptr` of a one-symbol `dlopen()`. `--finalize` and `--class-types`
+    are refused (they need `calloc`/`free` lookup and a constructor as a type).
+*   every typed pointer (`"struct pt *"`) is `"pointer"`; a function returning a
+    pointer to a generated class gives an instance of that class (`Class.at()`),
+    and an instance is passed back as a pointer argument as it is.
+*   a struct passed or returned by value, and a variadic function, are not in
+    bun:ffi: they are skipped, with the reason in the comment at the end.
+*   `read` and `write` of the module are a `DataView` over the buffer (or over
+    `toArrayBuffer()` of an address), since bun has no `write()`.
+
+`tests/test-gen-bindings-bun.js` runs the same probes through this target
+under bun and through the default one under qjsm and compares the output.
+
+### Other runtimes
+
+`--target` takes `qjs` and `bun` only. A `deno` target (`Deno.dlopen` with
+`parameters`/`result`, one `dlopen()` for all functions, `UnsafePointerView` for
+memory, by-value structs as `{ struct: [...] }`) and a `node` target (Node's
+`node:ffi`, see [node:ffi](node-ffi.md)) are planned, not written; the design
+is in [TODO.md](../TODO.md#8-gen-bindings-for-bun-deno-and-node-planned).

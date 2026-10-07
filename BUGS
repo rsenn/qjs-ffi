@@ -40,3 +40,7 @@
 
     const { inspect } = await import('inspect');
     console.log(inspect({ a: [], b: {} }, { colors: false }));
+
+- gen-class-static-size-clobbered (tools/gen-bindings/emit/structs.js:layoutCode): every generated class gets the assignment Name.size = N for its byte size, which replaces a C++ static member function or a static field named size; found writing --class-types, where the size is also the type protocol. not run, seen by reading the generated code.
+
+    // struct s { static int size(); };  -> s.size = 8; overwrites s.size()

@@ -10,7 +10,10 @@
 *   hand JavaScript functions back to C as function pointers (`JSCallback`),
 *   read and write native memory (`ptr()`, `read`, `toArrayBuffer()`, `CString`),
 *   compile and run C code in memory (`cc()`, optional, uses TinyCC),
-*   generate bindings from C and C++ headers (`tools/gen-bindings.js`).
+*   use a buffer class (usually extending `ArrayBuffer`) as the type of an argument, a return
+    or a variable (`args: [Point]`, or `"Point *"` with a `types` object),
+*   generate bindings from C and C++ headers (`tools/gen-bindings.js`), for this
+    module or for bun:ffi (`--target=bun`).
 
 The API follows [bun:ffi](https://bun.com/docs/runtime/ffi): `dlopen()` with a
 symbol table returns directly callable functions, and there is no name lookup at
@@ -142,11 +145,10 @@ uncaught errors in module mode.
 
 ## Limitations
 
-*   No varargs.
 *   A struct passed or returned by value needs its member types spelled out (no
     unions, no C++ classes, not in a `JSCallback`).
 *   Little-endian targets only.
-*   C structures are accessed through [`FFIStruct`](doc/struct.md), generated
+*   C structures are accessed through [classes as types](doc/struct.md), generated
     classes (see [doc/gen-bindings.md](doc/gen-bindings.md)), or with `read` and
     `toArrayBuffer()`.
 *   The [legacy API](doc/legacy.md) returns every result as a `double`.

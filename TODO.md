@@ -20,8 +20,9 @@
 - Return values are always coerced into a single `double` (`call_function`,
   `ffi.c:456-484`) — real 64-bit ints/pointers above 2^53 are not
   representable.
-- No varargs, no arrays. Documented as YAGNI in the existing README
-  `TODO`/`Limitations` sections.
+- No arrays. Documented as YAGNI in the existing README
+  `TODO`/`Limitations` sections. (Varargs were listed here too and are
+  supported now: `variadic: true`, see doc/c-function.md.)
 - Assumes little-endian.
 - `dlopen`/`dlsym`/`dlclose`/`dlerror`/`errno` are thin 1:1 libdl/libc wrappers
   — these map cleanly onto bun:ffi's internal use of dlopen and don't need to
@@ -123,6 +124,11 @@ Probed against this module (built with `ENABLE_TCC=ON`). Phases 1-5 above and
 `cc()` ([`doc/c-compiler.md`](doc/c-compiler.md)) are done; this is what is left.
 Ordered roughly by how likely bun code is to trip over it.
 
+Re-run 2026-10-07 against bun 1.4.2 with the build that has `K_STRUCT_PTR`, the
+`types` argument and `gc_mark`: all 77 cases of `tests/bun-diff/probe.mjs` still
+give what bun gives (`diff` of the two outputs is empty); the new class types
+are not in the probe, as bun has none.
+
 ### 5.1 Missing
 
 1. `JSCallback` option `threadsafe`: accepted and ignored (the `.threadsafe`
@@ -161,149 +167,317 @@ Order of work: 5.1.2 (`viewSource`, postponed), and 5.1.1 (`threadsafe`) last.
 
 ---
 
-## 6. FFIStruct: structs, unions and classes as ArrayBuffers
+## 6. Classes that inherit from ArrayBuffer, as types in specs
 
-API: [`doc/struct.md`](doc/struct.md), written first; this is how to build it.
+Supersedes the `FFIStruct`/`CStruct` runtime plan: there is no runtime
+struct engine, no layout code and no native accessors. `gen-bindings`
+emits a plain JS class per C struct, union or C++ class; the FFI only
+learns that such a constructor is a type.
 
-### Design
+### The generated class
 
-An instance is a **real `ArrayBuffer`** (`JS_CLASS_ARRAY_BUFFER`) made by
-`JS_NewArrayBuffer(ctx, base, size, free_fn, opaque, FALSE)` and given a
-per-type prototype with `JS_SetPrototype()`:
-
+```js
+class Point extends ArrayBuffer {
+  static size = 16;                      // sizeof, from clang at generation
+  constructor(init) { super(Point.size); if(init) Object.assign(this, init); }
+  static at(ptr) {                       // a view over C memory, not owned
+    return Object.setPrototypeOf(toArrayBuffer(ptr, 0, Point.size), Point.prototype);
+  }
+  get x() { return read.f64(this, 0); }  set x(v) { write.f64(this, 0, v); }
+  get y() { return read.f64(this, 8); }  set y(v) { write.f64(this, 8, v); }
+  len() { return symbols.Point_len(this); }  // the generator wires methods
+}
+class Dog extends Animal { /* C++ single inheritance is JS extends */ }
 ```
-instance -> Type.prototype -> FFIStruct.prototype -> ArrayBuffer.prototype
+
+*   `static size` is required where the class is used in `returns` or
+    `{ type: C }`; offsets and `size` come from clang, so no layout is
+    computed at runtime. A union is a class whose accessors share offset 0.
+*   Methods, constructors/destructors and virtual calls are generated JS
+    (calling `symbols.*`); nothing is attached by `dlopen()`.
+*   Instances are real `ArrayBuffer`s, so `read`, `write`, `ptr()`, typed
+    arrays, `DataView` and `"pointer"` arguments take them unchanged.
+
+### In a spec
+
+```js
+dlopen("libgeom.so", {
+  Point_len: { args: [Point], returns: "f64" },
+  Point_new: { args: ["f64", "f64"], returns: Point },
+  origin:    { type: Point },            // a global `Point origin;`
+});
 ```
 
-*   `JS_GetArrayBuffer()` yields the base pointer, so `read`, `write`,
-    `js_buffer_get`, `CFunction` buffer arguments, typed arrays and `DataView`
-    work with no change. The inherited `byteLength`, `slice` and the rest are
-    correct.
-*   No native state per instance. Each field accessor is a
-    `JS_NewCFunctionData` closure holding its `FieldDesc`; it fetches the base
-    with `JS_GetArrayBuffer(this)`, so a detached buffer throws on its own.
-*   An exotic class was rejected: `JS_GetOpaque2(this, JS_CLASS_ARRAY_BUFFER)`
-    checks the object's own class, so a class that only inherits from
-    `ArrayBuffer.prototype` throws in every inherited method.
+| Where | Rule |
+| ----- | ---- |
+| a type | a function `C` with a static integer `size` whose instances are buffers: `prototype` inherits from `ArrayBuffer.prototype`, or (loose form) is any object, built with `Reflect.construct(ArrayBuffer, ...)`; `C !== ArrayBuffer`; new kind `K_STRUCT_PTR` carries `C` |
+| `args: [C]` | the pointer to the bytes (`JS_GetArrayBuffer`). Accepted: an instance of `C` or of a subclass (`Dog` for `Animal`, single inheritance at offset 0); `null` as NULL; a plain `ArrayBuffer`/view of at least `C.size` bytes (shorter: `RangeError`). An instance of an unrelated class: `TypeError` naming both |
+| `returns: C` | `null` for NULL, else a new **non-owning** `ArrayBuffer` over the pointer (`JS_NewArrayBuffer(ctx, p, C.size, NULL, NULL, FALSE)`) with `JS_SetPrototype(ctx, ab, C.prototype)`; the constructor is not run |
+| `{ type: C }` | the variable's own memory as a `C` instance, where it was a plain `ArrayBuffer` |
+| `"pointer"`, `"T *"` | unchanged: untyped, take any instance |
 
-Trade-offs taken, and why each is acceptable:
+*   The argument check is `JS_IsInstanceOf(arg, C)`: no registry, no layout
+    comparison. `C.size` missing or not a non-negative integer is a
+    `TypeError` when the spec is parsed (`returns`, `{ type }`), and at the
+    first call for a `args` buffer check.
+*   Passing a struct by value stays the array form (`["f32", "f32"]`).
+*   A function-pointer or embedded-struct field is generated JS too
+    (`C2.at(ptr + offset)`, `ptr(read.ptr(...))`); a keep-alive reference
+    from a view to its parent is a plain property the generator sets.
 
-| Cost | Handling |
-| ---- | -------- |
-| fields are prototype accessors, not own properties | `toJSON()`, an inspect hook, `Type.fields` |
-| `p.typo = 1` makes a property | `JS_PreventExtensions()` on every instance |
-| no per-instance slot (the ArrayBuffer opaque is QuickJS's) | the two things that need one, the keep-alive reference of a view and the function-pointer cache, go in a symbol-keyed hidden property |
-| `count` of structs cannot be indexed natively | a frozen `Array` of views |
-| `transfer()`/`resize()` | `transfer()` copies (the memory is not ours to move), `resize()` throws |
+### Naming the class: `types` (done)
+
+A spec may say `"Point *"` and be given the classes in an object, so a table
+of specs stays plain data (the generator's `--emit-specs` JSON): `dlopen(path,
+symbols, { Point })`, `linkSymbols(symbols, { Point })`, `cc({ ..., types })`,
+or a `types` property on one spec. `ffi_class_lookup()` (`ffi-type.c`) strips
+`const`/`volatile`/`struct`/`union`/`class`, needs exactly one `*` (none for a
+variable's `type`), tries the whole name then its last `::` segment, and the
+spec's own `types` before the table's. `"Point **"`, a missing name and a
+variable of type `"Point *"` stay plain pointers. Documented in
+`doc/struct.md#naming-a-class-types`, tested in `tests/test-struct-types.js`.
+Left: `--emit-specs` writes `"struct pt *"` already, so it needs only the
+object at the call site; a `--class-names` list in its output would say which
+names to pass.
+
+### Array types in specs: `"Point []"`, `"Point *[]"` (BLOCKED, do not implement)
+
+Status: **blocked**. Reasons: *needs further consideration* (ownership,
+copy-back and length rules are policy, not mechanics) and *is totally
+non-standard* (no counterpart in bun:ffi, Deno or Node's `node:ffi`; every
+other runtime would need the generator to rewrite the type). Nothing of this
+exists in the code; this is only the idea, kept so it is not rediscovered.
+
+*   `"Point []"` as an argument: C's array parameter (a decayed `Point *`) to
+    contiguous `Point`s: an `ArrayBuffer`/view whose length is a multiple of
+    `C.size` (else `RangeError`), or an array of instances copied into a
+    temporary buffer and copied back after the call.
+*   `"Point *[]"`: an array of instances or `null`, copied into a temporary
+    `void *` array with one extra trailing NULL slot; no copy back.
+*   `"Point [3]"`, `"Point *[3]"`: the same with a fixed count; as a return, a
+    JS `Array` of 3 views. A return without a literal count is a `TypeError`.
+*   Not the same as `{ array: T, length: N }`, which is a by-value array inside
+    a struct; the string forms would mean the decayed pointer.
+*   Under `--target=bun`/`deno` they would map to `"pointer"`.
+*   Until then: `Point **` and arrays of pointers are untyped pointers, and the
+    generator's pointer-array members already read as a proxy of
+    `Point.at(p)`/`null` (`__ptrArray`); a `(array, n)` helper in the generator
+    is the other open idea, also not started.
 
 ### Files
 
-| File | Holds |
-| ---- | ----- |
-| `ffi-struct.h` / `ffi-struct.c` | `js_ffistruct_init()`, the `FFIStruct` factory, the constructor statics, `Type.at()`, the prototype builder. One header block per JS-facing function, as in the other `.h` files |
-| `ffi-struct-layout.c` | `StructType`, `ffi_struct_layout()`: offsets, size, align, validation. No JS beyond reading the spec; testable alone |
-| `ffi-struct-field.c` | the accessors: `field_get()`/`field_set()` per kind, the numeric-array to typed-array map, `toJSON`, `set` |
-| `ffi.c` | `FFIStruct` in `js_funcs`; `js_ffistruct_init()` from the module init |
-| `c-function.c` | `dlopen`/`linkSymbols` learn a constructor as a type and attach methods; `js_variable_define()` returns an instance for `{ type: Point }` |
-| `ffi-type.c` | `ffi_resolve_scalar()` and `ffi_sig_parse()` accept a constructor: a new kind `K_STRUCT_PTR` |
-| `compiler.c` | `cc()` attaches methods the same way as `dlopen()` |
-| `CMakeLists.txt` | the new sources into the `quickjs-ffi` MODULE |
-
-### Data
-
-```c
-typedef struct FieldDesc {
-  JSAtom name;
-  uint32_t offset;
-  uint32_t count;          /* 0: a scalar, not an array */
-  int kind;                /* K_* from ffi-type.h, or K_STRUCT, K_FUNCTION */
-  struct StructType* sub;  /* K_STRUCT: the embedded type */
-  FFISignature sig;        /* K_FUNCTION */
-  uint8_t self;            /* K_FUNCTION: instance goes first */
-} FieldDesc;
-
-typedef struct StructType {
-  int refcount;            /* shared by the prototype and the accessors */
-  uint32_t size, align;
-  int is_union;
-  uint32_t nfields;
-  FieldDesc* fields;
-  JSValue proto;           /* Type.prototype */
-} StructType;
-```
-
-Accessors get the `StructType` through the closure's data slot (a `JSValue`
-holding a small opaque object whose finalizer drops the refcount); no global
-registry.
+| File | Change |
+| ---- | ------ |
+| `ffi-type.h/.c` | `K_STRUCT_PTR`; `ffi_resolve_scalar()`/`ffi_sig_parse()` accept the constructor; `FFISignature` holds one `JSValue` per such argument and `ffi_sig_free()` releases them |
+| `c-function.c` | the marshaller: argument check and pointer, the `returns` wrap, `js_variable_define()` for `{ type: C }`; the owning `CFunction` gets a `gc_mark` for the held constructors (check whether it has one) |
+| `js-callback.c` | the same kind in `args`/`returns` of a callback (a C callback receiving a `Point *`) |
+| `gen-bindings` | emits the classes and uses them in the specs it writes; replaces its current struct classes |
+| `doc/struct.md` | rewritten as "classes as types" (generated class shape, the table above); `README.md`, `doc/README.md`, `doc/ffi.md` rename the `FFIStruct` references |
 
 ### Phases
 
-Each phase ends with a suite in `tests/` and its part of `doc/struct.md`
-being true.
+Status: 1-4 done (`tests/test-struct-types.js`, 11 tests; `K_STRUCT_PTR` in
+`ffi-type.c`, `js_struct_arg()`/`js_struct_view()`/`js_is_buffer_class()` in
+`js-helpers.c`, the marshaller in `c-function.c` and `js-callback.c`, a
+`gc_mark` on `CFunction` and `FFIVariable` for the held classes).
 
-1. **Layout** (`ffi-struct-layout.c`) → verify: `Type.size`, `Type.align` and
-   every `offsetof(name)` equal the C compiler's for a header of cases
-   (padding, a `u8` before a `u64`, a union, explicit `offset`, `size` larger,
-   a `count`), built with `cc()`.
-2. **Scalars** → `FFIStruct()`, `new`, `Type.at(ptr)`, field get/set for
-   every scalar kind, `toJSON`, `set`, `p.type`, the non-extensible check,
-   `instanceof ArrayBuffer`, `byteLength`, `new Uint8Array(p)`.
-   → `tests/test-struct.js`
-3. **Nested and arrays** → typed array per numeric `count`, an embedded view
-   that keeps its parent alive (drop the parent, `gc`, read the child),
-   `Array` of views, `Type.at(ptr, n)`.
-4. **Methods** → `methods:` option; `dlopen()`/`linkSymbols()`/`cc()` attach a
-   function whose first argument is a constructor, with the `<Name>_` rule,
-   `method: name | false`, and the clash `TypeError`; a small library built
-   with `cc()` in the test.
-5. **Function pointers** → `type: "function"`, `self`, `native`; assign number,
-   `CFunction`, `JSCallback`, `null`; a plain function is a `TypeError`
-   (the struct never creates a `JSCallback`, so it never closes one); the
-   rebuilt-on-change rule. Reading unwraps an open callback: add
-   `js_callback_find(ctx, code)` to `js-callback.h/.c` (scan of
-   `callback_list` by `code`, same runtime), return `cl->func`, or for `self` a
-   wrapper passing `ptr(this)` first; no unwrap when the parameter count
-   differs from the field's. → verify: `ops.add === fn` after
-   `ops.add = cb`; after `cb.close()` it reads a `CFunction`; `native: true`
-   gives the `CFunction`; an exception in an unwrapped call throws at once.
-6. **Signatures and variables** → a constructor in `args`, `returns` and
-   `{ type: Point }`; NULL in and out; a buffer shorter than the type is a
-   `RangeError`. The argument check: `K_STRUCT_PTR` carries its `StructType`;
-   the marshaller in `c-function.c` takes an instance only when its
-   prototype's `StructType` is that one (compare the pointer, no layout
-   comparison), else a `TypeError` naming both types; `"pointer"` and
-   `"T *"` keep today's untyped path. Methods run the same check on `this`.
-   → verify: `Glob` into a `Stat` argument throws, into `"pointer"` passes,
-   `Stat.at(glob)` passes; same for `Point.prototype.len.call(stat)`.
-7. **Docs/examples** → `doc/struct.md` re-read against the tests; switch one
-   example in `examples/` from generated classes to `FFIStruct`.
+1. **Recognition** (done) -> `K_STRUCT_PTR` in `ffi_sig_parse()`; a
+   non-class function stays an unknown-type `TypeError`; a missing
+   `C.size` is a `TypeError` at parse time for args and returns alike.
+2. **Arguments** (done) -> instance, subclass, unrelated class, plain buffer
+   long and short, view, `null`.
+3. **Returns and variables** (done) -> NULL, a view that sees C's writes,
+   `instanceof C`, a global of class type; `gc()` after dropping classes.
+4. **Callbacks** (done) -> a `JSCallback` with a `C` argument and return.
+5. **gen-bindings** (generator side done, see its note below) -> classes with
+   `--structs`/`--c++`, `--class-types` writes them as types
+   (`tests/test-gen-bindings-classtypes.js`, which also loads a generated
+   module and calls through it). Left: `--emit-specs` still writes `"T *"`
+   (JSON holds no constructor); make `--class-types` the default; regenerate
+   `zlib.js` or `freetype.js` and compare size and speed with today's
+   output; stop here if it is not at least as good.
+6. **Docs/examples** -> `doc/struct.md` rewritten (done); left: switch one
+   example in `examples/` to the new classes.
+7. **Other runtimes** -> `gen-bindings.js --target=bun|deno|node`: bun:ffi
+   and Deno.dlopen have no constructor-as-type, so those targets keep the
+   string types (`"pointer"`) and the generated classes take the
+   `ArrayBuffer` through `ptr()`; node emits `node:ffi` calls (doc/node-ffi.md), testable under qjsm with
+   `-I ffi-hooks.js`. Plan in section 8.
 
-### Open points to settle while building
+### Open points
 
-1.  `JS_SetPrototype()` on a fresh ArrayBuffer, then `JS_PreventExtensions()`:
-    confirm in this fork's `quickjs.c` that neither is refused for the
-    ArrayBuffer class.
-2.  Cost of an embedded view: one `JS_NewArrayBuffer` + `JS_SetPrototype` per
-    read. If it shows in a profile, cache the child in the hidden property,
-    keyed by the field and the parent's base pointer.
-3.  The hidden property holds `{ parent, fnCache }` (nothing owned: no
-    callback is created by the struct); check that
-    `structuredClone` does not copy it (it would be a dangling alias).
-4.  Methods attached by `dlopen()` mutate the shared prototype. The doc
-    allows adding one after instances exist; keep that unless a test shows a
-    problem.
-5.  C++: `this` adjustment for a base-class subobject (multiple inheritance) is
-    not covered, the same gap as "C++ gaps" in section 4. Virtual calls are
-    `self: true` function-pointer fields until
+1.  `JS_SetPrototype()` on a fresh `ArrayBuffer` and `JS_NewArrayBuffer()`
+    with a NULL free function: confirm in this fork's `quickjs.c` that
+    neither is refused for the ArrayBuffer class.
+2.  `structuredClone` of such an instance copies the bytes into a plain
+    `ArrayBuffer` (the prototype is lost): acceptable, document it.
+3.  A subclass passed where a base is declared assumes the base at offset 0;
+    multiple inheritance (`this` adjustment) is not covered, the same gap as
+    "C++ gaps" in section 4. Virtual calls stay generated JS until
     [`internals/cxx-virtual-dispatch.md`](doc/internals/cxx-virtual-dispatch.md)
-    lands; `gen-bindings` could then emit `FFIStruct` specs instead of classes.
-6.  Auto-creating a `JSCallback` for `ops.add = function(){}` is postponed.
-    Owning it by the slot (closed on overwrite, and on collection of an
-    instance that owns its memory) is the likely policy, but a callback the C
-    side copied elsewhere would dangle; it needs a `keep: true` field option
-    for that case. `js_callback_find()` exists by then, so the read side
-    already round-trips.
-7.  `js_callback_find()` scans a list per read; make it a hash if a
-    function-pointer field in a hot loop shows in a profile.
-8.  Bit-fields: not supported; a spec option `bits: [lo, hi]` on an integer
-    field is the likely extension.
+    lands.
+4.  Demangling C++ symbols (to name methods from `_ZN3Dog5speakEv`) is an
+    option, not planned in C: `gen-bindings` can run `c++filt` at generation
+    time, or a `demangle()` export could `dlsym(RTLD_DEFAULT,
+    "__cxa_demangle")` at runtime (libstdc++/libc++abi, no `-lstdc++` link).
+5.  Bit-fields: not supported; the generator emits shift/mask accessors.
+
+## 7. Constants in symbol specs (replaces the CEnum idea)
+
+There is no `CEnum`, no `c-enum.[ch]`. A constant is one more kind of entry
+in the table `dlopen()`, `linkSymbols()` and `cc()` already take, next to
+functions and variables. It has no symbol in the library (a `#define`, an
+`enum`), so nothing is `dlsym()`ed for it.
+
+### Spec format
+
+```js
+const { symbols } = dlopen("libfoo.so", {
+  foo_len: { args: ["cstring"], returns: "u64" },   // function (as now)
+  counter: { type: "i32" },                         // variable (as now)
+
+  FOO_MAX: { value: 4096 },                         // constant: a number
+  FOO_NAME: { value: "foo" },                       // a string
+  FOO_MASK: { value: 0xffffffffffffffffn, type: "u64" },
+  FOO_RATIO: { value: 0.5, type: "f32" },           // checked, then stored
+
+  Color: { enum: { RED: 0, GREEN: 1, BLUE: 4 }, type: "u32" },
+  Flags: { enum: { A: 1, B: 2, C: 4 }, type: "u8", flags: true },
+});
+
+symbols.FOO_MAX;      // 4096, a plain frozen data property
+symbols.Color.BLUE;   // 4
+symbols.Color[4];     // "BLUE" (reverse map, non-enumerable)
+```
+
+| Key | Meaning |
+| --- | ------- |
+| `value` | marks a constant; a number, bigint, string or boolean, stored as is |
+| `type` | optional; a scalar type the value must fit (`300` into `u8` is a `RangeError`); a bigint where the type is 64-bit; no `type` keeps the JS value untouched |
+| `enum` | marks an enum: `{ NAME: value }`, values are numbers or bigints; `value` and `enum` together are a `TypeError` |
+| `flags` | enum only; `true` requires disjoint bits (or 0), else `RangeError` |
+
+*   The discriminator is the key, checked in this order: `args`/`returns`
+    (function), `value` or `enum` (constant), `type` (variable). A mix such
+    as `{ value, args }` or `{ value, address }` is a `TypeError`.
+*   A constant is an enumerable, read-only, non-configurable data property of
+    `symbols`, never a getter: reading costs nothing and it survives
+    `close()`.
+*   An enum is a frozen plain object, names enumerable (so
+    `Object.keys(symbols.Color)` is `["RED","GREEN","BLUE"]`), the reverse
+    entries not. Two names with one value are aliases; the reverse map keeps
+    the first. `type` defaults to `i32`.
+*   Constants need no library: they work in `linkSymbols()` and `cc()`
+    unchanged, and `dlopen(null, { ... })` with only constants is valid.
+*   `gen-bindings` emits these entries for `#define` and `enum` instead of
+    the loose constants it writes now.
+
+### Where in the code
+
+| File | Change |
+| ---- | ------ |
+| `c-function.c` | `js_constant_define()` beside `js_variable_define()` (c-function.c:476); the table loop of `dlopen`/`linkSymbols` picks function, constant or variable by the order above and skips `dlsym` for a constant |
+| `compiler.c` | `cc()` takes the same table, nothing to resolve |
+| `ffi-type.c` | reuse `ffi_resolve_scalar()` for `type`; a range check helper next to it |
+| `doc/dlopen.md` | a "Constants" section after "Variables" |
+
+### Phases
+
+1. **Numbers and strings** -> `value` with and without `type`, range errors,
+   frozen property, works with `dlopen(null, ...)`.
+2. **Enums** -> `enum`, reverse map, aliases, `flags`, `Object.keys`.
+3. **Struct fields** -> a field `{ type: "u32", enum: symbols.Color }` reads
+   the number and writes a number or a name (generated classes, see
+   section 6); `toJSON` and inspect show the name via the reverse map.
+4. **gen-bindings** -> emit the entries.
+   Tests: `tests/test-constants.js` (tinytest), added to `tests/run-all.sh`.
+
+### Open points
+
+1.  `i32` vs `u32` default for an enum without `type`: gcc picks unsigned
+    when no value is negative; `i32` is kept as the portable default.
+2.  Constants in `symbols` or in a separate `constants` result key: `symbols`
+    is proposed (variables already live there, one lookup place), at the
+    cost of `symbols` no longer being only callable things.
+3.  A name written for an enum parameter (`f("RED")`): not in this step.
+
+## 8. gen-bindings for Bun, Deno and Node (planned)
+
+`gen-bindings.js --target=qjs|bun|deno|node` (default `qjs`, today's output).
+
+*   **bun** (done: `--target=bun`, `tests/test-gen-bindings-bun.js` compares it
+    with qjsm under the installed bun 1.4.2; C structs, variables, C++ classes
+    work; by-value structs and variadics are skipped): `import { dlopen, FFIType, ptr, read, toArrayBuffer } from
+    "bun:ffi"`; the same specs (`{ args, returns }`), classes as today, a
+    class argument is passed as `ptr(instance)` (bun has no class types), a
+    class return is `Class.at(ptr)`. No `--class-types`.
+*   **deno** (planned, not started; probed with deno 2.9.7, no
+    `--unstable-ffi` needed, `--allow-ffi` is):
+    *   *Spec*: `Deno.dlopen(path, { name: { parameters, result } })` returns
+        `{ symbols, close }`; `args` -> `parameters`, `returns` -> `result`.
+        Types: `i8..i32, u8..u32, i64, u64, f32, f64, bool, void, pointer,
+        function` as they are; `cstring` -> `"buffer"` (a NUL-terminated
+        `Uint8Array`, the generator encodes the string), `i64_fast` ->
+        `"isize"`, `u64_fast` -> `"usize"`; every `"T *"` -> `"pointer"`.
+    *   *No dlsym*: a symbol has no address in Deno. The module opens every
+        function of the header in one `dlopen()` at the top, each with
+        `optional: true` (a missing one, e.g. an inline member, gives `null`
+        instead of throwing) and exports `lib.symbols.name`; a function
+        pointer called through a vtable (`__virtual`) uses
+        `new Deno.UnsafeFnPointer(pointer, definition)`.
+    *   *Pointers*: a `Deno.PointerValue` is an opaque object (`null` for
+        NULL), not a Number: the prelude's `__ptrOut`/`__ptrIn` convert with
+        `Deno.UnsafePointer.value(p)` (a bigint) and
+        `Deno.UnsafePointer.create(bigint)`; `__ptr(buf, off)` is
+        `UnsafePointer.offset(UnsafePointer.of(buf), off)`. Passing an
+        `ArrayBuffer` (a generated class instance) to a `"buffer"` or
+        `"pointer"` parameter works.
+    *   *Memory*: `__view(cls, p, size)` is
+        `Deno.UnsafePointerView.getArrayBuffer(p, size)` plus
+        `setPrototypeOf` (non-owning, as bun's `toArrayBuffer`); `__rd`/`__wr`
+        reuse the DataView helpers of the bun prelude, over
+        `getArrayBuffer(p + off, n)` for an address.
+    *   *Variables*: a static `{ type: "i32" }` is a snapshot at `dlopen()` time
+        (probed: `counter` stays 5 after `bump()`), so a variable is declared
+        `{ type: "pointer" }`, which is the symbol's address (probed: live
+        reads and writes through a view of it); the `__variable()` helper
+        then reads and writes at that address. A constant needs no symbol.
+    *   *By value*: unlike bun, Deno takes `{ struct: [...] }` for a parameter
+        and a result (probed: `pt_swap` works; the result is a `Uint8Array`),
+        so `ir.byValue` maps to it (same element lists, type names renamed)
+        and `dropForBun()` is not applied; the returned bytes become the class
+        through `__ret`, as in the default output.
+    *   *Variadics*: not supported by Deno, skipped with the reason (a symbol
+        alias `{ name: "printf", ... }` per call shape is possible later).
+    *   *Callbacks*: a `function` parameter takes a `Deno.UnsafeCallback`;
+        the generator does not make one, it only types the parameter.
+    *   *Options*: `--target=deno` needs `--library` as bun does (no
+        `RTLD_DEFAULT`; `Deno.dlopen(null)` is not a thing here), and refuses
+        `--finalize` (needs libc `calloc`/`free`: fixable by adding the two to
+        the one `dlopen()` of libc, left out until wanted) and
+        `--class-types`.
+    *   *Files*: `args.js` (`deno` in `--target`), `emit/functions.js` (the
+        import-less header, the one `dlopen()`, the `CFunction` lines become
+        `lib.symbols.x` with a `__ret`/`__at` wrap), `emit/runtime.js` (a
+        `DENO_HELPERS` prelude next to `BUN_HELPERS`), `emit/common.js`
+        (`cfType()` renames), `by-value.js` (byValue element lists renamed).
+    *   *Tests*: `tests/test-gen-bindings-deno.js`, the same probes as the
+        bun test (`probe()` takes the runner `deno run --allow-ffi
+        --allow-read`), plus a by-value probe; skipped when `deno` is not
+        installed.
+    *   *Open*: whether one `dlopen()` with hundreds of symbols is slow to
+        load (Deno builds every symbol eagerly unless `lazy: true`, which
+        also exists and would make it a getter per symbol: prefer it for big
+        headers); whether a C++ class works (mangled names are plain symbol
+        names to Deno: expected yes, to be probed first).
+*   **node**: the target is Node 26's experimental `node:ffi`
+    (`dlopen(path, { fn: { arguments, return } })`, types `"float64"`,
+    `"int32"`, ...; see [doc/node-ffi.md](doc/node-ffi.md)), not a library.
+    `node-ffi.js` is that API on top of qjs-ffi, so the node output is
+    testable here with `qjsm -I ffi-hooks.js`; the installed Node is 23, which
+    has no `node:ffi`, so it cannot be run there yet.
+*   The runtime helpers (`__rd`, `__wr`, `__view`, `__ptr`) become one
+    per-target prelude; the specs and classes are shared. Open: what the
+    Node layer lacks of `read`/`write`/`toArrayBuffer`; test each target
+    with the runtime itself when it is installed (`tests/bun-diff` shows
+    how bun is driven).

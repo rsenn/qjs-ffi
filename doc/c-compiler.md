@@ -105,6 +105,11 @@ does not (its `symbols` is typed `Record<string, FFIFunction>`); see
 [Variables](dlopen.md#variables). `cc()` code is never freed, so such an
 address stays valid.
 
+### `types`
+
+An optional object of [classes](struct.md#naming-a-class-types), `{ Point }`:
+a `"Point *"` in `symbols` is then a pointer typed by `Point`. An extension.
+
 ### `library`
 
 ```ts

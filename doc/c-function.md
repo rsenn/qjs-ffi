@@ -37,8 +37,9 @@ fn = CFunction({ ptr, args, returns, abi })
 | --------- | -------- | --------------------------------------------------------------------------------------------------- |
 | `ptr`     | yes      | The native function pointer to call: a `number` or `bigint` address, e.g. from `dlsym()`. NULL, `undefined`, a view, a `JSCallback`, a string or anything else is not a function pointer: `TypeError`. |
 | `args`    | no       | Array of types, names or `FFIType` numbers (see [Types](#types)) declaring the parameter list, in order. Omit or use `[]` for a function that takes no arguments; a value that is not an array is a `TypeError`. At most 32 arguments are supported; more is a `TypeError`. |
-| `returns` | no       | Type name for the return value (see [Types](#types)). Defaults to `"void"`.                       |
+| `returns` | no       | Type name for the return value (see [Types](#types)). Defaults to `"void"`. A class of buffers (usually extending `ArrayBuffer`) is a type in `args` and here, see [Classes as types](struct.md). |
 | `abi`     | no       | Call ABI name (see [ABI](types.md#abi)). Defaults to `"default"`.                                          |
+| `types`    | no      | an object of classes, `{ Point }`: a `"Point *"` in `args` or `returns` is then that [class](struct.md#naming-a-class-types). |
 | `variadic` | no      | `true` for a C function that ends in `...`; `args` then lists the fixed arguments only, see [Variadic functions](#variadic-functions). |
 
 If `ptr` is not a non-NULL `number` or `bigint`, or the declared types can't
@@ -101,7 +102,9 @@ have it too.
 
 Signatures are written with the names in [Types and ABI](types.md): `"i32"`,
 `"f64"`, `"pointer"`, `"cstring"`, C-style aliases such as `"int"`, and an array
-of member types for a struct passed by value.
+of member types for a struct passed by value. A class inheriting from
+`ArrayBuffer`, or its name with a `types` object (`"Point *"`), is a pointer typed
+by that class: see [Classes as types](struct.md).
 
 ## Examples
 

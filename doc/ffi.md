@@ -23,7 +23,7 @@ Everything is imported from `"ffi"`:
 
 ```js
 import { dlopen, dlsym, dlclose, dlerror, errno,
-         linkSymbols, CFunction, JSCallback, FFIStruct, cc,
+         linkSymbols, CFunction, JSCallback, cc,
          ptr, toBuffer, toArrayBuffer, toPointer, toString, read, write, CString,
          FFIType, suffix, pointerSize, JSContext, debug,
          RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
@@ -46,7 +46,7 @@ where the platform defines them. Run scripts with `qjsm`, see
 | [Types and ABI](types.md) | `FFIType` and its numbers, the type names, structs by value, ABI names |
 | [CFunction](c-function.md) | a function pointer as a callable function |
 | [JSCallback](js-callback.md) | a JavaScript function as a function pointer |
-| [FFIStruct](struct.md) | a C struct, union or class as an `ArrayBuffer` with fields and methods |
+| [Classes as types](struct.md) | a buffer class (usually extending `ArrayBuffer`) as a type in a spec |
 | [Pointers and memory](pointers.md) | `ptr()`, `toArrayBuffer()`, `read`, `write`, `CString`, `toString()`, `toPointer()`, `pointerSize` |
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
@@ -56,8 +56,10 @@ where the platform defines them. Run scripts with `qjsm`, see
 
 ## Usage
 
-`dlopen(path, symbols)` opens a library and returns `{ symbols, close }`.
-Each entry of the symbol table becomes a function:
+`dlopen(path, symbols[, types])` opens a library and returns `{ symbols, close }`.
+Each entry of the symbol table becomes a function (the optional third argument
+is an object of [classes](struct.md#naming-a-class-types) that a `"Point *"`
+names):
 
 ```js
 import { dlopen, FFIType, suffix } from "ffi";
@@ -218,8 +220,8 @@ pointer outlives nothing. In particular
 
 *   64-bit values: `i64`/`u64` are exact `bigint`s. An argument may be a
     `number` or a `bigint`.
-*   Structs by value are supported, with the member types spelled out. Varargs
-    are not.
+*   Structs by value are supported, with the member types spelled out, and so are
+    [variadic functions](c-function.md#variadic-functions) (`variadic: true`).
 *   Little-endian targets only. Linux x86_64 is the main target; mingw64 cross
     builds compile but are untested.
 *   `qjsm`, not `qjs`, runs the scripts and tests of this project.
@@ -235,8 +237,22 @@ Not implemented:
     `true`, and the callback still runs on the JS thread alone. `viewSource` is
     missing.
 
-An extension: a spec with `type` instead of `args`/`returns` exposes a
-[variable](dlopen.md#variables), which bun does not.
+Extensions, which bun does not have (none of them changes what a bun:ffi
+script does):
+
+*   a spec with `type` instead of `args`/`returns` exposes a
+    [variable](dlopen.md#variables);
+*   [variadic functions](c-function.md#variadic-functions) (`variadic: true`) and
+    [structs by value](types.md#structs-by-value);
+*   a [buffer class, usually extending `ArrayBuffer`,](struct.md) as the type of an
+    argument, a return or a variable, and the `types` object that names such
+    classes in a spec (`dlopen(path, symbols, types)`, `linkSymbols(symbols,
+    types)`, `cc({ ..., types })`);
+*   the [node:ffi](node-ffi.md) API and the hook file that maps `node:ffi` and
+    `bun:ffi`.
+
+`tests/test-bun-diff.js` runs 77 probe cases under bun and under this module;
+they give the same output (checked against bun 1.4.2).
 
 Different on purpose or for now:
 

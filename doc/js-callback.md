@@ -112,6 +112,11 @@ types:
 | `"pointer"` / `"ptr"` / `"function"` | `void *`             | `null` for a NULL pointer; otherwise a `number`, or a `bigint` above 2^53 - 1 |
 | `"cstring"`             | `char *`                          | `string` -- the argument value is decoded from the incoming C string; returning `"cstring"` from `fn` is not automatically re-encoded to a native pointer (the return conversion writes the string's JS pointer representation, not a fresh C allocation) -- prefer numeric/`"pointer"` returns unless you know what you're doing |
 
+A [class as a type](struct.md) works here as in a `CFunction`: an argument of
+class `C` reaches `fn` as an instance over the pointer, and a return of class
+`C` takes an instance (or `null`). `{ args, returns, types }` names classes in
+strings (`"Point *"`).
+
 An unrecognized type name in `args` or `returns` is a `TypeError` naming it.
 
 ## Exceptions thrown by `fn`

@@ -11,7 +11,7 @@ behind everything else in `ffi`: [`CFunction`](c-function.md) and
 *   [`errno()`](#errno)
 *   [`suffix`](#suffix) and the [RTLD constants](#rtld-constants)
 
-## `dlopen(path, symbols)`
+## `dlopen(path, symbols[, types])`
 
 ```js
 const { symbols, close } = dlopen(path, symbolSpecs);
@@ -76,6 +76,11 @@ symbols.strlen("hello"); // 5n
 
 A symbol that is not found throws a `TypeError`. Only available where the
 platform defines `RTLD_DEFAULT`.
+
+A third argument is an object of [classes](struct.md#naming-a-class-types),
+`dlopen(path, symbols, { Point })`: a `"Point *"` in a spec is then a pointer
+typed by `Point`. `linkSymbols(symbols, types)` and `cc({ ..., types })` take it
+the same way.
 
 ## Variables
 

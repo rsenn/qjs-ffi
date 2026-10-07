@@ -21,7 +21,7 @@ Start with the [overview](ffi.md).
 | [CFunction](c-function.md) | a native function pointer as a JavaScript function |
 | [JSCallback](js-callback.md) | a JavaScript function as a native function pointer |
 | [Pointers and memory](pointers.md) | `ptr()`, `toPointer()`, `toArrayBuffer()`, `toBuffer()`, `read`, `write`, `CString`, `toString()`, `pointerSize` |
-| [FFIStruct](struct.md) | C structs, unions and classes as `ArrayBuffer`s with field accessors, methods and function pointers |
+| [Classes as types](struct.md) | a buffer class (usually extending `ArrayBuffer`) as the type of an argument, return or variable, and the `types` object that names classes in a spec |
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
 
@@ -29,7 +29,7 @@ Start with the [overview](ffi.md).
 
 | Page | Covers |
 | ---- | ------ |
-| [Generating bindings](gen-bindings.md) | `tools/gen-bindings.js` and `tools/gen-structs.js`: bindings for C and C++ headers |
+| [Generating bindings](gen-bindings.md) | `tools/gen-bindings.js` and `tools/gen-structs.js`: bindings for C and C++ headers, as a module for this one or (`--target=bun`) for bun:ffi |
 
 ## Legacy
 
@@ -44,7 +44,7 @@ Design notes for contributors; not user documentation.
 
 | Page | Covers |
 | ---- | ------ |
-| [Virtual dispatch](internals/cxx-virtual-dispatch.md) | plan for calling C++ virtual methods through the vtable |
+| [Virtual dispatch](internals/cxx-virtual-dispatch.md) | how generated C++ classes call virtual methods through the vtable, and what is left |
 | [TODO](../TODO.md) | the bun:ffi conformance plan and open work |
 
 ## Layout
@@ -58,7 +58,7 @@ doc/
   types.md                    types, structs by value, ABI
   c-function.md  js-callback.md
   pointers.md                 ptr, toArrayBuffer, read, CString, toString
-  struct.md                   FFIStruct
+  struct.md                   classes as types
   c-compiler.md               cc()
   misc.md                     JSContext, debug
   gen-bindings.md             the binding generators
