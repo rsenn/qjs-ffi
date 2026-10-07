@@ -294,10 +294,10 @@ Status: 1-4 done (`tests/test-struct-types.js`, 11 tests; `K_STRUCT_PTR` in
    (`tests/test-gen-bindings-classtypes.js`, which also loads a generated
    module and calls through it). Left: `--emit-specs` still writes `"T *"`
    (JSON holds no constructor); `--class-types` stays opt-in: measured 2026-10-07 on zlib.h and
-   freetype.h, it is ~1% smaller but still ~11% slower per call (2M
-   `deflateBound(strm, 100)`: 2.2s vs 2.5s, after the `js_struct_arg()`
-   fast path that skips `Symbol.hasInstance`), so it is not at least as
-   good as `"T *"`; `lib/*.js` are not regenerated.
+   freetype.h, it is ~1% smaller and ~5% slower per call (2M
+   `deflateBound(strm, 100)`: 2.16s vs 2.28s, after `js_struct_arg()` skips
+   `Symbol.hasInstance` and caches the `prototype` atom; it was ~25% before),
+   so it is still not at least as good as `"T *"`; `lib/*.js` are not regenerated.
 6. **Docs/examples** -> `doc/struct.md` rewritten (done); left: switch one
    example in `examples/` to the new classes.
 7. **Other runtimes** -> `gen-bindings.js --target=bun|deno|node`: bun:ffi

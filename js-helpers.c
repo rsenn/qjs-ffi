@@ -403,6 +403,22 @@ class_name(JSContext* ctx, JSValueConst v, int of_class) {
   return s;
 }
 
+/* cls.prototype without interning the string "prototype" on every call; the
+ * atom is cached for the one runtime that last asked (a second runtime
+ * re-interns it, which is correct but not free). */
+static JSValue
+class_prototype(JSContext* ctx, JSValueConst cls) {
+  static JSRuntime* rt;
+  static JSAtom atom;
+
+  if(rt != JS_GetRuntime(ctx)) {
+    rt = JS_GetRuntime(ctx);
+    atom = JS_NewAtom(ctx, "prototype");
+  }
+
+  return JS_GetProperty(ctx, cls, atom);
+}
+
 int
 js_struct_arg(JSContext* ctx, JSValueConst cls, size_t size, JSValueConst v, int index, void** out) {
   ByteSpan buf;
@@ -424,7 +440,7 @@ js_struct_arg(JSContext* ctx, JSValueConst cls, size_t size, JSValueConst v, int
 
   /* fast path: an instance of exactly `cls` skips Symbol.hasInstance */
   {
-    JSValue proto = JS_GetPrototype(ctx, v), cproto = JS_GetPropertyStr(ctx, cls, "prototype");
+    JSValue proto = JS_GetPrototype(ctx, v), cproto = class_prototype(ctx, cls);
 
     inst = JS_IsObject(proto) && JS_IsObject(cproto) && JS_VALUE_GET_PTR(proto) == JS_VALUE_GET_PTR(cproto);
     JS_FreeValue(ctx, proto);
@@ -483,7 +499,7 @@ js_struct_view(JSContext* ctx, JSValueConst cls, size_t size, void* ptr) {
   if(JS_IsException(ab = JS_NewArrayBuffer(ctx, ptr, size, NULL, NULL, FALSE)))
     return ab;
 
-  proto = JS_GetPropertyStr(ctx, cls, "prototype");
+  proto = class_prototype(ctx, cls);
 
   if(JS_IsException(proto) || JS_SetPrototype(ctx, ab, proto) < 0) {
     JS_FreeValue(ctx, proto);
