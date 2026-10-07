@@ -44,7 +44,7 @@ that throws, with that exception.</p>
 of the call and freed immediately afterward; the native function must not
 retain the pointer past the call returning.</p>
 <h2 id="classes"><a class="anchor" href="#classes" aria-hidden="true">#</a>Classes</h2>
-<p>A class that inherits from <code>ArrayBuffer</code> and has a static <code>size</code> is a type
+<p>A buffer class (usually extending <code>ArrayBuffer</code>) with a static <code>size</code> is a type
 too: in <code>args</code> it is a pointer to the instance's bytes, in <code>returns</code> a pointer
 that comes back as an instance, and <code>{ type: Class }</code> is a variable. It can
 also be named by a string, <code>"Point *"</code>, when the spec is given a <code>types</code>

@@ -26,7 +26,7 @@
 <aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="ffi.html">Overview</a></li></ul></div><div class="navgroup"><h3>Reference</h3><ul><li><a href="dlopen.html">Libraries and symbols</a></li><li><a href="types.html">Types and ABI</a></li><li><a href="c-function.html">CFunction</a></li><li><a href="js-callback.html">JSCallback</a></li><li><a href="pointers.html">Pointers and memory</a></li><li><a href="struct.html" class="here">Classes as types</a></li><li><a href="c-compiler.html">C compiler</a></li><li><a href="misc.html">Miscellaneous</a></li></ul></div><div class="navgroup"><h3>Tools</h3><ul><li><a href="gen-bindings.html">Generating bindings</a></li></ul></div><div class="navgroup"><h3>More</h3><ul><li><a href="node-ffi.html">node:ffi</a></li><li><a href="legacy.html">Legacy API</a></li><li><a href="internals/cxx-virtual-dispatch.html">Virtual dispatch</a></li></ul></div></aside>
 <main class="doc">
 <article><h1 id="classes-as-types"><a class="anchor" href="#classes-as-types" aria-hidden="true">#</a>Classes as types</h1>
-<p>A class that inherits from <code>ArrayBuffer</code> can be used as a type in <code>args</code>,
+<p>A class whose instances are <code>ArrayBuffer</code>s can be used as a type in <code>args</code>,
 <code>returns</code> and <code>{ type }</code> of a symbol spec. An instance is a real
 <code>ArrayBuffer</code>, so <code>read</code>, <code>write</code>, <code>ptr()</code>, typed arrays and <code>DataView</code> take
 it unchanged. This is an extension; bun:ffi has no equivalent. The class is
@@ -64,10 +64,18 @@ such a constructor is a type.</p>
 <span class="t-id">symbols</span>.<span class="t-fn">Point_len</span>(<span class="t-id">p</span>); <span class="t-cm">// 5</span>
 <span class="t-id">p</span> <span class="t-kw">instanceof</span> <span class="t-type">ArrayBuffer</span>; <span class="t-cm">// true</span></code></pre></div>
 <h2 id="the-class"><a class="anchor" href="#the-class" aria-hidden="true">#</a>The class</h2>
-<p>A constructor is a type when its <code>prototype</code> inherits from
-<code>ArrayBuffer.prototype</code> (<code>ArrayBuffer</code> itself is not one) and it has a static
-<code>size</code>, a non-negative integer, read once when the spec is parsed. A missing
-<code>size</code> is a <code>TypeError</code>.</p>
+<p>A constructor is a type when either holds (<code>ArrayBuffer</code> itself is neither):</p>
+<ul>
+<li>its <code>prototype</code> inherits from <code>ArrayBuffer.prototype</code>; it needs a static
+<code>size</code>, a non-negative integer, read once when the spec is parsed (missing
+is a <code>TypeError</code>)</li>
+<li>it has a static <code>size</code> and its instances are buffers made without that
+prototype, so <code>byteLength</code> or <code>slice</code> can be field names:</li>
+</ul>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">class</span> <span class="t-type">Raw</span> {
+  <span class="t-kw">static</span> <span class="t-id">size</span> <span class="t-op">=</span> <span class="t-num">16</span>;
+  <span class="t-fn">constructor</span>() { <span class="t-kw">return</span> <span class="t-type">Reflect</span>.<span class="t-fn">construct</span>(<span class="t-type">ArrayBuffer</span>, [<span class="t-type">Raw</span>.<span class="t-prop">size</span>], <span class="t-kw">new</span>.<span class="t-prop">target</span>); }
+}</code></pre></div>
 <p>C++ single inheritance is JS <code>extends</code>: <code>class Dog extends Animal</code> takes the
 base's place wherever <code>Animal</code> is declared (the base sits at offset 0).</p>
 <h2 id="in-a-spec"><a class="anchor" href="#in-a-spec" aria-hidden="true">#</a>In a spec</h2>

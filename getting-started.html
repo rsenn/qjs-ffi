@@ -35,7 +35,7 @@ integers and structs passed by value,</li>
 <li>hand JavaScript functions back to C as function pointers (<code>JSCallback</code>),</li>
 <li>read and write native memory (<code>ptr()</code>, <code>read</code>, <code>toArrayBuffer()</code>, <code>CString</code>),</li>
 <li>compile and run C code in memory (<code>cc()</code>, optional, uses TinyCC),</li>
-<li>use a class inheriting from <code>ArrayBuffer</code> as the type of an argument, a return
+<li>use a buffer class (usually extending <code>ArrayBuffer</code>) as the type of an argument, a return
 or a variable (<code>args: [Point]</code>, or <code>"Point *"</code> with a <code>types</code> object),</li>
 <li>generate bindings from C and C++ headers (<code>tools/gen-bindings.js</code>), for this
 module or for bun:ffi (<code>--target=bun</code>).</li>
