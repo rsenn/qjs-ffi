@@ -89,6 +89,7 @@ export function header(opts) {
     ' *   ' +
     invocationName() +
     (opts.library ? ' --library=' + opts.library : '') +
+    (opts.target && opts.target !== 'qjs' ? ' --target=' + opts.target : '') +
     (opts.ffiType ? ' --ffitype' : '') +
     (opts.structs ? ' --structs' : '') +
     opts.namespaces.map(n => ' --namespace=' + n).join('') +
@@ -116,18 +117,20 @@ export function skippedComment(skipped) {
   return '\n// Skipped (unsupported):\n' + skipped.map(s => '//   - ' + s.name + ': ' + s.reason).join('\n') + '\n';
 }
 
-/* The functions to bind, and the enums reachable from their signatures in
- * order of first use (an enum only declared, never used, is not emitted). */
+/* the end-of-file note for what was bound with a caveat (ir.warnings). */
+export function warningsComment(warnings) {
+  if(!warnings || !warnings.length) return '';
+  return '\n// Warnings:\n' + warnings.map(w => '//   - ' + w.name + ': ' + w.reason).join('\n') + '\n';
+}
+
+/* The functions to bind, the classes, and every enum of the sources. */
 export function bindable(ir, opts) {
   const all = ir.methods.filter(m => m.kind === 'function' && !opts.excludes.includes(m.name));
   const functions = all.filter(m => !m.mangledName);
   const cxxFunctions = all.filter(m => m.mangledName);
   const classes = (ir.classes || []).filter(c => !opts.excludes.includes(c.name));
-  const enumsById = new Map(ir.enums.map(e => [e.id, e]));
-  const used = [...all, ...classes.flatMap(c => [...c.constructors, ...c.methods])].flatMap(fn => fn.enums);
-  const enums = [...new Set(used)].map(id => enumsById.get(id)).filter(Boolean);
 
-  return { functions, cxxFunctions, classes, enums };
+  return { functions, cxxFunctions, classes, enums: ir.enums };
 }
 
 export function paramTypes(fn) {
@@ -178,8 +181,33 @@ function structTypeName(name) {
   return '__s_' + safeIdent(name.slice('struct '.length).replace(/::/g, '_'));
 }
 
+/* The class identifier a "T *" type stands for under --class-types (see
+ * prepareClassTypes()), or undefined: one star only, `struct`/`union`/`class`
+ * keyword and const ignored, a typedef of the record followed.
+ *
+ * ```js
+ * classOf("struct pt *", opts)  // "pt"
+ * classOf("pt **", opts)        // undefined, a pointer to a pointer
+ * ``` */
+function classOf(name, opts) {
+  const m = opts.classMap && /^(.*?)\s*\*$/.exec(name);
+
+  if(!m || m[1].endsWith('*')) return undefined;
+
+  const base = m[1].replace(/\b(const|volatile)\b/g, '').replace(/^\s*(struct|union|class)\s+/, '').trim();
+
+  return opts.classMap.idents.get(opts.classMap.aliases.get(base) || base);
+}
+
 export function cfType(name, opts) {
   if(isByValue(name)) return structTypeName(name);
+
+  const cls = opts.classTypes && classOf(name, opts);
+
+  if(cls) return cls;
+
+  // bun:ffi knows no "T *": every typed pointer is a "pointer"
+  if(opts.target === 'bun' && name.endsWith('*')) return opts.ffiType ? 'FFIType.pointer' : "'pointer'";
 
   return opts.ffiType && FFI_NAMES.has(name) ? 'FFIType.' + name : jsLiteral(name);
 }
@@ -206,6 +234,11 @@ export function usedStructs(entries) {
  * comes back as its class (opts.structClasses, see prepareByValue()), not as
  * the bare ArrayBuffer CFunction makes. */
 export function wrapReturn(returnType, expr, opts) {
+  // bun:ffi returns a typed pointer as a Number: make it the class
+  const pointee = opts.target === 'bun' && !isByValue(returnType) && classOf(returnType, opts);
+
+  if(pointee) return '__at(' + pointee + ',' + expr + ')';
+
   const ident = isByValue(returnType) && opts.structClasses && opts.structClasses.get(returnType.slice('struct '.length));
 
   return ident ? '__ret(' + ident + ',' + expr + ')' : expr;

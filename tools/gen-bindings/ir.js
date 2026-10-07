@@ -1,7 +1,7 @@
 import { runLayoutDump } from './clang.js';
 import { normalizeType, splitFunctionType, sizeOfC, mapCType } from './types.js';
 import { header } from './emit/common.js';
-import { assignVtableSlots } from './vtable.js';
+import { assignVtableSlots, unslottedVirtuals } from './vtable.js';
 
 /* Builds a name -> underlying-type-string map from every top-level
  * TypedefDecl, for resolving a return type's typedef name in mapCType().
@@ -12,10 +12,19 @@ import { assignVtableSlots } from './vtable.js';
  */
 export function collectTypedefs(root) {
   const typedefs = {};
+  const add = (name, node) => {
+    if(!Object.prototype.hasOwnProperty.call(typedefs, name)) typedefs[name] = node.type.desugaredQualType || node.type.qualType;
+  };
 
-  for(const node of root.inner || []) {
-    if(node.kind === 'TypedefDecl' && node.name && node.type && !Object.prototype.hasOwnProperty.call(typedefs, node.name)) typedefs[node.name] = node.type.desugaredQualType || node.type.qualType;
-  }
+  // a typedef inside a namespace or a class is known by its qualified name
+  // and by the bare one, which is how clang spells it where it is in scope:
+  // `typedef double StkFloat;` in namespace stk is "StkFloat" in stk's methods
+  walkDecls(root.inner, (node, scope) => {
+    if((node.kind === 'TypedefDecl' || node.kind === 'TypeAliasDecl') && node.name && node.type) {
+      add(scope + node.name, node);
+      add(node.name, node);
+    }
+  });
 
   return typedefs;
 }
@@ -372,13 +381,6 @@ export function collectIR(root, isSourceFile, idPrefix) {
    * recording why in `skipped` under `label`.
    */
   function callable(node, label) {
-    // a C function can be variadic (the CFunction takes (type, value) pairs after
-    // the fixed arguments); a C++ one has a mangled name and is not supported
-    if(node.variadic && node.mangledName && node.mangledName !== node.name) {
-      ir.skipped.push({ name: label, reason: 'variadic C++ functions are not supported' });
-      return null;
-    }
-
     const split = splitFunctionType(node.type.qualType);
     if(!split) {
       ir.skipped.push({ name: label, reason: 'could not parse function type "' + node.type.qualType + '"' });
@@ -471,6 +473,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     if(layout) ((cls.size = layout.size), (cls.align = layout.align));
     if(info.isAbstract) cls.abstract = true;
     if(info.isPolymorphic) cls.polymorphic = true;
+    if((node.inner || []).some(c => c.kind === 'FinalAttr')) cls.final = true;
 
     for(const base of node.bases || []) {
       const entry = { name: base.type.desugaredQualType || base.type.qualType, access: base.access };
@@ -555,6 +558,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     }
 
     if(layout && layout.vtableIndices) assignVtableSlots(cls, layout.vtableIndices, sigs);
+    ir.warnings.push(...unslottedVirtuals(cls, !!(layout && layout.vtableIndices)));
 
     ir.classes.push(cls);
   }
@@ -576,6 +580,8 @@ export function collectIR(root, isSourceFile, idPrefix) {
  *   classes   C++ classes, and structs with methods or bases
  *   typedefs  typedef and using aliases
  *   skipped   declarations that could not be bound: { name, reason }
+ *   warnings  bound, but not as expected: { name, reason }; a virtual
+ *             method with no vtable slot is one (older IR files have none)
  *   byValue   struct name -> member types, for structs passed by value
  *   source    how the IR was made, for the generated file's header
  *
@@ -586,7 +592,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
  * { name: "geom_move", kind: "function",
  *   args: ["s: shape *", "dx: f64"],  // "name: type", an FFIType name
  *   returns: "i32",
- *   variadic: true,                   // only for a variadic C function
+ *   variadic: true,                   // only for a variadic function (C or C++)
  *   enums: ["0:0x5e10..."] }          // ids of the enums it uses
  * ```
  *
@@ -641,6 +647,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
  *   type            "class" or "struct"
  *   abstract?       has a pure virtual method
  *   polymorphic?    has a vtable
+ *   final?          declared `final`: nothing overrides it
  *   bases           [{ name, access, virtual? }]
  *   constructors    kind "constructor", the complete-object (C1)
  *                   mangledName, no `returns`; none if abstract
@@ -660,7 +667,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
  * its `args` do not list `this`.
  */
 export function newIR() {
-  return { version: 2, methods: [], fields: [], enums: [], structs: [], classes: [], typedefs: [], skipped: [] };
+  return { version: 2, methods: [], fields: [], enums: [], structs: [], classes: [], typedefs: [], defines: [], skipped: [], warnings: [] };
 }
 
 /* Merges `from` into `into`, keeping the first declaration of a name (a
@@ -683,7 +690,11 @@ export function mergeIR(into, from) {
   add(into.structs, from.structs, 'name');
   add(into.classes, from.classes, 'name');
   add(into.typedefs, from.typedefs, 'name');
+  into.defines = into.defines || [];
+  add(into.defines, from.defines || [], 'name');
   add(into.skipped, from.skipped, 'name');
+  into.warnings = into.warnings || [];
+  add(into.warnings, from.warnings || [], 'name');
   return into;
 }
 

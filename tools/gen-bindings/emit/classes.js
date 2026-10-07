@@ -34,7 +34,7 @@ function __accepts(t, v) {
 function __invoke(list, self, args) {
   if(__deleted.has(self)) throw new Error("object was deleted");
 
-  const same = list.filter(e => e.n === args.length);
+  const same = list.filter(e => (e.v ? args.length >= e.n : e.n === args.length));
   const m = same.length === 1 ? same[0] : same.find(e => e.t.every((t, i) => __accepts(t, args[i])));
   if(!m) throw new TypeError("no overload takes " + args.length + " argument(s) like these");
 
@@ -173,14 +173,14 @@ function classFn(symbol, entry, thisType, opts, slot) {
   const cf = [...(thisType ? [thisType] : []), ...paramTypes(entry)];
   const virtual = slot !== undefined;
 
-  const types = 'args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returns || 'void', opts);
+  const types = 'args:[' + cf.map(t => cfType(t, opts)).join(',') + '],returns:' + cfType(entry.returns || 'void', opts) + (entry.variadic ? ',variadic:true' : '');
 
   return wrapReturn(entry.returns, virtual ? '__virtual(' + slot + ',{' + types + '})' : 'CFunction({ptr:__sym(' + jsLiteral(symbol) + '),' + types + '})', opts);
 }
 
 /* `const NAME = [ { n, t, f }, ... ];`, one element per overload. */
 function overloadList(name, entries, thisType, opts) {
-  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.args.length + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts, e.vtableSlot) + ')},\n').join('') + '];\n';
+  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.args.length + (e.variadic ? ',v:true' : '') + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts, e.vtableSlot) + ')},\n').join('') + '];\n';
 }
 
 /* With every class listed after the class it extends. A class extends its
@@ -283,6 +283,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
 
     const dtor = c.destructor && (c.destructor.mangledName || c.destructor.vtableSlot !== undefined) ? '__lazy(()=>' + classFn(c.destructor.mangledName, { args: [] }, thisType, opts, c.destructor.vtableSlot) + ')' : 'null';
     const zeroInit = !c.constructors.length && !c.abstract && !c.polymorphic;
+    out += id + '.size = ' + c.size + ';\n';
     out += id + '.__info = { size: ' + c.size + ', ctors: ' + (c.constructors.length ? prefix + 'ctor' : 'null') + ', dtor: ' + dtor + (zeroInit ? ', zeroInit: true' : '') + ' };\n';
 
     for(const f of c.fields) {

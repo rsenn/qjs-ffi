@@ -1,6 +1,7 @@
 import * as std from 'std';
 import { realpath } from 'os';
 import { tests, eq, assert } from './tinytest.js';
+import { unslottedVirtuals } from '../tools/gen-bindings/vtable.js';
 
 const root = scriptArgs[0].replace(/[^/]*$/, '') + '../';
 const tmp = root + '.tmp/';
@@ -26,6 +27,24 @@ const m = await import('../.tmp/test-gen-bindings-virtual.gen.js');
 const wrap = kind => m.Animal.at(m.make_animal(kind));
 
 await tests({
+  'a virtual method without a slot is a warning, a slotted one and a final class are not'() {
+    const cls = extra => ({ name: 'C', methods: [{ name: 'a', virtual: true, vtableSlot: 2 }, { name: 'b', virtual: true }, { name: 'c' }, { name: 'd', pure: true }, { name: 's', virtual: true, static: true }], ...extra });
+    const w = unslottedVirtuals(cls(), true);
+
+    eq('C::b,C::d', w.map(x => x.name).join());
+    assert(/dump does not tell/.test(w[0].reason), 'the reason with a dump: ' + w[0].reason);
+    assert(/no vtable/.test(unslottedVirtuals(cls(), false)[0].reason), 'the reason without one');
+    assert(/pure virtual has no symbol/.test(w[1].reason), 'a pure virtual says it has no symbol');
+    eq(0, unslottedVirtuals(cls({ final: true }), true).length);
+  },
+
+  'the test classes all have their slots, so the IR has no warnings'() {
+    const file = tmp + 'test-gen-bindings-virtual.warn.json';
+
+    sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--std=c++17', '--emit-ir=' + file, root + 'tests/cxx/virt.hpp'].join(' '));
+    eq('[]', JSON.stringify(JSON.parse(std.loadFile(file)).warnings));
+  },
+
   'the IR gives each virtual method, an overrider the AST does not flag included, its vtable slot'() {
     const file = tmp + 'test-gen-bindings-virtual.ir.json';
 

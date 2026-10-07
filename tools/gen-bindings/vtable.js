@@ -136,3 +136,27 @@ export function assignVtableSlots(cls, entries, sigs) {
 
   if(dtor) cls.destructor = { ...cls.destructor, vtableSlot: dtor.index };
 }
+
+/* The virtual methods of class entry `cls` that have no slot, as warnings
+ * { name, reason }: each is bound to its own symbol, so a call through a
+ * wrapper of a base class would not run the override. a `final` class has
+ * nothing to override it, so it gets none.
+ *
+ * ```js
+ * unslottedVirtuals(cls, true);
+ * // [{ name: "Twin::k", reason: "virtual, but the vtable dump does not tell it ..." }]
+ * ```
+ *
+ *   object  cls      an IR class entry, after assignVtableSlots()
+ *   bool    hasDump  clang printed the class's vtable
+ *
+ *   returns  an array, empty when every virtual method has its slot */
+export function unslottedVirtuals(cls, hasDump) {
+  if(cls.final) return [];
+
+  const why = hasDump ? 'the vtable dump does not tell it apart from another method of the same name, parameter count and constness' : 'clang printed no vtable for the class';
+
+  return cls.methods
+    .filter(m => !m.static && (m.virtual || m.pure) && m.vtableSlot === undefined)
+    .map(m => ({ name: cls.name + '::' + m.name, reason: 'virtual, but ' + why + '; it is bound to its own symbol, so a call through a base class wrapper is not virtual' + (m.pure ? ' (and a pure virtual has no symbol)' : '') }));
+}

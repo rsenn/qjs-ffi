@@ -164,6 +164,65 @@ export function prepareByValue(ir, opts) {
   opts.structClasses = new Map(opts.structs ? ir.structs.filter(s => s.type === 'struct' && s.size != null).map(s => [s.name, identOf(s.name)]) : []);
 }
 
+/* For bun:ffi, which passes no struct by value and has no varargs: moves
+ * every function and method that takes or returns a struct, or is
+ * variadic, to ir.skipped. */
+export function dropForBun(ir) {
+  const byValue = e => [e.returns, ...e.args.map(a => a.slice(a.indexOf(': ') + 2))].some(t => t && t.startsWith('struct ') && !t.endsWith('*'));
+  const keep = (list, label) =>
+    list.filter(e => {
+      const reason = byValue(e) ? 'a struct passed or returned by value is not supported by bun:ffi' : e.variadic ? 'a variadic function is not supported by bun:ffi' : null;
+
+      if(reason) ir.skipped.push({ name: label(e), reason });
+      return !reason;
+    });
+
+  ir.methods = keep(ir.methods, e => e.name);
+
+  for(const c of ir.classes || []) {
+    c.methods = keep(c.methods, e => c.name + '::' + e.name);
+    c.constructors = keep(c.constructors, e => c.name + '::' + e.name);
+  }
+}
+
+/* Sets `opts.classMap` with --class-types or --target=bun: { idents, aliases }, the
+ * record name -> class identifier of every struct, union and bound C++ class
+ * that has a generated class, and typedef name -> record name. cfType() then
+ * writes the identifier for a "T *" of such a record.
+ *
+ * ```js
+ * // `typedef struct pt pt_t;`, `struct pt` has the class `pt`
+ * // "pt *" and "pt_t *" are both the constructor `pt`
+ * ```
+ *
+ *   object  ir       the IR; its structs and typedefs
+ *   object  opts     gets `classMap` (unset without either)
+ *   array   classes  the bound C++ classes (bindable().classes) */
+export function prepareClassTypes(ir, opts, classes) {
+  if(!opts.classTypes && opts.target !== 'bun') return;
+
+  const idents = new Map();
+  const aliases = new Map();
+
+  for(const s of opts.structs ? ir.structs : []) if(s.size != null) idents.set(s.name, identOf(s.name));
+  for(const c of classes) if(c.size != null) idents.set(c.name, identOf(c.name));
+  for(const t of ir.typedefs || []) if(t.record && idents.has(t.record)) aliases.set(t.name, t.record);
+
+  // clang spells a reference parameter inside a namespace unqualified:
+  // "Shape *" for geo::Shape, so a short name that is unique is an alias
+  const shorts = new Map();
+
+  for(const name of idents.keys()) {
+    const short = name.slice(name.lastIndexOf('::') + 2);
+
+    shorts.set(short, shorts.has(short) ? null : name);
+  }
+
+  for(const [short, name] of shorts) if(name && !idents.has(short) && !aliases.has(short)) aliases.set(short, name);
+
+  opts.classMap = { idents, aliases };
+}
+
 /* Settles the struct types functions have by value (see mapCType()): each is
  * either a plain C struct whose layout elementsOf() can reproduce, which then
  * is `struct NAME` in the entry's types, with its element list in

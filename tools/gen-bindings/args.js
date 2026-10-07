@@ -29,6 +29,8 @@ const OPTIONS = [
   { names: ['--follow-includes'], key: 'followIncludes', help: "also bind headers included from under each source's directory" },
   { names: ['--ffitype'], key: 'ffiType', help: 'write types as FFIType.i32 instead of "i32"' },
   { names: ['--structs'], key: 'structs', help: 'also wrap structs/unions as ArrayBuffer classes, and extern variables' },
+  { names: ['--class-types'], key: 'classTypes', help: 'with --structs and C++ classes: pass the generated class as the type of a "T *" argument or return, not "T *" (needs a qjs-ffi that takes a constructor as a type)' },
+  { names: ['--target'], arg: '<runtime>', key: 'target', def: 'qjs', help: 'the runtime the module is for: qjs (default) or bun (bun:ffi; needs --library)' },
   { names: ['--describe'], key: 'describe', help: 'name parameters in signatures, attach types as fn[Symbol.for("describe")]' },
   { names: ['--finalize'], key: 'finalize', help: 'also destroy C++ objects made with new when they are garbage collected' },
   { names: ['--jsdoc'], key: 'jsdoc', help: 'JSDoc comments with parameter and return types on functions, methods, classes' },
@@ -115,6 +117,12 @@ export function parseArgs(argv) {
   if((opts.js || opts.json) && !opts.emitIr && !opts.emitSpecs) throw new Error('--js and --json need --emit-ir or --emit-specs');
   if(opts.js && opts.json) throw new Error('--js and --json cannot be combined');
   if(opts.emitIr && opts.emitSpecs) throw new Error('--emit-ir and --emit-specs cannot be combined');
+  if(!['qjs', 'bun'].includes(opts.target)) throw new Error('--target must be qjs or bun, not ' + opts.target);
+  if(opts.target === 'bun' && !opts.emitIr && !opts.emitSpecs) {
+    if(!opts.library) throw new Error('--target=bun needs --library=<path>: bun:ffi has no RTLD_DEFAULT');
+    if(opts.finalize) throw new Error('--finalize needs calloc() and free() from libc, which bun:ffi cannot look up');
+    if(opts.classTypes) throw new Error('--class-types needs a constructor as a type, which bun:ffi does not take');
+  }
   if(!opts.fromIr && !opts.sources.length) throw new Error('missing <source.c> argument');
 
   return opts;

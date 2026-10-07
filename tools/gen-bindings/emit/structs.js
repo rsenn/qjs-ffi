@@ -126,7 +126,13 @@ function pointeeOf(type, ir) {
 
 /* --- code generation ------------------------------------------------------- */
 
-export const PRELUDE = `
+/* the helpers every generated module with classes starts with; `target`
+ * picks how __view() turns an address into memory (bun:ffi takes a Number). */
+export function preludeCode(target) {
+  return PRELUDE_TEMPLATE.replace('__ADDRESS__', target === 'bun' ? 'Number(p)' : 'BigInt(p)');
+}
+
+const PRELUDE_TEMPLATE = `
 function __ptrOut(v) {
   return v === 0n ? null : v <= 0x1fffffffffffffn ? Number(v) : v;
 }
@@ -167,13 +173,15 @@ function __bytes(v) {
 }
 
 function __view(cls, p, size, owner) {
-  const b = toArrayBuffer(BigInt(p), 0, size);
+  const b = toArrayBuffer(__ADDRESS__, 0, size);
 
   Object.setPrototypeOf(b, cls.prototype);
   if(owner) Object.defineProperty(b, "__owner", { value: owner });
   return b;
 }
 `;
+
+export const PRELUDE = preludeCode('qjs');
 
 /* Statements of an accessor body on one line. */
 function oneLine(src) {

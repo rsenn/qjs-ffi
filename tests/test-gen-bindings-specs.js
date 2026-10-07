@@ -58,9 +58,8 @@ await tests({
     eq('{"type":"void *"}', JSON.stringify(vars.symbols.handle));
   },
 
-  'a constant with a value is not a symbol'() {
-    eq('{"N":5}', JSON.stringify(vars.constants));
-    assert(!('N' in vars.symbols), 'N has no symbol');
+  'a constant with a value is a { value } entry'() {
+    eq('{"value":5}', JSON.stringify(vars.symbols.N));
   },
 
   'what has no spec is omitted with the reason'() {
@@ -115,7 +114,7 @@ await tests({
   'C++ functions and classes are omitted, an extern "C" function is not'() {
     const specs = gen('shapes', 'libvars.so', '--std=c++17', root + 'tests/cxx/shapes.hpp');
 
-    eq('c_fn', Object.keys(specs.symbols).join());
+    eq('c_fn,Kind', Object.keys(specs.symbols).join());
     assert(specs.omitted.some(o => o.name === 'geo::Shape' && /C\+\+ class/.test(o.reason)), 'a class is listed');
     assert(specs.omitted.some(o => o.name === 'geo::add' && /C\+\+ linkage/.test(o.reason)), 'a function is listed');
   },
@@ -149,7 +148,7 @@ await tests({
     const walk = (v, top) => (v && typeof v == 'object' ? Object.entries(v).some(([k, x]) => (!top && ['defTypes', 'getters', 'setters', 'prototypeChain'].includes(k)) || (top && gone.includes(k)) || walk(x, false)) : false);
 
     eq(2, ir.version);
-    eq('version,methods,fields,enums,structs,classes,typedefs,skipped,source,byValue', Object.keys(ir).join());
+    eq('version,methods,fields,enums,structs,classes,typedefs,defines,skipped,warnings,source,byValue', Object.keys(ir).join());
     assert(ir.methods.length > 0 && !walk(ir, true), 'a key that was removed is back');
   },
 

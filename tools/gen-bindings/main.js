@@ -8,6 +8,23 @@ import { bindable, setNamespaces } from './emit/common.js';
 import { generateCFunction } from './emit/functions.js';
 import { irToSpecs } from './specs.js';
 import { toSource } from './source.js';
+import { scanDefines, localIncludes } from './defines.js';
+
+/* the #define constants of `file`, those of the headers it includes with
+ * quotes first (only with --follow-includes, and only under its directory). */
+function definesOf(file, opts, known, visited = new Set()) {
+  const text = visited.has(file) ? null : std.loadFile(file);
+  const dir = file.replace(/[^/]*$/, '');
+  const out = [];
+
+  visited.add(file);
+  if(text === null) return out;
+
+  if(opts.followIncludes)
+    for(const inc of localIncludes(text)) out.push(...definesOf(dir + inc, opts, known, visited));
+
+  return out.concat(scanDefines(text, known));
+}
 
 export function main() {
   let opts;
@@ -67,6 +84,7 @@ export function main() {
       const found = collectIR(root, isSourceFile, i + ':');
 
       if(!found.methods.length && !found.classes.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
+      found.defines = definesOf(source, opts, {});
       mergeIR(ir, found);
     });
 
@@ -95,6 +113,8 @@ export function main() {
   } else {
     std.puts(out);
   }
+
+  if(ir.warnings && ir.warnings.length) std.err.puts('gen-bindings.js: warning: ' + ir.warnings.length + ' virtual method(s) have no vtable slot and are bound to their own symbol' + (opts.emitIr ? ', see "warnings" in the IR' : ', see comment at end of output') + '\n');
 
   if(ir.skipped.length)
     std.err.puts('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : specs ? ', see "omitted" in the specs' : ', see comment at end of output') + '\n');

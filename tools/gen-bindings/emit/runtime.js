@@ -1,5 +1,5 @@
 import { safeIdent, jsLiteral } from './common.js';
-import { PRELUDE } from './structs.js';
+import { preludeCode } from './structs.js';
 import { FFI_SIZES } from '../ffi-types.js';
 
 /* Support code for extern variables (and static class members), emitted
@@ -50,9 +50,43 @@ function __variable(name, type) {
 /* The support code every generated module with struct, class or variable
  * wrappers starts with (after its imports): PRELUDE from structs.js, the
  * variable accessors and the struct-return helper. */
-export function runtimeCode() {
-  return PRELUDE + VARIABLE_HELPERS + RET_HELPER;
+export function runtimeCode(opts) {
+  const bun = opts && opts.target === 'bun';
+
+  return (bun ? BUN_HELPERS : '') + preludeCode(bun ? 'bun' : 'qjs') + VARIABLE_HELPERS + RET_HELPER;
 }
+
+/* bun:ffi has no write(), and its read() takes an address only, so the
+ * generated module reads and writes memory through a DataView: over an
+ * ArrayBuffer or view, or over the bytes at an address (toArrayBuffer()).
+ * __rd.u32(p, off) and __wr.u32(p, off, v) then work as ffi's do. */
+const BUN_HELPERS = `
+const __acc = { i8: ["Int8", 1], u8: ["Uint8", 1], i16: ["Int16", 2], u16: ["Uint16", 2], i32: ["Int32", 4], u32: ["Uint32", 4], i64: ["BigInt64", 8], u64: ["BigUint64", 8], f32: ["Float32", 4], f64: ["Float64", 8] };
+
+function __dview(p, off, n) {
+  if(typeof p === "number" || typeof p === "bigint") return new DataView(toArrayBuffer(Number(p) + off, 0, n));
+  return ArrayBuffer.isView(p) ? new DataView(p.buffer, p.byteOffset + off, n) : new DataView(p, off, n);
+}
+
+const __rd = {};
+const __wr = {};
+
+for(const [k, [t, n]] of Object.entries(__acc)) {
+  __rd[k] = (p, off = 0) => __dview(p, off, n)["get" + t](0, true);
+  __wr[k] = (p, off, v) => __dview(p, off, n)["set" + t](0, v, true);
+}
+
+const __cstr = p => new CString(p).toString();
+
+/* a function returning a pointer to class cls, as an instance of it */
+function __at(cls, f) {
+  return (...args) => {
+    const p = f(...args);
+
+    return p === null ? null : cls.at(p);
+  };
+}
+`;
 
 /* CFunction returns a struct as a bare ArrayBuffer; this makes it the class. */
 const RET_HELPER = `
