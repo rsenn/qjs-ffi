@@ -422,7 +422,16 @@ js_struct_arg(JSContext* ctx, JSValueConst cls, size_t size, JSValueConst v, int
     return 0;
   }
 
-  if((inst = JS_IsInstanceOf(ctx, v, cls)) < 0)
+  /* fast path: an instance of exactly `cls` skips Symbol.hasInstance */
+  {
+    JSValue proto = JS_GetPrototype(ctx, v), cproto = JS_GetPropertyStr(ctx, cls, "prototype");
+
+    inst = JS_IsObject(proto) && JS_IsObject(cproto) && JS_VALUE_GET_PTR(proto) == JS_VALUE_GET_PTR(cproto);
+    JS_FreeValue(ctx, proto);
+    JS_FreeValue(ctx, cproto);
+  }
+
+  if(!inst && (inst = JS_IsInstanceOf(ctx, v, cls)) < 0)
     return -1;
 
   if(js_try_get_bytes(ctx, &buf, v)) {
