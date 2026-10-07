@@ -123,6 +123,39 @@ does (a `bigint` for `i64`, a pointer for `pointer`; see [Types](types.md)).
 The address is the library's: after `close()` a variable dangles as the
 functions do.
 
+## Constants
+
+An extension: a spec with `value` or `enum` is a constant, a plain
+`#define` or `enum` that has no symbol in the library, so nothing is
+`dlsym()`ed. It works the same in `dlopen()`, `linkSymbols()` and
+[`cc()`](c-compiler.md), and `dlopen(null, { ... })` with only constants is
+valid:
+
+```js
+const { symbols } = dlopen("libfoo.so", {
+  FOO_MAX: { value: 4096 },
+  FOO_MASK: { value: 0xffffffffffffffffn, type: "u64" },
+  Color: { enum: { RED: 0, GREEN: 1, BLUE: 4 }, type: "u32" },
+  Flags: { enum: { A: 1, B: 2, C: 4 }, type: "u8", flags: true },
+});
+
+symbols.FOO_MAX;    // 4096
+symbols.Color.BLUE; // 4
+symbols.Color[4];   // "BLUE" (reverse map, not enumerable)
+```
+
+| Key     | Meaning |
+| ------- | ------- |
+| `value` | a number, bigint, string or boolean, stored as is |
+| `type`  | optional scalar the value must fit: `{ value: 300, type: "u8" }` is a `RangeError`; 64-bit types give a bigint |
+| `enum`  | `{ NAME: value }`; `type` defaults to `i32`; two names with one value are aliases, the reverse map keeps the first |
+| `flags` | enum only; `true` requires disjoint bits, else `RangeError` |
+
+A constant is an enumerable, read-only data property of `symbols` (not a
+getter) and survives `close()`. `value` and `enum` together, or either mixed
+with `args`, `returns` or `type`-only variable keys, is a `TypeError`.
+`qjs-ffi-genbindings` writes these entries for `#define`s and `enum`s.
+
 ## Raw libdl
 
 `dlopen()` takes a second argument of two kinds, told apart by its type: an

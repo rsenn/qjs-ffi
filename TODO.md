@@ -383,6 +383,9 @@ symbols.Color[4];     // "BLUE" (reverse map, non-enumerable)
 
 ### Phases
 
+Status: 1, 2 and 4 done (`tests/test-constants.js`, `tests/test-gen-bindings-consts.js`,
+`doc/dlopen.md#constants`); 3 (enum-typed struct fields) not started.
+
 1. **Numbers and strings** -> `value` with and without `type`, range errors,
    frozen property, works with `dlopen(null, ...)`.
 2. **Enums** -> `enum`, reverse map, aliases, `flags`, `Object.keys`.
