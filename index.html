@@ -26,7 +26,7 @@
   <div>
     <span class="eyebrow">libffi + dlopen for QuickJS</span>
     <h1>qjs-ffi: call C from JavaScript, no glue code</h1>
-    <p class="lede">Load a shared library, describe a prototype, call it. qjs-ffi is a small loadable QuickJS module built on libffi, with a bun:ffi-style API, native-to-JS callbacks, direct memory access, an optional in-memory C compiler, and a generator that turns a C or C++ header into a ready-made binding.</p>
+    <p class="lede">Load a shared library, describe a prototype, call it. qjs-ffi is a small loadable QuickJS module built on libffi, with a bun:ffi-style API, native-to-JS callbacks, direct memory access, an optional in-memory C compiler, and a generator that turns a C or C++ header into a ready-made binding, for QuickJS, bun, Deno or Node.</p>
     <div class="cta">
       <a class="btn primary" href="getting-started.html">Get started</a>
       <a class="btn" href="docs/ffi.html">Read the docs</a>
@@ -124,10 +124,10 @@ document.querySelectorAll('.hero-example').forEach(function (box) {
 
 <main>
   <ul class="badges">
-    <li><b>87 KB</b> module, stripped</li>
+    <li><b>100 KB</b> module, stripped</li>
     <li><b>libffi</b> the only extra dependency</li>
-    <li><b>376</b> tests in 28 suites</li>
-    <li><b>bun:ffi</b> API</li>
+    <li><b>407</b> tests in 32 suites</li>
+    <li><b>4 runtimes</b> one binding generator</li>
   </ul>
 
   <section class="section">
@@ -136,9 +136,24 @@ document.querySelectorAll('.hero-example').forEach(function (box) {
     <div class="grid">
       <article class="card"><span class="ico">01</span><h3>Typed calls</h3><p><code>dlopen()</code> and <code>CFunction</code> prepare the libffi call interface once and give back plain JS functions, with no name lookup per call. Types follow bun:ffi: <code>i32</code>, <code>u64</code> (an exact <code>bigint</code>), <code>f64</code>, <code>pointer</code>, <code>cstring</code>, and structs passed or returned by value. A class that extends <code>ArrayBuffer</code> is a type too: pass an instance, get one back.</p></article>
       <article class="card"><span class="ico">02</span><h3>Callbacks and memory</h3><p><code>JSCallback</code> turns a JS function into a real native function pointer, so C code can call back into your script. <code>read.u32(ptr, off)</code>, <code>toArrayBuffer()</code> (with a native deallocator) and <code>CString</code> reach native memory without a copy.</p></article>
-      <article class="card"><span class="ico">03</span><h3>C on the fly</h3><p><code>cc()</code> compiles C source in memory with TinyCC and hands back its functions with the same typed signatures, like bun's <code>cc()</code>. Optional: build with <code>-DENABLE_TCC=ON</code>; without it the module stays at 87 KB.</p></article>
-      <article class="card"><span class="ico">04</span><h3>Bindings included</h3><p><code>lib/</code> ships generated bindings for cairo, SDL2, freetype, libcurl, libusb, libarchive and zlib. <code>tools/gen-bindings.js</code> makes one for any other header, using clang's AST, including structs and C++ classes with virtual methods. <code>--target=bun</code> writes the same bindings for bun:ffi.</p></article>
+      <article class="card"><span class="ico">03</span><h3>C on the fly</h3><p><code>cc()</code> compiles C source in memory with TinyCC and hands back its functions with the same typed signatures, like bun's <code>cc()</code>. Optional: build with <code>-DENABLE_TCC=ON</code>; without it the module stays at about 100 KB.</p></article>
+      <article class="card"><span class="ico">04</span><h3>Bindings included</h3><p><code>lib/</code> ships generated bindings for cairo, SDL2, freetype, libcurl, libusb, libarchive and zlib. <code>tools/gen-bindings.js</code> makes one for any other header, using clang's AST: structs, unions, <code>#define</code>s, enums and C++ classes with virtual methods. <code>--target=bun|deno|node</code> writes the same bindings for bun:ffi, <code>Deno.dlopen</code> and Node 26's <code>node:ffi</code>.</p></article>
     </div>
+  </section>
+
+  <section class="section">
+    <h2>One header, four runtimes</h2>
+    <p class="sub">The generator writes the same module for QuickJS, bun, Deno and Node. SDL2's 816 functions load in about 25&ndash;130&nbsp;ms on each, and a call returns the same value on all four.</p>
+    <div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-kw">for</span> <span class="t-id">t</span> <span class="t-kw">in</span> <span class="t-id">qjs</span> <span class="t-id">bun</span> <span class="t-id">deno</span> <span class="t-id">node</span>; <span class="t-kw">do</span>
+  <span class="t-id">qjs-ffi-genbindings</span> <span class="t-op">--target</span>=<span class="t-var">$t</span> <span class="t-op">--library</span>=<span class="t-id">libSDL2-2.0.so.0</span> <span class="t-op">--structs</span> \
+    <span class="t-op">--follow-includes</span> <span class="t-op">-I</span>/<span class="t-id">usr</span>/<span class="t-id">include</span>/<span class="t-id">SDL2</span> <span class="t-op">-o</span> <span class="t-id">sdl</span>.<span class="t-var">$t</span>.<span class="t-id">mjs</span> /<span class="t-id">usr</span>/<span class="t-id">include</span>/<span class="t-id">SDL2</span>/<span class="t-id">SDL.h</span>
+<span class="t-kw">done</span></code></pre></div>
+    <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> <span class="t-op">*</span> <span class="t-id">as</span> <span class="t-id">sdl</span> <span class="t-kw">from</span> <span class="t-str">'./sdl.mjs'</span>;   <span class="t-cm">// sdl.qjs.mjs, sdl.bun.mjs, ...</span>
+
+<span class="t-kw">const</span> <span class="t-id">v</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-id">sdl</span>.<span class="t-fn">SDL_version</span>();
+<span class="t-id">sdl</span>.<span class="t-fn">SDL_GetVersion</span>(<span class="t-id">v</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">v</span>.<span class="t-prop">major</span>, <span class="t-id">v</span>.<span class="t-prop">minor</span>, <span class="t-id">v</span>.<span class="t-prop">patch</span>); <span class="t-cm">// 2 30 0, under qjsm, bun, deno and node</span></code></pre></div>
+    <p class="sub">A struct is a class you can <code>new</code> and read fields from, a C++ virtual method is called through the object's vtable, and a header's constants are exported. The few things a runtime cannot do (structs by value on bun and node, variadic functions on bun, Deno and node) are skipped, with the reason written at the end of the module. See <a href="docs/gen-bindings.html">generating bindings</a>.</p>
   </section>
 
   <section class="section">
