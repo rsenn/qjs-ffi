@@ -433,6 +433,9 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
     argc--;
   }
 
+  if(argc < 1 || JS_IsUndefined(argv[0]))
+    return JS_ThrowTypeError(ctx, "toArrayBuffer: argument 1 must be a pointer, ArrayBuffer or string");
+
   if(!js_try_get_bytes(ctx, &buf, argv[0])) {
     if(!copy)
       opaque = JS_VALUE_GET_PTR(JS_DupValue(ctx, argv[0]));
@@ -451,6 +454,9 @@ js_toarraybuffer_legacy(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   } else {
     if(js_to_pointer(ctx, (void**)&buf.data, argv[0]))
       return js_throw_pointer_error(ctx, argv[0]);
+
+    if(!buf.data)
+      return JS_ThrowTypeError(ctx, "toArrayBuffer: argument 1 must be a pointer, ArrayBuffer or string");
   }
 
   if(argc > 1) {

@@ -1,4 +1,4 @@
-import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn } from './common.js';
+import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn, hidesSize } from './common.js';
 import { sigCode } from './describe.js';
 import { jsDoc } from './jsdoc.js';
 import { classesCode as structClasses, mergeIRs } from './structs.js';
@@ -283,7 +283,7 @@ export function classesCode(ir, classes, opts, cxxFunctions) {
 
     const dtor = c.destructor && (c.destructor.mangledName || c.destructor.vtableSlot !== undefined) ? '__lazy(()=>' + classFn(c.destructor.mangledName, { args: [] }, thisType, opts, c.destructor.vtableSlot) + ')' : 'null';
     const zeroInit = !c.constructors.length && !c.abstract && !c.polymorphic;
-    out += id + '.size = ' + c.size + ';\n';
+    if(!hidesSize(c)) out += id + '.size = ' + c.size + ';\n';
     out += id + '.__info = { size: ' + c.size + ', ctors: ' + (c.constructors.length ? prefix + 'ctor' : 'null') + ', dtor: ' + dtor + (zeroInit ? ', zeroInit: true' : '') + ' };\n';
 
     for(const f of c.fields) {

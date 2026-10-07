@@ -80,7 +80,7 @@ console.log(n);
 var strdup;
 strdup = dlsym(RTLD_DEFAULT, 'strdup');
 if(strdup == null) console.log(dlerror());
-define('strdup', strdup, null, 'char *', 'char *');
+define('strdup', strdup, null, 'void *', 'char *');
 
 p = call('strdup', 'dup this');
 

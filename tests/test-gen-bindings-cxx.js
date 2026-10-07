@@ -569,5 +569,17 @@ await tests({
       eq(9, m.c_fn(9));
     });
   },
-});
 
+  'a static method named size is kept; the byte count lives in __info'() {
+    const file = tmp + 'test-gen-bindings-cxx.sizestatic.js';
+
+    sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--c++', '--structs', '--class-types', '-o', file, root + 'tests/cxx/sizestatic.hpp'].join(' '));
+
+    const js = std.loadFile(file);
+
+    assert(js !== null, 'no module written');
+    assert(/static size\(/.test(js), 'static size() is not generated');
+    assert(!/sized\.size = /.test(js), 'sized.size is assigned');
+    assert(/sized\.__info = \{ size: 4/.test(js), 'no __info with the size');
+  },
+});

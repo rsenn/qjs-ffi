@@ -37,6 +37,20 @@
  * -Joe Walnes
  * MIT License. See https://github.com/joewalnes/jstinytest/
  */
+/* loose == on primitives, element by element on arrays and objects */
+function looseEqual(a, b) {
+  if(typeof a != 'object' || typeof b != 'object' || a === null || b === null) return a == b;
+
+  const ka = Object.keys(a);
+
+  return ka.length == Object.keys(b).length && ka.every(k => k in b && looseEqual(a[k], b[k]));
+}
+
+/* a value as text for a failure message: arrays and objects as JSON */
+function show(v) {
+  return typeof v == 'object' && v !== null ? JSON.stringify(v, (k, x) => (typeof x == 'bigint' ? x + 'n' : x)) : '"' + v + '"';
+}
+
 const TinyTest = {
   async run(tests) {
     let count = 0,
@@ -71,8 +85,8 @@ const TinyTest = {
   },
 
   assertEquals(expected, actual) {
-    if(expected != actual) {
-      throw new Error('assertEquals() "' + expected + '" != "' + actual + '"');
+    if(!looseEqual(expected, actual)) {
+      throw new Error('assertEquals() ' + show(expected) + ' != ' + show(actual));
     }
   },
 

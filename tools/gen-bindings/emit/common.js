@@ -177,6 +177,13 @@ export function isByValue(t) {
 
 /* The name of the const holding the element list of `struct NAME`, which
  * CFunction takes as the type of a struct passed or returned by value. */
+/* Whether C++ class `c` has a static method or field named `size`, which the
+ * class's own `size` (its byte count, also the class-type protocol) would
+ * replace: such a class keeps its member and carries the count in __info. */
+export function hidesSize(c) {
+  return (c.methods || []).some(m => m.static && m.name === 'size') || (c.fields || []).some(f => f.static && f.name === 'size');
+}
+
 function structTypeName(name) {
   return '__s_' + safeIdent(name.slice('struct '.length).replace(/::/g, '_'));
 }

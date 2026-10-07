@@ -105,4 +105,19 @@ await tests({
     const src = new Uint8Array([1, 2, 3]);
     eq(2, toArrayBuffer(src.buffer, 2, true).byteLength);
   },
+
+  'no pointer, undefined, null or a plain object is a TypeError, as in bun'() {
+    assertThrows(() => toArrayBuffer(), TypeError);
+    assertThrows(() => toArrayBuffer(undefined), TypeError);
+    assertThrows(() => toArrayBuffer(null), TypeError);
+    assertThrows(() => toArrayBuffer({}), TypeError);
+    assertThrows(() => toBuffer(), TypeError);
+  },
+
+  'eq compares arrays and objects by value'() {
+    eq(['a', [1n]], ['a', [1n]]);
+    eq({ x: 1, y: { z: 2 } }, { x: 1, y: { z: 2 } });
+    assertThrows(() => eq([1, 2], [1, 3]), Error);
+    assertThrows(() => eq({ a: 1 }, { a: 1, b: 2 }), Error);
+  },
 });

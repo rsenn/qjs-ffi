@@ -1,5 +1,6 @@
 import { SIZES, arrayOf, bunLike } from './ffi-types.js';
 import { scalarOf, recordOf, mergeIRs, identOf } from './emit/structs.js';
+import { hidesSize } from './emit/common.js';
 
 /* Structs passed or returned by value. CFunction takes such a type as an array
  * of the struct's members' types in memory order (a nested struct a nested
@@ -206,7 +207,7 @@ export function prepareClassTypes(ir, opts, classes) {
   const aliases = new Map();
 
   for(const s of opts.structs ? ir.structs : []) if(s.size != null) idents.set(s.name, identOf(s.name));
-  for(const c of classes) if(c.size != null) idents.set(c.name, identOf(c.name));
+  for(const c of classes) if(c.size != null && !hidesSize(c)) idents.set(c.name, identOf(c.name));
   for(const t of ir.typedefs || []) if(t.record && idents.has(t.record)) aliases.set(t.name, t.record);
 
   // clang spells a reference parameter inside a namespace unqualified:
