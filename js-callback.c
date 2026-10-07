@@ -122,7 +122,8 @@ js_callback_handler(ffi_cif* cif, void* ret, void** args, void* user_data) {
   int i;
 
   for(i = 0; i < cl->sig.argc; i++)
-    argv[i] = ffi_native_to_js(ctx, cl->sig.arg_kind[i], args[i]);
+    argv[i] = cl->sig.arg_kind[i] == K_STRUCT_PTR ? js_struct_view(ctx, cl->sig.arg_class[i], cl->sig.arg_size[i], *(void**)args[i])
+                                                  : ffi_native_to_js(ctx, cl->sig.arg_kind[i], args[i]);
 
   JS_FreeValue(ctx, cl->exception);
   cl->exception = JS_UNDEFINED;
@@ -139,7 +140,7 @@ js_callback_handler(ffi_cif* cif, void* ret, void** args, void* user_data) {
     r = JS_UNDEFINED;
   }
 
-  if(js_to_native_ret(ctx, cl->sig.ret_kind, ret, r)) {
+  if(cl->sig.ret_kind == K_STRUCT_PTR ? js_struct_arg(ctx, cl->sig.ret_class, cl->sig.ret_size, r, 0, ret) : js_to_native_ret(ctx, cl->sig.ret_kind, ret, r)) {
     callback_threw(ctx, cl);
     memset(ret, 0, sizeof(ffi_arg));
   }
@@ -165,7 +166,7 @@ js_callback_new(JSContext* ctx, JSValueConst func_obj, JSValueConst options) {
   if(!(cl = js_mallocz(ctx, sizeof(JSCallback))))
     return NULL;
 
-  if(ffi_sig_parse(ctx, &cl->sig, options)) {
+  if(ffi_sig_parse(ctx, &cl->sig, options, JS_UNDEFINED)) {
     js_free(ctx, cl);
     return NULL;
   }

@@ -64,7 +64,7 @@ js_errno(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   return JS_NewInt32(ctx, errno);
 }
 
-static JSValue js_dlopen_symbols(JSContext*, JSValueConst path_val, JSValueConst symbol_specs);
+static JSValue js_dlopen_symbols(JSContext*, JSValueConst path_val, JSValueConst symbol_specs, JSValueConst types);
 
 /* dlopen(path, flags) opens a library; dlopen(path, symbolSpecs) is
  * bun's form, picked when argument 2 is an object.
@@ -81,7 +81,7 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) 
   uint32_t n;
 
   if(argc > 1 && JS_IsObject(argv[1]))
-    return js_dlopen_symbols(ctx, argv[0], argv[1]);
+    return js_dlopen_symbols(ctx, argv[0], argv[1], argc > 2 ? argv[2] : JS_UNDEFINED);
 
   if(JS_IsNull(argv[0]))
     s = NULL;
@@ -172,7 +172,7 @@ js_dlopen_symbols_close(JSContext* ctx, JSValueConst this_val, int argc, JSValue
  * c-function.h. */
 JSValue
 js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int linked,
-                 const char* who, js_symbol_resolver* resolve) {
+                 const char* who, js_symbol_resolver* resolve, JSValueConst types) {
   JSPropertyEnum* tab = NULL;
   uint32_t i, len = 0;
 
@@ -194,6 +194,16 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
     if(JS_IsException(spec)) {
       JS_FreeCString(ctx, name);
       goto fail;
+    }
+
+    if((data = js_constant_define(ctx, symbols, tab[i].atom, spec, who, name))) {
+      JS_FreeCString(ctx, name);
+      JS_FreeValue(ctx, spec);
+      JS_FreeAtom(ctx, tab[i].atom);
+
+      if(data < 0)
+        goto fail_next;
+      continue;
     }
 
     if((data = js_is_data_spec(ctx, spec, who, name)) < 0) {
@@ -224,7 +234,7 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
     }
 
     if(data) {
-      int rc = js_variable_define(ctx, symbols, tab[i].atom, fp, spec, who, name);
+      int rc = js_variable_define(ctx, symbols, tab[i].atom, fp, spec, who, name, types);
 
       JS_FreeCString(ctx, name);
       JS_FreeValue(ctx, spec);
@@ -238,7 +248,7 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
 
     JS_FreeCString(ctx, name);
 
-    JSValue fn = js_cfunction_create(ctx, fp, spec);
+    JSValue fn = js_cfunction_create(ctx, fp, spec, types);
     JS_FreeValue(ctx, spec);
 
     if(JS_IsException(fn))
@@ -256,6 +266,8 @@ js_build_symbols(JSContext* ctx, void* handle, JSValueConst symbol_specs, int li
   js_free(ctx, tab);
   return symbols;
 
+fail_next:
+  i++;
 fail:
   for(; i < len; i++)
     JS_FreeAtom(ctx, tab[i].atom);
@@ -279,7 +291,7 @@ fail:
  * throws Error with code ERR_DLOPEN_FAILED if the library does not
  * open, TypeError for a symbol it does not have. */
 static JSValue
-js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_specs) {
+js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_specs, JSValueConst types) {
   const char* path = NULL;
   JSPropertyEnum* names = NULL;
   uint32_t count = 0;
@@ -320,7 +332,7 @@ js_dlopen_symbols(JSContext* ctx, JSValueConst path_val, JSValueConst symbol_spe
     return JS_Throw(ctx, error);
   }
 
-  JSValue symbols = js_build_symbols(ctx, handle, symbol_specs, FALSE, "dlopen", NULL);
+  JSValue symbols = js_build_symbols(ctx, handle, symbol_specs, FALSE, "dlopen", NULL, types);
 
   if(JS_IsException(symbols)) {
     dlclose(handle);
@@ -358,7 +370,7 @@ js_linksymbols(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   if(argc < 1 || !JS_IsObject(argv[0]))
     return JS_ThrowTypeError(ctx, "linkSymbols: argument 1 must be an object");
 
-  JSValue symbols = js_build_symbols(ctx, RTLD_DEFAULT, argv[0], TRUE, "linkSymbols", NULL);
+  JSValue symbols = js_build_symbols(ctx, RTLD_DEFAULT, argv[0], TRUE, "linkSymbols", NULL, argc > 1 ? argv[1] : JS_UNDEFINED);
 
   if(JS_IsException(symbols))
     return symbols;

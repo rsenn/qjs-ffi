@@ -220,7 +220,10 @@ js_compiler_cc(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst arg
   }
 
   /* no close(), as in bun: the TCCState, so the compiled code, lives on */
-  JSValue fns = js_build_symbols(ctx, s, symbols, FALSE, "cc", cc_resolve);
+  JSValue class_types = JS_GetPropertyStr(ctx, options, "types");
+  JSValue fns = js_build_symbols(ctx, s, symbols, FALSE, "cc", cc_resolve, class_types);
+
+  JS_FreeValue(ctx, class_types);
 
   JS_FreeValue(ctx, symbols);
 

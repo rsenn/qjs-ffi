@@ -114,14 +114,14 @@ js_cfunction_data_free(JSRuntime* rt, CFunctionData* cf) {
 }
 
 static CFunctionData*
-js_cfunction_new(JSContext* ctx, void* fp, JSValueConst spec) {
+js_cfunction_new(JSContext* ctx, void* fp, JSValueConst spec, JSValueConst types) {
   CFunctionData* cf;
   int abi = FFI_DEFAULT_ABI;
 
   if(!(cf = js_mallocz(ctx, sizeof(CFunctionData))))
     return NULL;
 
-  if(ffi_sig_parse(ctx, &cf->sig, spec)) {
+  if(ffi_sig_parse(ctx, &cf->sig, spec, types)) {
     js_free(ctx, cf);
     return NULL;
   }
@@ -272,6 +272,13 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
         ret = js_throw_pointer_error(ctx, v);
         goto done;
       }
+    } else if(kinds[i] == K_STRUCT_PTR) {
+      /* a class as the type: its instance, a buffer of its size, or null */
+      if(js_struct_arg(ctx, cf->sig.arg_class[i], cf->sig.arg_size[i], v, i + 1,
+                       &args_storage[i].ptr)) {
+        ret = JS_EXCEPTION;
+        goto done;
+      }
     } else if(kinds[i] == K_BUFFER_LENGTH) {
       /* buffer_length: byte size of the view given here, the same view
        * as the buffer argument before it. */
@@ -334,6 +341,8 @@ js_cfunction_invoke(JSContext* ctx, JSValueConst func_obj, JSValueConst this_val
 
     if(js_callback_scope_end(&scope, &thrown))
       ret = JS_Throw(ctx, thrown);
+    else if(cf->sig.ret_kind == K_STRUCT_PTR)
+      ret = js_struct_view(ctx, cf->sig.ret_class, cf->sig.ret_size, rc.ptr);
     else
       ret = ffi_native_to_js(ctx, cf->sig.ret_kind, &rc);
   }
@@ -390,9 +399,18 @@ js_variable_finalizer(JSRuntime* rt, JSValue val) {
   }
 }
 
+static void
+js_variable_mark(JSRuntime* rt, JSValueConst val, JS_MarkFunc* mark_func) {
+  VariableData* v;
+
+  if((v = JS_GetOpaque(val, js_variable_class_id)))
+    ffi_sig_mark(rt, &v->sig, mark_func);
+}
+
 static JSClassDef js_variable_class = {
     .class_name = "FFIVariable",
     .finalizer = js_variable_finalizer,
+    .gc_mark = js_variable_mark,
 };
 
 static JSValue
@@ -404,6 +422,10 @@ js_variable_get(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
    * no free function. */
   if(v->sig.ret_kind == K_STRUCT)
     return JS_NewArrayBuffer(ctx, v->addr, v->sig.ret_type->size, NULL, NULL, FALSE);
+
+  /* a class as the type: the variable's own memory is the instance */
+  if(v->sig.ret_kind == K_STRUCT_PTR)
+    return js_struct_view(ctx, v->sig.ret_class, v->sig.ret_size, v->addr);
 
   return ffi_native_to_js(ctx, v->sig.ret_kind, v->addr);
 }
@@ -417,6 +439,10 @@ js_variable_set(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
   if(v->readonly)
     return JS_ThrowTypeError(ctx, "%s is read-only", v->name);
+
+  if(v->sig.ret_kind == K_STRUCT_PTR)
+    return JS_ThrowTypeError(ctx, "%s is a struct and cannot be assigned (assign its fields)",
+                             v->name);
 
   if(v->sig.ret_kind == K_CSTRING)
     return JS_ThrowTypeError(
@@ -472,9 +498,335 @@ js_is_data_spec(JSContext* ctx, JSValueConst spec, const char* who, const char* 
   return ret;
 }
 
+/* the value of a constant, as an exact integer or a double.
+ * bigints and numbers both land in `i` (or `d` for a fraction). */
+typedef struct {
+  __int128 i;
+  double d;
+  int is_float;
+} ConstNum;
+
+/* reads `v` (number or bigint) into `out`; -1 with a pending TypeError
+ * or RangeError, naming `what`. */
+static int
+const_num(JSContext* ctx, JSValueConst v, ConstNum* out, const char* what) {
+  int64_t s;
+
+  out->is_float = 0;
+
+  if(JS_IsBigInt(ctx, v)) {
+    JSValue back;
+    const char *a, *b;
+    int same;
+
+    if(JS_ToBigInt64(ctx, &s, v))
+      return -1;
+
+    back = JS_NewBigInt64(ctx, s);
+    a = JS_ToCString(ctx, v);
+    b = JS_ToCString(ctx, back);
+    same = a && b && !strcmp(a, b);
+    out->i = s;
+
+    /* wider than i64: it must be a u64 */
+    if(!same) {
+      JS_FreeValue(ctx, back);
+      JS_FreeCString(ctx, b);
+      back = JS_NewBigUint64(ctx, (uint64_t)s);
+      b = JS_ToCString(ctx, back);
+      same = a && b && !strcmp(a, b);
+      out->i = (__int128)(uint64_t)s;
+    }
+
+    JS_FreeValue(ctx, back);
+    JS_FreeCString(ctx, a);
+    JS_FreeCString(ctx, b);
+
+    if(!same) {
+      JS_ThrowRangeError(ctx, "%s: does not fit 64 bits", what);
+      return -1;
+    }
+    return 0;
+  }
+
+  if(JS_IsNumber(v)) {
+    double d;
+
+    if(JS_ToFloat64(ctx, &d, v))
+      return -1;
+
+    out->d = d;
+
+    if(d == (double)(int64_t)d && d > -9.3e18 && d < 9.3e18) {
+      out->i = (int64_t)d;
+    } else if(d >= 0 && d < 18446744073709551616.0 && d == (double)(uint64_t)d) {
+      out->i = (__int128)(uint64_t)d;
+    } else
+      out->is_float = 1;
+    return 0;
+  }
+
+  JS_ThrowTypeError(ctx, "%s: expected a number or bigint", what);
+  return -1;
+}
+
+/* checks `n` against the range of scalar `kind`; -1 with a RangeError. */
+static int
+const_check(JSContext* ctx, int kind, const ConstNum* n, const char* what) {
+  __int128 lo, hi;
+
+  switch(kind) {
+    case K_BOOL: lo = 0, hi = 1; break;
+    case K_I8: lo = -128, hi = 127; break;
+    case K_U8: lo = 0, hi = 255; break;
+    case K_I16: lo = -32768, hi = 32767; break;
+    case K_U16: lo = 0, hi = 65535; break;
+    case K_I32: lo = INT32_MIN, hi = INT32_MAX; break;
+    case K_U32: lo = 0, hi = UINT32_MAX; break;
+    case K_I64:
+    case K_I64_FAST: lo = INT64_MIN, hi = INT64_MAX; break;
+    case K_U64:
+    case K_U64_FAST: lo = 0, hi = (__int128)UINT64_MAX; break;
+    default: return 0;
+  }
+
+  if(n->is_float || n->i < lo || n->i > hi) {
+    JS_ThrowRangeError(ctx, "%s: does not fit the type", what);
+    return -1;
+  }
+
+  return 0;
+}
+
+/* converts constant value `v` to what `kind` stores: 64-bit integers
+ * become bigints, narrower ones numbers, floats numbers.
+ * returns the new value, or JS_EXCEPTION. */
+static JSValue
+const_value(JSContext* ctx, JSValueConst v, int kind, const char* what) {
+  ConstNum n;
+
+  if(kind == K_F32 || kind == K_F64) {
+    double d;
+
+    if(!JS_IsNumber(v) && !JS_IsBigInt(ctx, v))
+      return JS_ThrowTypeError(ctx, "%s: expected a number", what);
+    if(JS_ToFloat64(ctx, &d, v))
+      return JS_EXCEPTION;
+    return JS_NewFloat64(ctx, kind == K_F32 ? (double)(float)d : d);
+  }
+
+  if(kind == K_BOOL && JS_IsBool(v))
+    return JS_DupValue(ctx, v);
+
+  if(const_num(ctx, v, &n, what) || const_check(ctx, kind, &n, what))
+    return JS_EXCEPTION;
+
+  switch(kind) {
+    case K_I64:
+    case K_I64_FAST: return JS_NewBigInt64(ctx, (int64_t)n.i);
+    case K_U64:
+    case K_U64_FAST: return JS_NewBigUint64(ctx, (uint64_t)n.i);
+    case K_BOOL: return JS_NewBool(ctx, n.i != 0);
+    default: return JS_NewInt64(ctx, (int64_t)n.i);
+  }
+}
+
+/* the scalar kind named by spec.type, or `dflt` when it has none;
+ * -1 with a TypeError when it names no scalar. */
+static int
+const_kind(JSContext* ctx, JSValueConst spec, int dflt, const char* who, const char* name) {
+  JSValue type = JS_GetPropertyStr(ctx, spec, "type");
+  int kind = dflt;
+
+  if(!JS_IsUndefined(type) && (!ffi_resolve_scalar(ctx, type, &kind) || kind == K_POINTER || kind == K_CSTRING || kind == K_STRUCT_PTR)) {
+    JS_ThrowTypeError(ctx, "%s: %s: constant type must be a scalar", who, name);
+    kind = -1;
+  }
+
+  JS_FreeValue(ctx, type);
+  return kind;
+}
+
+/* an enum is { NAME: value } plus a reverse map { value: NAME }; the reverse
+ * entries are not enumerable and the first name of a value wins. */
+static JSValue
+enum_create(JSContext* ctx, JSValueConst spec, int kind, const char* who, const char* name) {
+  JSValue members = JS_GetPropertyStr(ctx, spec, "enum"), flags_v = JS_GetPropertyStr(ctx, spec, "flags");
+  int flags = JS_ToBool(ctx, flags_v) > 0;
+  JSPropertyEnum* tab = NULL;
+  uint32_t len = 0, i;
+  JSValue out = JS_UNDEFINED;
+  __int128 seen = 0;
+  char what[256];
+
+  JS_FreeValue(ctx, flags_v);
+
+  if(!JS_IsObject(members)) {
+    JS_ThrowTypeError(ctx, "%s: %s: enum must be an object { NAME: value }", who, name);
+    out = JS_EXCEPTION;
+    goto done;
+  }
+
+  if(JS_GetOwnPropertyNames(ctx, &tab, &len, members, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY)) {
+    out = JS_EXCEPTION;
+    goto done;
+  }
+
+  out = JS_NewObject(ctx);
+
+  for(i = 0; i < len; i++) {
+    const char* key = JS_AtomToCString(ctx, tab[i].atom);
+    JSValue v = JS_GetProperty(ctx, members, tab[i].atom), nv = JS_UNDEFINED;
+    JSAtom rev = JS_ATOM_NULL;
+    ConstNum n;
+    int ok = 0;
+
+    snprintf(what, sizeof(what), "%s: %s.%s", who, name, key ? key : "?");
+
+    if(!key || JS_IsException(v) || (!JS_IsNumber(v) && !JS_IsBigInt(ctx, v))) {
+      if(key && !JS_IsException(v))
+        JS_ThrowTypeError(ctx, "%s: expected a number or bigint", what);
+      goto member_done;
+    }
+
+    if(const_num(ctx, v, &n, what) || const_check(ctx, kind, &n, what))
+      goto member_done;
+
+    if(flags && n.i) {
+      if(seen & n.i) {
+        JS_ThrowRangeError(ctx, "%s: bits overlap an earlier flag", what);
+        goto member_done;
+      }
+      seen |= n.i;
+    }
+
+    nv = const_value(ctx, v, kind, what);
+
+    if(JS_IsException(nv))
+      goto member_done;
+
+    rev = JS_ValueToAtom(ctx, nv);
+
+    if(!JS_HasProperty(ctx, out, rev) &&
+       JS_DefinePropertyValue(ctx, out, rev, JS_NewString(ctx, key), JS_PROP_CONFIGURABLE) < 0)
+      goto member_done;
+
+    ok = JS_DefinePropertyValue(ctx, out, tab[i].atom, JS_DupValue(ctx, nv), JS_PROP_ENUMERABLE) >= 0;
+
+  member_done:
+    JS_FreeAtom(ctx, rev);
+    JS_FreeValue(ctx, nv);
+    JS_FreeValue(ctx, v);
+    JS_FreeCString(ctx, key);
+
+    if(!ok) {
+      for(uint32_t j = i; j < len; j++)
+        JS_FreeAtom(ctx, tab[j].atom);
+      JS_FreeValue(ctx, out);
+      out = JS_EXCEPTION;
+      goto done_tab;
+    }
+
+    JS_FreeAtom(ctx, tab[i].atom);
+  }
+
+  /* reverse entries are configurable until here; lock them all */
+  JS_PreventExtensions(ctx, out);
+
+done_tab:
+  js_free(ctx, tab);
+done:
+  JS_FreeValue(ctx, members);
+  return out;
+}
+
+int
+js_constant_define(JSContext* ctx, JSValueConst obj, JSAtom prop, JSValueConst spec,
+                   const char* who, const char* name) {
+  JSValue value, enum_v;
+  int is_value, is_enum, ret = -1;
+
+  if(!JS_IsObject(spec))
+    return 0;
+
+  value = JS_GetPropertyStr(ctx, spec, "value");
+  enum_v = JS_GetPropertyStr(ctx, spec, "enum");
+  is_value = !JS_IsUndefined(value);
+  is_enum = !JS_IsUndefined(enum_v);
+  JS_FreeValue(ctx, enum_v);
+
+  if(JS_IsException(value) || JS_IsException(enum_v)) {
+    JS_FreeValue(ctx, value);
+    return -1;
+  }
+
+  if(!is_value && !is_enum)
+    return 0;
+
+  {
+    static const char* const clash[] = {"args", "returns", "address", "readonly", "ptr"};
+    int bad = is_value && is_enum;
+
+    for(size_t i = 0; i < countof(clash) && !bad; i++) {
+      JSValue c = JS_GetPropertyStr(ctx, spec, clash[i]);
+
+      bad = !JS_IsUndefined(c);
+      JS_FreeValue(ctx, c);
+    }
+
+    if(bad) {
+      JS_ThrowTypeError(ctx, "%s: %s: a constant has `value` or `enum` (with an optional `type`), not both and not a function or variable key", who, name);
+      JS_FreeValue(ctx, value);
+      return -1;
+    }
+  }
+
+  if(is_enum) {
+    int kind = const_kind(ctx, spec, K_I32, who, name);
+    JSValue e;
+
+    if(kind < 0)
+      goto out;
+
+    e = enum_create(ctx, spec, kind, who, name);
+
+    if(JS_IsException(e))
+      goto out;
+
+    ret = JS_DefinePropertyValue(ctx, obj, prop, e, JS_PROP_ENUMERABLE) < 0 ? -1 : 1;
+  } else {
+    char what[256];
+    int kind = const_kind(ctx, spec, -2, who, name);
+    JSValue v;
+
+    if(kind == -1)
+      goto out;
+
+    snprintf(what, sizeof(what), "%s: %s", who, name);
+
+    if(kind == -2) {
+      if(!JS_IsNumber(value) && !JS_IsString(value) && !JS_IsBool(value) && !JS_IsBigInt(ctx, value)) {
+        JS_ThrowTypeError(ctx, "%s: a constant is a number, bigint, string or boolean", what);
+        goto out;
+      }
+      v = JS_DupValue(ctx, value);
+    } else
+      v = const_value(ctx, value, kind, what);
+
+    if(JS_IsException(v))
+      goto out;
+
+    ret = JS_DefinePropertyValue(ctx, obj, prop, v, JS_PROP_ENUMERABLE) < 0 ? -1 : 1;
+  }
+
+out:
+  JS_FreeValue(ctx, value);
+  return ret;
+}
+
 int
 js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JSValueConst spec,
-                   const char* who, const char* name) {
+                   const char* who, const char* name, JSValueConst types) {
   JSValue address = JS_GetPropertyStr(ctx, spec, "address"),
           readonly = JS_GetPropertyStr(ctx, spec, "readonly");
   int want_address = JS_ToBool(ctx, address) > 0, want_readonly = JS_ToBool(ctx, readonly) > 0;
@@ -493,7 +845,28 @@ js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JS
 
   JSValue options = JS_NewObject(ctx);
 
-  JS_SetPropertyStr(ctx, options, "returns", JS_GetPropertyStr(ctx, spec, "type"));
+  JSValue type = JS_GetPropertyStr(ctx, spec, "type");
+
+  /* a bare class name ("Point") is the variable's own memory as that class;
+   * "Point *" stays a pointer value */
+  if(JS_IsString(type)) {
+    const char* s = JS_ToCString(ctx, type);
+    JSValue cls = JS_UNDEFINED;
+
+    if(s) {
+      JSValue local = JS_GetPropertyStr(ctx, spec, "types");
+
+      if(ffi_class_lookup(ctx, local, s, 0, &cls) || ffi_class_lookup(ctx, types, s, 0, &cls)) {
+        JS_FreeValue(ctx, type);
+        type = cls;
+      }
+
+      JS_FreeValue(ctx, local);
+      JS_FreeCString(ctx, s);
+    }
+  }
+
+  JS_SetPropertyStr(ctx, options, "returns", type);
 
   if(!(v = js_mallocz(ctx, sizeof(VariableData)))) {
     JS_FreeValue(ctx, options);
@@ -503,7 +876,7 @@ js_variable_define(JSContext* ctx, JSValueConst obj, JSAtom prop, void* addr, JS
   v->addr = addr;
   v->readonly = want_readonly;
 
-  if(ffi_sig_parse(ctx, &v->sig, options)) {
+  if(ffi_sig_parse(ctx, &v->sig, options, JS_UNDEFINED)) {
     JS_FreeValue(ctx, options);
     js_free(ctx, v);
     return -1;
@@ -568,17 +941,26 @@ static const JSCFunctionListEntry js_cfunction_proto_funcs[] = {
     JS_CFUNC_DEF("close", 0, js_cfunction_close),
 };
 
+static void
+js_cfunction_mark(JSRuntime* rt, JSValueConst val, JS_MarkFunc* mark_func) {
+  CFunctionData* cf;
+
+  if((cf = JS_GetOpaque(val, js_cfunction_class_id)))
+    ffi_sig_mark(rt, &cf->sig, mark_func);
+}
+
 static JSClassDef js_cfunction_class = {
     .class_name = "CFunction",
     .finalizer = js_cfunction_finalizer,
+    .gc_mark = js_cfunction_mark,
     .call = js_cfunction_invoke,
 };
 
 JSValue
-js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec) {
+js_cfunction_create(JSContext* ctx, void* fp, JSValueConst spec, JSValueConst types) {
   CFunctionData* cf;
 
-  if(!(cf = js_cfunction_new(ctx, fp, spec)))
+  if(!(cf = js_cfunction_new(ctx, fp, spec, types)))
     return JS_EXCEPTION;
 
   JSValue func_obj = JS_NewObjectClass(ctx, js_cfunction_class_id);
@@ -620,7 +1002,7 @@ js_cfunction_constructor(JSContext* ctx, JSValueConst this_val, int argc, JSValu
   }
 
   JS_FreeValue(ctx, ptr_val);
-  return js_cfunction_create(ctx, fp, options);
+  return js_cfunction_create(ctx, fp, options, JS_UNDEFINED);
 }
 
 int

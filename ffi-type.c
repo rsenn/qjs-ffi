@@ -350,12 +350,178 @@ ffi_resolve_scalar(JSContext* ctx, JSValueConst value, int* kind) {
 }
 
 int
-ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
+ffi_class_lookup(JSContext* ctx, JSValueConst types, const char* name, int pointer, JSValue* cls) {
+  char buf[256];
+  size_t n = strlen(name);
+  char *p, *end;
+  int stars = 0;
+
+  if(!JS_IsObject(types) || n >= sizeof(buf))
+    return 0;
+
+  memcpy(buf, name, n + 1);
+  p = buf;
+  end = buf + n;
+
+  while(end > p && (end[-1] == ' ' || end[-1] == '\t'))
+    end--;
+
+  while(end > p && end[-1] == '*') {
+    end--;
+    stars++;
+    while(end > p && (end[-1] == ' ' || end[-1] == '\t'))
+      end--;
+  }
+
+  if(stars != (pointer ? 1 : 0))
+    return 0;
+
+  *end = '\0';
+
+  /* leading qualifiers and the record keyword */
+  for(int again = 1; again;) {
+    static const char* const words[] = {"const", "volatile", "struct", "union", "class", "enum"};
+
+    again = 0;
+
+    while(*p == ' ' || *p == '\t')
+      p++;
+
+    for(size_t i = 0; i < countof(words); i++) {
+      size_t len = strlen(words[i]);
+
+      if(!strncmp(p, words[i], len) && (p[len] == ' ' || p[len] == '\t')) {
+        p += len;
+        again = 1;
+        break;
+      }
+    }
+  }
+
+  if(!*p)
+    return 0;
+
+  for(int pass = 0; pass < 2; pass++) {
+    const char* key = p;
+
+    /* the last segment of a qualified name, when the whole is not a key */
+    if(pass) {
+      const char* sep = strrchr(p, ':');
+
+      if(!sep || sep == p)
+        return 0;
+
+      key = sep + 1;
+    }
+
+    JSValue v = JS_GetPropertyStr(ctx, types, key);
+
+    if(js_is_buffer_class(ctx, v)) {
+      *cls = v;
+      return 1;
+    }
+
+    JS_FreeValue(ctx, v);
+
+    if(JS_HasException(ctx))
+      JS_FreeValue(ctx, JS_GetException(ctx));
+  }
+
+  return 0;
+}
+
+/* a class for `item` (a constructor, or a type string found in `local` or
+ * `types`), as a new reference, or JS_UNDEFINED. */
+static JSValue
+class_of(JSContext* ctx, JSValueConst item, JSValueConst local, JSValueConst types) {
+  JSValue cls = JS_UNDEFINED;
+
+  if(js_is_buffer_class(ctx, item))
+    return JS_DupValue(ctx, item);
+
+  if(JS_IsString(item)) {
+    const char* s = JS_ToCString(ctx, item);
+
+    if(s) {
+      if(!ffi_class_lookup(ctx, local, s, 1, &cls))
+        ffi_class_lookup(ctx, types, s, 1, &cls);
+
+      JS_FreeCString(ctx, s);
+    }
+  }
+
+  return cls;
+}
+
+/* reads the static `size` of a class used as a type.
+ *
+ *   returns  0 with *size set, or -1 with a TypeError pending */
+static int
+class_size(JSContext* ctx, JSValueConst cls, size_t* size) {
+  JSValue v = JS_GetPropertyStr(ctx, cls, "size");
+  int64_t n = -1;
+  int ok = JS_IsNumber(v) && !JS_ToInt64(ctx, &n, v) && n >= 0;
+
+  JS_FreeValue(ctx, v);
+
+  if(!ok) {
+    JSValue name = JS_GetPropertyStr(ctx, cls, "name");
+    const char* s = JS_IsString(name) ? JS_ToCString(ctx, name) : NULL;
+
+    JS_ThrowTypeError(ctx, "class %s used as a type needs a static size (a non-negative integer)", s ? s : "(anonymous)");
+    JS_FreeCString(ctx, s);
+    JS_FreeValue(ctx, name);
+    return -1;
+  }
+
+  *size = (size_t)n;
+  return 0;
+}
+
+/* records the class of argument `i` of `argc`, allocating the arrays on the
+ * first one. sig->argc is set to `argc` then, so that ffi_sig_free()
+ * releases the classes if the parse fails later.
+ *
+ *   returns  0, or -1 with an exception pending (out of memory) */
+static int
+arg_class_set(JSContext* ctx, FFISignature* sig, int64_t argc, int64_t i, JSValueConst cls,
+              size_t size) {
+  if(!sig->arg_class) {
+    if(!(sig->arg_class = js_malloc(ctx, sizeof(JSValue) * argc)))
+      return -1;
+
+    for(int64_t j = 0; j < argc; j++)
+      sig->arg_class[j] = JS_UNDEFINED;
+
+    sig->argc = argc;
+
+    if(!(sig->arg_size = js_mallocz(ctx, sizeof(size_t) * argc)))
+      return -1;
+  }
+
+  sig->arg_class[i] = JS_DupValue(ctx, cls);
+  sig->arg_size[i] = size;
+  return 0;
+}
+
+static int sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options, JSValueConst local, JSValueConst class_types);
+
+int
+ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options, JSValueConst class_types) {
+  JSValue local = JS_IsObject(options) ? JS_GetPropertyStr(ctx, options, "types") : JS_UNDEFINED;
+  int rc = sig_parse(ctx, sig, options, local, class_types);
+
+  JS_FreeValue(ctx, local);
+  return rc;
+}
+
+static int
+sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options, JSValueConst local, JSValueConst class_types) {
   ffi_type* types[FFI_MAX_ARGS];
   int kinds[FFI_MAX_ARGS];
   int64_t argc = 0;
 
-  *sig = (FFISignature){0, NULL, NULL, &ffi_type_void, K_VOID, NULL, 0};
+  *sig = (FFISignature){.ret_type = &ffi_type_void, .ret_kind = K_VOID, .ret_class = JS_UNDEFINED};
 
   if(!JS_IsObject(options))
     return 0;
@@ -378,8 +544,21 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
 
   for(int64_t i = 0; i < argc; i++) {
     JSValue item = JS_GetPropertyUint32(ctx, args_val, i);
+    JSValue cls = class_of(ctx, item, local, class_types);
     int kind = K_I32;
-    ffi_type* t = value_to_type(ctx, sig, item, &kind, 0);
+    ffi_type* t;
+
+    if(!JS_IsUndefined(cls)) {
+      size_t size;
+
+      if(class_size(ctx, cls, &size) || arg_class_set(ctx, sig, argc, i, cls, size))
+        kind = -1, t = NULL;
+      else
+        kind = K_STRUCT_PTR, t = &ffi_type_pointer;
+
+      JS_FreeValue(ctx, cls);
+    } else
+      t = value_to_type(ctx, sig, item, &kind, 0);
 
     if(kind >= 0 && !t)
       unknown_type(ctx, "unknown type", item);
@@ -402,7 +581,19 @@ ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options) {
 
   if(!JS_IsUndefined(ret_val)) {
     int kind = K_VOID;
-    ffi_type* t = value_to_type(ctx, sig, ret_val, &kind, 0);
+    ffi_type* t;
+    JSValue cls = class_of(ctx, ret_val, local, class_types);
+
+    if(!JS_IsUndefined(cls)) {
+      if(class_size(ctx, cls, &sig->ret_size)) {
+        kind = -1, t = NULL;
+        JS_FreeValue(ctx, cls);
+      } else {
+        sig->ret_class = cls;
+        kind = K_STRUCT_PTR, t = &ffi_type_pointer;
+      }
+    } else
+      t = value_to_type(ctx, sig, ret_val, &kind, 0);
 
     if(t && kind == K_BUFFER_LENGTH) {
       JS_ThrowTypeError(ctx, "buffer_length is an argument-only type; it cannot be a return type");
@@ -452,7 +643,31 @@ ffi_sig_has_struct(const FFISignature* sig) {
 }
 
 void
+ffi_sig_mark(JSRuntime* rt, const FFISignature* sig, JS_MarkFunc* mark_func) {
+  if(sig->arg_class)
+    for(int i = 0; i < sig->argc; i++)
+      JS_MarkValue(rt, sig->arg_class[i], mark_func);
+
+  JS_MarkValue(rt, sig->ret_class, mark_func);
+}
+
+void
 ffi_sig_free(JSRuntime* rt, FFISignature* sig) {
+  if(sig->arg_class) {
+    for(int i = 0; i < sig->argc; i++)
+      JS_FreeValueRT(rt, sig->arg_class[i]);
+
+    js_free_rt(rt, sig->arg_class);
+  }
+
+  if(sig->arg_size)
+    js_free_rt(rt, sig->arg_size);
+
+  JS_FreeValueRT(rt, sig->ret_class);
+  sig->arg_class = NULL;
+  sig->arg_size = NULL;
+  sig->ret_class = JS_UNDEFINED;
+
   for(int i = 0; i < sig->aggregate_count; i++)
     js_free_rt(rt, sig->aggregates[i]);
 

@@ -27,6 +27,7 @@ enum {
   K_CSTRING,
   K_STRUCT,
   K_BUFFER_LENGTH, /* the byte length of the view passed for this argument */
+  K_STRUCT_PTR,    /* a pointer typed by a class that inherits from ArrayBuffer */
 };
 
 /* X(name, libffi type, kind, id): the one list that the FFIType export,
@@ -137,7 +138,13 @@ int ffi_resolve_abi(const char* name);
 
 /* a parsed `{ args, returns }`, shared by CFunction and JSCallback.
  * `aggregates` owns the ffi_types made for struct types (K_STRUCT);
- * arg_types and ret_type point into them. */
+ * arg_types and ret_type point into them.
+ *
+ * a K_STRUCT_PTR type is a class (a constructor inheriting from
+ * ArrayBuffer) and its static `size`: arg_class/arg_size[i] for an
+ * argument, ret_class/ret_size for the return. arg_class is NULL when no
+ * argument is one; ret_class is JS_UNDEFINED unless the return is. the
+ * signature owns a reference to each class. */
 typedef struct FFISignature {
   int argc;
   ffi_type** arg_types;
@@ -146,6 +153,10 @@ typedef struct FFISignature {
   int ret_kind;
   ffi_type** aggregates;
   int aggregate_count;
+  JSValue* arg_class;
+  size_t* arg_size;
+  JSValue ret_class;
+  size_t ret_size;
 } FFISignature;
 
 /* resolves a type that is a name or a number only (no struct or array),
@@ -160,6 +171,9 @@ typedef struct FFISignature {
 ffi_type* ffi_resolve_scalar(JSContext* ctx, JSValueConst value, int* kind);
 
 /* parses options.args and options.returns into `sig`.
+ * `types`, and options.types if it has one, is an object of classes: a
+ * "Point *" is then the class Point, as if the constructor were given.
+ *
  *
  * ```js
  * { args: ["i32", ["f32", "f32"]], returns: "void" }
@@ -177,12 +191,35 @@ ffi_type* ffi_resolve_scalar(JSContext* ctx, JSValueConst value, int* kind);
  * type: x"), as is `args` that is not an array or has more than 32 entries.
  * a struct type lists every scalar member in memory order, array members
  * once per element: libffi works the layout out from that. */
-int ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options);
+int ffi_sig_parse(JSContext* ctx, FFISignature* sig, JSValueConst options, JSValueConst types);
+
+/* finds a class by the name a type spells, in an object of classes.
+ *
+ * ```js
+ * // types = { Point, Dog }
+ * "Point *"            // Point
+ * "const struct Point *"  // Point
+ * "geo::Dog *"         // types["geo::Dog"], else types.Dog
+ * "Point"              // Point, when `pointer` is 0 (a variable's type)
+ * "Point **"           // not found: a pointer to a pointer
+ * ```
+ *
+ *   JSValueConst  types    an object name -> class, or anything else (none)
+ *   const char*   name     the type as written
+ *   int           pointer  1: `name` must end in one `*`; 0: it must not
+ *   JSValue*      cls      receives the class (a new reference)
+ *
+ *   returns  1 found, else 0; never throws */
+int ffi_class_lookup(JSContext* ctx, JSValueConst types, const char* name, int pointer, JSValue* cls);
 
 /* true if the signature passes or returns a struct by value. */
 int ffi_sig_has_struct(const FFISignature* sig);
 
-/* releases the arrays; safe to call twice, they are cleared. */
+/* releases the arrays and the classes; safe to call twice, they are
+ * cleared. */
 void ffi_sig_free(JSRuntime* rt, FFISignature* sig);
+
+/* marks the classes the signature holds, for a JSClassDef.gc_mark. */
+void ffi_sig_mark(JSRuntime* rt, const FFISignature* sig, JS_MarkFunc* mark_func);
 
 #endif /* defined(QJSFFI_FFI_TYPE_H) */

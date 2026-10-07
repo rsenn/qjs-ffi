@@ -315,3 +315,173 @@ js_function_prototype(JSContext* ctx) {
   JS_FreeValue(ctx, fn);
   return proto;
 }
+/* ArrayBuffer.prototype of the context; a new reference. */
+static JSValue
+arraybuffer_prototype(JSContext* ctx) {
+  JSValue global = JS_GetGlobalObject(ctx);
+  JSValue ctor = JS_GetPropertyStr(ctx, global, "ArrayBuffer");
+  JSValue proto = JS_IsObject(ctor) ? JS_GetPropertyStr(ctx, ctor, "prototype") : JS_UNDEFINED;
+
+  JS_FreeValue(ctx, ctor);
+  JS_FreeValue(ctx, global);
+  return proto;
+}
+
+/* the parent of `obj` is `proto`. */
+static int
+parent_is(JSContext* ctx, JSValueConst obj, JSValueConst proto) {
+  JSValue parent = JS_GetPrototype(ctx, obj);
+  int same = JS_IsObject(parent) && JS_VALUE_GET_PTR(parent) == JS_VALUE_GET_PTR(proto);
+
+  clear_exception(ctx);
+  JS_FreeValue(ctx, parent);
+  return same;
+}
+
+int
+js_is_buffer_class(JSContext* ctx, JSValueConst fn) {
+  JSValue base, proto, p;
+  int found = 0;
+
+  if(!JS_IsFunction(ctx, fn))
+    return 0;
+
+  proto = JS_GetPropertyStr(ctx, fn, "prototype");
+  base = arraybuffer_prototype(ctx);
+
+  /* walk up from fn.prototype: ArrayBuffer itself has no such ancestor */
+  p = JS_DupValue(ctx, proto);
+
+  for(int depth = 0; JS_IsObject(p) && JS_IsObject(base) && depth < 64 && !found; depth++) {
+    JSValue next = JS_GetPrototype(ctx, p);
+
+    clear_exception(ctx);
+    found = JS_IsObject(next) && JS_VALUE_GET_PTR(next) == JS_VALUE_GET_PTR(base);
+    JS_FreeValue(ctx, p);
+    p = next;
+  }
+
+  JS_FreeValue(ctx, p);
+  JS_FreeValue(ctx, base);
+
+  /* any other constructor with a static integer `size` is one too, its
+   * instances being buffers made with Reflect.construct(ArrayBuffer, ...) */
+  if(!found && JS_IsObject(proto)) {
+    JSValue size = JS_GetPropertyStr(ctx, fn, "size");
+    int64_t n = -1;
+
+    found = JS_IsNumber(size) && !JS_ToInt64(ctx, &n, size) && n >= 0;
+    JS_FreeValue(ctx, size);
+    clear_exception(ctx);
+  }
+
+  JS_FreeValue(ctx, proto);
+  return found;
+}
+
+/* `v` is an ArrayBuffer itself, not a view of one. */
+static int
+is_arraybuffer(JSContext* ctx, JSValueConst v) {
+  size_t n;
+  int ok = JS_GetArrayBuffer(ctx, &n, v) != NULL;
+
+  clear_exception(ctx);
+  return ok;
+}
+
+/* the name of `v`'s constructor, or of the class `v` itself; "an object"
+ * when it has none. refcount: JS_FreeCString() the result. */
+static const char*
+class_name(JSContext* ctx, JSValueConst v, int of_class) {
+  JSValue ctor = of_class ? JS_DupValue(ctx, v) : JS_GetPropertyStr(ctx, v, "constructor");
+  JSValue name = JS_IsObject(ctor) ? JS_GetPropertyStr(ctx, ctor, "name") : JS_UNDEFINED;
+  const char* s = JS_IsString(name) ? JS_ToCString(ctx, name) : NULL;
+
+  JS_FreeValue(ctx, name);
+  JS_FreeValue(ctx, ctor);
+  clear_exception(ctx);
+  return s;
+}
+
+int
+js_struct_arg(JSContext* ctx, JSValueConst cls, size_t size, JSValueConst v, int index, void** out) {
+  ByteSpan buf;
+  int inst;
+
+  if(JS_IsNull(v) || JS_IsUndefined(v)) {
+    *out = NULL;
+    return 0;
+  }
+
+  if(!JS_IsObject(v)) {
+    if(js_to_pointer(ctx, out, v)) {
+      js_throw_pointer_error(ctx, v);
+      return -1;
+    }
+
+    return 0;
+  }
+
+  if((inst = JS_IsInstanceOf(ctx, v, cls)) < 0)
+    return -1;
+
+  if(js_try_get_bytes(ctx, &buf, v)) {
+    const char *want = class_name(ctx, cls, 1), *got = class_name(ctx, v, 0);
+
+    JS_ThrowTypeError(ctx, "CFunction: argument %d must be a %s, not %s", index, want ? want : "class", got ? got : "an object");
+    JS_FreeCString(ctx, want);
+    JS_FreeCString(ctx, got);
+    return -1;
+  }
+
+  /* an ArrayBuffer of another class is a TypeError; only the plain
+   * ArrayBuffer (and a view) takes the place of any class */
+  if(!inst && is_arraybuffer(ctx, v)) {
+    JSValue base = arraybuffer_prototype(ctx);
+    int plain = parent_is(ctx, v, base);
+
+    JS_FreeValue(ctx, base);
+
+    if(!plain) {
+      const char *want = class_name(ctx, cls, 1), *got = class_name(ctx, v, 0);
+
+      JS_ThrowTypeError(ctx, "CFunction: argument %d must be a %s, not a %s", index, want ? want : "class", got ? got : "object");
+      JS_FreeCString(ctx, want);
+      JS_FreeCString(ctx, got);
+      return -1;
+    }
+  }
+
+  if(buf.size < size) {
+    const char* want = class_name(ctx, cls, 1);
+
+    JS_ThrowRangeError(ctx, "CFunction: argument %d must be at least %zu bytes (a %s)", index, size, want ? want : "class");
+    JS_FreeCString(ctx, want);
+    return -1;
+  }
+
+  *out = buf.data;
+  return 0;
+}
+
+JSValue
+js_struct_view(JSContext* ctx, JSValueConst cls, size_t size, void* ptr) {
+  JSValue ab, proto;
+
+  if(!ptr)
+    return JS_NULL;
+
+  if(JS_IsException(ab = JS_NewArrayBuffer(ctx, ptr, size, NULL, NULL, FALSE)))
+    return ab;
+
+  proto = JS_GetPropertyStr(ctx, cls, "prototype");
+
+  if(JS_IsException(proto) || JS_SetPrototype(ctx, ab, proto) < 0) {
+    JS_FreeValue(ctx, proto);
+    JS_FreeValue(ctx, ab);
+    return JS_EXCEPTION;
+  }
+
+  JS_FreeValue(ctx, proto);
+  return ab;
+}
