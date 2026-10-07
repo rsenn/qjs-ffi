@@ -539,9 +539,9 @@ export class vec2 extends ArrayBuffer {
   static at(p, owner, size = 8) { return __view(vec2, p, size, owner); }
   get ptr() { return __ptr(this); }
   get x() { return __rd.f32(this, 0); }
-  set x(v) { __dv(this).setFloat32(0, v, true); }
+  set x(v) { __wr.f32(this, 0, v); }
   get y() { return __rd.f32(this, 4); }
-  set y(v) { __dv(this).setFloat32(4, v, true); }
+  set y(v) { __wr.f32(this, 4, v); }
 }
 vec2.size = 8;
 vec2.align = 4;
@@ -553,13 +553,13 @@ export class shape extends ArrayBuffer {
   static at(p, owner, size = 32) { return __view(shape, p, size, owner); }
   get ptr() { return __ptr(this); }
   get id() { return __rd.i32(this, 0); }
-  set id(v) { __dv(this).setInt32(0, v, true); }
+  set id(v) { __wr.i32(this, 0, v); }
   get name() { return __ptrOut(__rd.u64(this, 8)); }
-  set name(v) { __dv(this).setBigUint64(8, __ptrIn(v), true); }
+  set name(v) { __wr.u64(this, 8, __ptrIn(v)); }
   get origin() { return vec2.at(__ptr(this, 16), this); }
   set origin(v) { new Uint8Array(this, 16, 8).set(__bytes(v)); }
   get visible() { return (__rd.u32(this, 24) >>> 0) & 0x1; }
-  set visible(v) { __dv(this).setUint32(24, ((__rd.u32(this, 24) & ~0x1) | ((v << 0) & 0x1)) >>> 0, true); }
+  set visible(v) { __wr.u32(this, 24, ((__rd.u32(this, 24) & ~0x1) | ((v << 0) & 0x1)) >>> 0); }
 }
 shape.size = 32;
 shape.align = 8;
@@ -567,7 +567,10 @@ shape.fields = {id:{type:'i32',offset:0},name:{type:'cstring',offset:8},origin:{
 ```
 
 *   A member is an accessor at the byte offset of the IR: it reads with
-    [`read`](pointers.md#read) and writes with [`write`](pointers.md#write).
+    [`read`](pointers.md#read) and writes with [`write`](pointers.md#write). A
+    nested struct or an array member is assigned through a typed array
+    instead, whose `set()` throws a `RangeError` for a source that is too
+    large, where `write.bytes` would write past the member.
     64-bit integers are `bigint`.
 *   `new shape()` allocates zeroed memory of the struct's size; `new
     shape(bytes)` copies an `ArrayBuffer` or view. `shape.at(ptr)` makes a view
@@ -633,7 +636,7 @@ const __Shape_s_count = [
 /* class geo::Shape, 24 bytes (line 5) */
 export class Shape extends __CxxObject {
   get id() { return __rd.i32(this, 8); }
-  set id(v) { __dv(this).setInt32(8, v, true); }
+  set id(v) { __wr.i32(this, 8, v); }
   area(...args) { return __invoke(__Shape_m_area, this, args); }
   scale(...args) { return __invoke(__Shape_m_scale, this, args); }
   setScale(...args) { return __invoke(__Shape_m_setScale, this, args); }
@@ -651,7 +654,7 @@ const __Circle_m_area = [
 /* class geo::Circle, 32 bytes (line 18) */
 export class Circle extends Shape {
   get radius() { return __rd.f64(this, 24); }
-  set radius(v) { __dv(this).setFloat64(24, v, true); }
+  set radius(v) { __wr.f64(this, 24, v); }
   area(...args) { return __invoke(__Circle_m_area, this, args); }
 }
 Circle.__info = { size: 32, ctors: __Circle_ctor, dtor: __lazy(()=>__virtual(0,{args:['geo::Circle *'],returns:'void'})) };
