@@ -129,7 +129,7 @@ function pointeeOf(type, ir) {
 /* the helpers every generated module with classes starts with; `target`
  * picks how __view() turns an address into memory (bun:ffi takes a Number). */
 export function preludeCode(target) {
-  return PRELUDE_TEMPLATE.replace('__ADDRESS__', target === 'bun' ? 'Number(p)' : 'BigInt(p)');
+  return PRELUDE_TEMPLATE.replace('__ADDRESS__', target !== 'qjs' ? 'Number(p)' : 'BigInt(p)');
 }
 
 const PRELUDE_TEMPLATE = `

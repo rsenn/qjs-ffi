@@ -1,7 +1,7 @@
 import { invocationName } from '../args.js';
 import { isCxx, langArgs } from '../clang.js';
 import { mapCType } from '../types.js';
-import { FFI_NAMES } from '../ffi-types.js';
+import { FFI_NAMES, bunLike } from '../ffi-types.js';
 
 const RESERVED = new Set([
   'break',
@@ -207,7 +207,7 @@ export function cfType(name, opts) {
   if(cls) return cls;
 
   // bun:ffi knows no "T *": every typed pointer is a "pointer"
-  if(opts.target === 'bun' && name.endsWith('*')) return opts.ffiType ? 'FFIType.pointer' : "'pointer'";
+  if(bunLike(opts) && name.endsWith('*')) return opts.ffiType ? 'FFIType.pointer' : "'pointer'";
 
   return opts.ffiType && FFI_NAMES.has(name) ? 'FFIType.' + name : jsLiteral(name);
 }
@@ -235,7 +235,7 @@ export function usedStructs(entries) {
  * the bare ArrayBuffer CFunction makes. */
 export function wrapReturn(returnType, expr, opts) {
   // bun:ffi returns a typed pointer as a Number: make it the class
-  const pointee = opts.target === 'bun' && !isByValue(returnType) && classOf(returnType, opts);
+  const pointee = bunLike(opts) && !isByValue(returnType) && classOf(returnType, opts);
 
   if(pointee) return '__at(' + pointee + ',' + expr + ')';
 

@@ -1,6 +1,6 @@
 import { safeIdent, jsLiteral } from './common.js';
 import { preludeCode } from './structs.js';
-import { FFI_SIZES } from '../ffi-types.js';
+import { FFI_SIZES, bunLike } from '../ffi-types.js';
 
 /* Support code for extern variables (and static class members), emitted
  * verbatim into the generated module after PRELUDE, whose __ptrOut() it uses.
@@ -51,7 +51,7 @@ function __variable(name, type) {
  * wrappers starts with (after its imports): PRELUDE from structs.js, the
  * variable accessors and the struct-return helper. */
 export function runtimeCode(opts) {
-  const bun = opts && opts.target === 'bun';
+  const bun = opts && bunLike(opts);
 
   return (bun ? BUN_HELPERS : '') + preludeCode(bun ? 'bun' : 'qjs') + VARIABLE_HELPERS + RET_HELPER;
 }
@@ -115,4 +115,58 @@ export function variablesCode(ir, opts) {
   if(!variables.length) return '';
 
   return '\n// extern variables\n' + variables.map(v => 'export const ' + safeIdent(v.name) + ' = __variable(' + jsLiteral(v.name) + ',' + jsLiteral(v.type) + ');\n').join('');
+}
+
+/* --target=deno: bun:ffi's CFunction, toArrayBuffer, ptr and CString on
+ * top of Deno.UnsafeFnPointer and Deno.UnsafePointerView, so the rest of
+ * the module is the bun one. Pointers are Numbers (null for NULL), a
+ * "cstring" argument is a string or null, a struct by value is an
+ * ArrayBuffer. */
+export function denoHelpers(opts) {
+  return `const __P = Deno.UnsafePointer;
+const __V = Deno.UnsafePointerView;
+const __enc = new TextEncoder();
+
+const __ptrIn_ = v => (v === null || v === undefined ? null : typeof v === "object" ? (v instanceof ArrayBuffer || ArrayBuffer.isView(v) ? __P.of(v) : v) : __P.create(BigInt(v)));
+const __ptrOut_ = p => (p === null ? null : Number(__P.value(p)));
+const __bytes_ = v => (v instanceof ArrayBuffer ? new Uint8Array(v) : v);
+
+/* a CFunction type spec (name or struct member list) as { d: Deno type, in, out } */
+function __type(t) {
+  if(Array.isArray(t)) {
+    const m = t.map(__type);
+
+    return { d: { struct: m.map(x => x.d) }, in: __bytes_, out: u => (u.buffer.byteLength === u.length ? u.buffer : u.buffer.slice(u.byteOffset, u.byteOffset + u.length)) };
+  }
+
+  if(t === "cstring") return { d: "buffer", in: s => (s === null || s === undefined ? null : typeof s === "string" ? __enc.encode(s + "\\0") : __bytes_(s)), out: p => (p === null ? null : __V.getCString(p)) };
+  if(t === "i64" || t === "i64_fast") return { d: "i64", out: BigInt };
+  if(t === "u64" || t === "u64_fast") return { d: "u64", out: BigInt };
+  if(t === "ptr" || t === "pointer" || t === "function" || t.endsWith("*")) return { d: "pointer", in: __ptrIn_, out: __ptrOut_ };
+
+  return { d: t };
+}
+
+function CFunction({ ptr, args = [], returns = "void" }) {
+  const a = args.map(__type);
+  const r = __type(returns);
+  const f = new Deno.UnsafeFnPointer(__P.create(BigInt(ptr)), { parameters: a.map(x => x.d), result: r.d });
+
+  return (...v) => {
+    for(let i = 0; i < a.length; i++) if(a[i].in) v[i] = a[i].in(v[i]);
+
+    const x = f.call(...v);
+
+    return r.out ? r.out(x) : x;
+  };
+}
+
+const toArrayBuffer = (p, off = 0, n) => __V.getArrayBuffer(__P.create(BigInt(p) + BigInt(off)), n);
+const __ptr = (v, off = 0) => Number(__P.value(__P.of(v))) + off;
+
+class CString {
+  constructor(p) { this.s = __V.getCString(__P.create(BigInt(p))); }
+  toString() { return this.s; }
+}
+` + (opts.ffiType ? 'const FFIType = new Proxy({}, { get: (_, k) => k });\n' : '') + '\n';
 }

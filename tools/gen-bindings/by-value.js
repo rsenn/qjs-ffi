@@ -1,4 +1,4 @@
-import { SIZES, arrayOf } from './ffi-types.js';
+import { SIZES, arrayOf, bunLike } from './ffi-types.js';
 import { scalarOf, recordOf, mergeIRs, identOf } from './emit/structs.js';
 
 /* Structs passed or returned by value. CFunction takes such a type as an array
@@ -166,12 +166,13 @@ export function prepareByValue(ir, opts) {
 
 /* For bun:ffi, which passes no struct by value and has no varargs: moves
  * every function and method that takes or returns a struct, or is
- * variadic, to ir.skipped. */
-export function dropForBun(ir) {
+ * variadic, to ir.skipped. With `deno` only the variadic ones move. */
+export function dropForBun(ir, deno) {
   const byValue = e => [e.returns, ...e.args.map(a => a.slice(a.indexOf(': ') + 2))].some(t => t && t.startsWith('struct ') && !t.endsWith('*'));
   const keep = (list, label) =>
     list.filter(e => {
-      const reason = byValue(e) ? 'a struct passed or returned by value is not supported by bun:ffi' : e.variadic ? 'a variadic function is not supported by bun:ffi' : null;
+      const rt = deno ? 'deno' : 'bun:ffi';
+      const reason = !deno && byValue(e) ? 'a struct passed or returned by value is not supported by bun:ffi' : e.variadic ? 'a variadic function is not supported by ' + rt : null;
 
       if(reason) ir.skipped.push({ name: label(e), reason });
       return !reason;
@@ -199,7 +200,7 @@ export function dropForBun(ir) {
  *   object  opts     gets `classMap` (unset without either)
  *   array   classes  the bound C++ classes (bindable().classes) */
 export function prepareClassTypes(ir, opts, classes) {
-  if(!opts.classTypes && opts.target !== 'bun') return;
+  if(!opts.classTypes && !bunLike(opts)) return;
 
   const idents = new Map();
   const aliases = new Map();

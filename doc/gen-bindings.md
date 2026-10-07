@@ -60,7 +60,7 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--std=<std>` | the C++ standard for clang, e.g. `c++17`. |
 | `--namespace=<name>` | drop the C++ namespace prefix `name::` from the names; repeatable. |
 | `--structs` | also wrap every struct and union as an `ArrayBuffer` class, and every extern variable. |
-| `--target=<runtime>` | `qjs` (default) or `bun`: with `bun` the module imports `bun:ffi` and runs under bun, see [Bun](#bun). |
+| `--target=<runtime>` | `qjs` (default), `bun` or `deno`: the module runs under that runtime, see [Bun](#bun) and [Deno](#deno). |
 | `--class-types` | with the classes of `--structs` or `--c++`: write the class itself as the type of a `T *` argument or return (`args: [Point]`, `returns: Point`) instead of `"Point *"`, and give each such class a static `size`. Needs a qjs-ffi that takes a constructor as a type ([classes as types](struct.md)); off by default. |
 | `--finalize` | destroy a C++ object made with `new` when it is garbage collected, too. |
 | `--ffitype` | write types as `FFIType.i32` instead of `'i32'`. |
@@ -957,10 +957,34 @@ C++ classes of the default output are the same code; what differs:
 `tests/test-gen-bindings-bun.js` runs the same probes through this target
 under bun and through the default one under qjsm and compares the output.
 
+## Deno
+
+`--target=deno` writes a module for Deno; it needs `--allow-ffi` (and
+`--allow-read` for the library):
+
+```sh
+qjs-ffi-genbindings --target=deno --library=./libgeom.so --structs -o geom.mjs geom.h
+deno run --allow-ffi --allow-read run-it.mjs
+```
+
+It is the bun output on top of a small prelude at the top of the module that
+supplies `CFunction`, `toArrayBuffer`, `ptr` and `CString` through
+`Deno.UnsafeFnPointer` and `Deno.UnsafePointerView`. The same rules as
+[Bun](#bun) apply (`--library` needed, `--finalize` and `--class-types`
+refused, typed pointers are `"pointer"` and come back as Numbers), except:
+
+*   a symbol's address is the value of a `{ type: "pointer" }` static of a
+    one-symbol `Deno.dlopen()`, one per function, so loading a module costs
+    one `dlopen()` per function it calls, not one in all.
+*   a struct passed or returned by value works (`{ struct: [...] }`, the bytes
+    become the class again); only variadic functions are skipped.
+*   a `"cstring"` argument is a string or `null`, encoded with a NUL.
+
+`tests/test-gen-bindings-deno.js` compares the probes with the default output
+under qjsm; it skips the Deno half when `deno` is not installed.
+
 ### Other runtimes
 
-`--target` takes `qjs` and `bun` only. A `deno` target (`Deno.dlopen` with
-`parameters`/`result`, one `dlopen()` for all functions, `UnsafePointerView` for
-memory, by-value structs as `{ struct: [...] }`) and a `node` target (Node's
-`node:ffi`, see [node:ffi](node-ffi.md)) are planned, not written; the design
+`--target` takes `qjs`, `bun` and `deno`. A `node` target (Node's
+`node:ffi`, see [node:ffi](node-ffi.md)) is planned, not written; the design
 is in [TODO.md](../TODO.md#8-gen-bindings-for-bun-deno-and-node-planned).

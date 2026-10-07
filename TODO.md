@@ -416,7 +416,10 @@ Status: 1, 2 and 4 done (`tests/test-constants.js`, `tests/test-gen-bindings-con
     "bun:ffi"`; the same specs (`{ args, returns }`), classes as today, a
     class argument is passed as `ptr(instance)` (bun has no class types), a
     class return is `Class.at(ptr)`. No `--class-types`.
-*   **deno** (planned, not started; probed with deno 2.9.7, no
+*   **deno** (done: `--target=deno`, `tests/test-gen-bindings-deno.js`; it is
+    the bun output plus a prelude, one `dlopen()` per function, not the one
+    described below, and variadics are the only skip; the notes that follow
+    are the original probes; probed with deno 2.9.7, no
     `--unstable-ffi` needed, `--allow-ffi` is):
     *   *Spec*: `Deno.dlopen(path, { name: { parameters, result } })` returns
         `{ symbols, close }`; `args` -> `parameters`, `returns` -> `result`.
