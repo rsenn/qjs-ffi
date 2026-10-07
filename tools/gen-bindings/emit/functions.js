@@ -2,7 +2,7 @@ import { safeIdent, header, skippedComment, warningsComment, bindable, paramType
 import { prepareByValue, prepareClassTypes, dropForBun } from '../by-value.js';
 import { describedFunction, DESCRIBE_HELPERS } from './describe.js';
 import { jsDoc } from './jsdoc.js';
-import { runtimeCode, variablesCode, needsRuntime, denoHelpers } from './runtime.js';
+import { runtimeCode, variablesCode, needsRuntime, denoHelpers, nodeHelpers } from './runtime.js';
 import { bunLike } from '../ffi-types.js';
 import { classesCode } from './classes.js';
 
@@ -91,7 +91,7 @@ function __sym(name) {
 `;
 
 export function generateCFunction(ir, opts) {
-  if(bunLike(opts)) dropForBun(ir, opts.target === 'deno');
+  if(bunLike(opts)) dropForBun(ir, opts.target);
 
   const { functions, cxxFunctions, classes, enums } = bindable(ir, opts);
 
@@ -101,6 +101,7 @@ export function generateCFunction(ir, opts) {
   const views = opts.structs || classes.length > 0 || cxxFunctions.length > 0;
   const bun = opts.target === 'bun';
   const deno = opts.target === 'deno';
+  const node = opts.target === 'node';
   const imports = bun
     ? ['CFunction', 'dlopen', opts.ffiType ? 'FFIType' : null, views ? 'toArrayBuffer' : null, views ? 'ptr as __ptr' : null, views ? 'CString' : null].filter(Boolean)
     : [
@@ -120,12 +121,13 @@ export function generateCFunction(ir, opts) {
 
   let out = header(opts);
   if(deno) out += denoHelpers(opts) + DENO_SYM(opts.library);
+  else if(node) out += nodeHelpers(opts, classes.flatMap(c => [...c.methods, ...c.constructors, c.destructor]).map(m => m && m.mangledName).filter(Boolean));
   else out += 'import { ' + imports.join(', ') + (bun ? " } from 'bun:ffi';\n\n" : " } from 'ffi';\n\n");
 
   if(bun) out += BUN_SYM(opts.library);
-  else if(!deno && opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
+  else if(!deno && !node && opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 
-  if(!bun && !deno) out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
+  if(!bun && !deno && !node) out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
   if(opts.describe) out += DESCRIBE_HELPERS;
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);

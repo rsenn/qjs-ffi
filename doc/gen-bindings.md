@@ -60,7 +60,7 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--std=<std>` | the C++ standard for clang, e.g. `c++17`. |
 | `--namespace=<name>` | drop the C++ namespace prefix `name::` from the names; repeatable. |
 | `--structs` | also wrap every struct and union as an `ArrayBuffer` class, and every extern variable. |
-| `--target=<runtime>` | `qjs` (default), `bun` or `deno`: the module runs under that runtime, see [Bun](#bun) and [Deno](#deno). |
+| `--target=<runtime>` | `qjs` (default), `bun`, `deno` or `node`: the module runs under that runtime, see [Bun](#bun), [Deno](#deno) and [Node](#node). |
 | `--class-types` | with the classes of `--structs` or `--c++`: write the class itself as the type of a `T *` argument or return (`args: [Point]`, `returns: Point`) instead of `"Point *"`, and give each such class a static `size`. Needs a qjs-ffi that takes a constructor as a type ([classes as types](struct.md)); off by default. |
 | `--finalize` | destroy a C++ object made with `new` when it is garbage collected, too. |
 | `--ffitype` | write types as `FFIType.i32` instead of `'i32'`. |
@@ -983,8 +983,34 @@ refused, typed pointers are `"pointer"` and come back as Numbers), except:
 `tests/test-gen-bindings-deno.js` compares the probes with the default output
 under qjsm; it skips the Deno half when `deno` is not installed.
 
-### Other runtimes
+## Node
 
-`--target` takes `qjs`, `bun` and `deno`. A `node` target (Node's
-`node:ffi`, see [node:ffi](node-ffi.md)) is planned, not written; the design
-is in [TODO.md](../TODO.md#8-gen-bindings-for-bun-deno-and-node-planned).
+`--target=node` writes a module for Node 26's experimental `node:ffi` (no flag
+needed, it prints an `ExperimentalWarning`; `--disable-warning=ExperimentalWarning`
+silences it):
+
+```sh
+qjs-ffi-genbindings --target=node --library=./libgeom.so --structs -o geom.mjs geom.h
+node run-it.mjs
+```
+
+Again the bun output on top of a prelude (`CFunction`, `toArrayBuffer`, `ptr`,
+`CString`, here over `DynamicLibrary.getFunction()`), with the rules of
+[Bun](#bun) (`--library` needed, `--finalize` and `--class-types` refused,
+typed pointers are `"pointer"` and come back as Numbers) and these differences:
+
+*   `node:ffi` calls only a function it looked up by name, so the module
+    remembers the address of every symbol it resolves with its name. A virtual
+    method is called through an address read from a vtable: the first such
+    call resolves all the C++ symbols the module binds and looks the address
+    up among them. An address that is none of them (an inline or pure virtual
+    method has no symbol) throws a `TypeError`.
+*   a struct passed or returned by value and a variadic function are not in
+    `node:ffi`: skipped, with the reason in the comment at the end.
+*   a `"cstring"` argument is a string or `null`, encoded with a NUL.
+
+`tests/test-gen-bindings-node.js` runs the probes under node and compares
+them with the default output under qjsm; it looks for a Node with `node:ffi`
+on `PATH`, then under `~/.nvm/versions/node`, and skips the node half if there
+is none.
+

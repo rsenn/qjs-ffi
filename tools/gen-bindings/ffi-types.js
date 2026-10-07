@@ -4,8 +4,8 @@
 export const FFI_SIZES = { bool: 1, i8: 1, u8: 1, i16: 2, u16: 2, i32: 4, u32: 4, i64: 8, u64: 8, i64_fast: 8, u64_fast: 8, f32: 4, f64: 8, pointer: 8, ptr: 8, function: 8, cstring: 8 };
 
 /* whether the target shares bun:ffi's shapes (typed pointers are Numbers, no
- * class types): bun itself, and deno through its prelude. */
-export const bunLike = opts => opts.target === 'bun' || opts.target === 'deno';
+ * class types): bun itself, and deno and node through a prelude. */
+export const bunLike = opts => opts.target === 'bun' || opts.target === 'deno' || opts.target === 'node';
 
 /* every FFIType name, "void" included. */
 export const FFI_NAMES = new Set(['void', ...Object.keys(FFI_SIZES)]);

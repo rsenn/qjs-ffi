@@ -170,3 +170,79 @@ class CString {
 }
 ` + (opts.ffiType ? 'const FFIType = new Proxy({}, { get: (_, k) => k });\n' : '') + '\n';
 }
+
+/* --target=node: the same bun:ffi shapes over node:ffi (Node 26). A
+ * symbol's address is remembered with its name, since node:ffi only calls a
+ * function it looked up by name. A call through another address (a virtual
+ * method) looks the address up among `symbols`, the C++ names the module
+ * binds, and throws if none matches. Pointers are Numbers (null for NULL),
+ * a "cstring" argument is a string or null. */
+export function nodeHelpers(opts, symbols) {
+  return `import * as __f from "node:ffi";
+
+const __lib = new __f.DynamicLibrary(${JSON.stringify(opts.library)});
+const __names = new Map();
+const __enc = new TextEncoder();
+const __known = ${JSON.stringify(symbols)};
+
+/* the name of the function at address p: one of the bound C++ symbols */
+function __nameOf(p) {
+  if(__known.length) {
+    for(const n of __known.splice(0)) {
+      try {
+        __sym(n);
+      } catch(e) {}
+    }
+  }
+
+  return __names.get(p);
+}
+
+function __sym(name) {
+  const p = Number(__f.dlsym(__lib, name));
+
+  __names.set(p, name);
+  return p;
+}
+
+const __ptrIn_ = v => (v === null || v === undefined ? null : typeof v === "object" ? v : BigInt(v));
+const __ptrOut_ = p => (p === 0n ? null : Number(p));
+const __nodeNames = { i8: "int8", u8: "uint8", i16: "int16", u16: "uint16", i32: "int32", u32: "uint32", i64: "int64", u64: "uint64", i64_fast: "int64", u64_fast: "uint64", f32: "float32", f64: "float64", char: "char", bool: "bool", void: "void" };
+
+/* a CFunction type name as { d: node:ffi type, in, out } */
+function __type(t) {
+  if(t === "cstring") return { d: "pointer", in: s => (s === null || s === undefined ? null : typeof s === "string" ? __enc.encode(s + "\\0") : s), out: p => (p === 0n ? null : __f.toString(p)) };
+  if(t === "ptr" || t === "pointer" || t === "function" || t.endsWith("*")) return { d: "pointer", in: __ptrIn_, out: __ptrOut_ };
+  if(!(t in __nodeNames)) throw new TypeError("node:ffi: unsupported type " + t);
+
+  return { d: __nodeNames[t] };
+}
+
+function CFunction({ ptr, args = [], returns = "void" }) {
+  const addr = Number(ptr);
+  const name = __names.get(addr) ?? __nameOf(addr);
+
+  if(name === undefined) return () => { throw new TypeError("node:ffi cannot call a function by address (a virtual method)"); };
+
+  const a = args.map(__type);
+  const r = __type(returns);
+  const f = __lib.getFunction(name, { arguments: a.map(x => x.d), return: r.d });
+
+  return (...v) => {
+    for(let i = 0; i < a.length; i++) if(a[i].in) v[i] = a[i].in(v[i]);
+
+    const x = f(...v);
+
+    return r.out ? r.out(x) : x;
+  };
+}
+
+const toArrayBuffer = (p, off = 0, n) => __f.toArrayBuffer(BigInt(p) + BigInt(off), n, false);
+const __ptr = (v, off = 0) => Number(__f.getRawPointer(v)) + off;
+
+class CString {
+  constructor(p) { this.s = __f.toString(BigInt(p)); }
+  toString() { return this.s; }
+}
+` + (opts.ffiType ? 'const FFIType = new Proxy({}, { get: (_, k) => k });\n' : '') + '\n';
+}

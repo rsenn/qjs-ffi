@@ -30,7 +30,7 @@ const OPTIONS = [
   { names: ['--ffitype'], key: 'ffiType', help: 'write types as FFIType.i32 instead of "i32"' },
   { names: ['--structs'], key: 'structs', help: 'also wrap structs/unions as ArrayBuffer classes, and extern variables' },
   { names: ['--class-types'], key: 'classTypes', help: 'with --structs and C++ classes: pass the generated class as the type of a "T *" argument or return, not "T *" (needs a qjs-ffi that takes a constructor as a type)' },
-  { names: ['--target'], arg: '<runtime>', key: 'target', def: 'qjs', help: 'the runtime the module is for: qjs (default) bun (bun:ffi) or deno (Deno.dlopen); both need --library' },
+  { names: ['--target'], arg: '<runtime>', key: 'target', def: 'qjs', help: 'the runtime the module is for: qjs (default) bun (bun:ffi), deno (Deno.dlopen) or node (node:ffi, Node 26); all need --library' },
   { names: ['--describe'], key: 'describe', help: 'name parameters in signatures, attach types as fn[Symbol.for("describe")]' },
   { names: ['--finalize'], key: 'finalize', help: 'also destroy C++ objects made with new when they are garbage collected' },
   { names: ['--jsdoc'], key: 'jsdoc', help: 'JSDoc comments with parameter and return types on functions, methods, classes' },
@@ -117,9 +117,9 @@ export function parseArgs(argv) {
   if((opts.js || opts.json) && !opts.emitIr && !opts.emitSpecs) throw new Error('--js and --json need --emit-ir or --emit-specs');
   if(opts.js && opts.json) throw new Error('--js and --json cannot be combined');
   if(opts.emitIr && opts.emitSpecs) throw new Error('--emit-ir and --emit-specs cannot be combined');
-  if(!['qjs', 'bun', 'deno'].includes(opts.target)) throw new Error('--target must be qjs, bun or deno, not ' + opts.target);
+  if(!['qjs', 'bun', 'deno', 'node'].includes(opts.target)) throw new Error('--target must be qjs, bun, deno or node, not ' + opts.target);
   if(opts.target !== 'qjs' && !opts.emitIr && !opts.emitSpecs) {
-    const rt = opts.target === 'bun' ? 'bun:ffi' : 'Deno.dlopen';
+    const rt = { bun: 'bun:ffi', deno: 'Deno.dlopen', node: 'node:ffi' }[opts.target];
 
     if(!opts.library) throw new Error('--target=' + opts.target + ' needs --library=<path>: ' + rt + ' has no RTLD_DEFAULT');
     if(opts.finalize) throw new Error('--finalize needs calloc() and free() from libc, which ' + rt + ' cannot look up');

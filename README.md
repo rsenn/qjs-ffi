@@ -13,7 +13,7 @@
 *   use a buffer class (usually extending `ArrayBuffer`) as the type of an argument, a return
     or a variable (`args: [Point]`, or `"Point *"` with a `types` object),
 *   generate bindings from C and C++ headers (`tools/gen-bindings.js`), for this
-    module, for bun:ffi (`--target=bun`) or for Deno (`--target=deno`).
+    module, for bun:ffi (`--target=bun`), Deno (`--target=deno`) or Node 26 (`--target=node`).
 
 The API follows [bun:ffi](https://bun.com/docs/runtime/ffi): `dlopen()` with a
 symbol table returns directly callable functions, and there is no name lookup at

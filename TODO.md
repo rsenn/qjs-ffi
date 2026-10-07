@@ -474,16 +474,17 @@ Status: 1, 2 and 4 done (`tests/test-constants.js`, `tests/test-gen-bindings-con
         --allow-read`), plus a by-value probe; skipped when `deno` is not
         installed.
     *   *Open*: whether one `dlopen()` with hundreds of symbols is slow to
-        load (Deno builds every symbol eagerly unless `lazy: true`, which
+        load (measured: no, SDL2's 816 functions import in 25-130 ms) (Deno builds every symbol eagerly unless `lazy: true`, which
         also exists and would make it a getter per symbol: prefer it for big
         headers); whether a C++ class works (mangled names are plain symbol
         names to Deno: expected yes, to be probed first).
-*   **node**: the target is Node 26's experimental `node:ffi`
-    (`dlopen(path, { fn: { arguments, return } })`, types `"float64"`,
-    `"int32"`, ...; see [doc/node-ffi.md](doc/node-ffi.md)), not a library.
-    `node-ffi.js` is that API on top of qjs-ffi, so the node output is
-    testable here with `qjsm -I ffi-hooks.js`; the installed Node is 23, which
-    has no `node:ffi`, so it cannot be run there yet.
+*   **node** (done: `--target=node`, `tests/test-gen-bindings-node.js`, run
+    against Node 26.11 under `~/.nvm`): the bun output plus a prelude over
+    `DynamicLibrary.getFunction()`; a virtual call resolves its address among
+    the bound C++ symbols; by-value structs and variadics are skipped. The
+    generated modules were also run for SDL2 (816 functions) under qjsm, bun,
+    deno and node with equal results; import takes ~130 ms on node, ~25-130 ms
+    on deno.
 *   The runtime helpers (`__rd`, `__wr`, `__view`, `__ptr`) become one
     per-target prelude; the specs and classes are shared. Open: what the
     Node layer lacks of `read`/`write`/`toArrayBuffer`; test each target

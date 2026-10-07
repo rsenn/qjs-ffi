@@ -167,13 +167,13 @@ export function prepareByValue(ir, opts) {
 
 /* For bun:ffi, which passes no struct by value and has no varargs: moves
  * every function and method that takes or returns a struct, or is
- * variadic, to ir.skipped. With `deno` only the variadic ones move. */
-export function dropForBun(ir, deno) {
+ * variadic, to ir.skipped. For target `deno` only the variadic ones move. */
+export function dropForBun(ir, target) {
   const byValue = e => [e.returns, ...e.args.map(a => a.slice(a.indexOf(': ') + 2))].some(t => t && t.startsWith('struct ') && !t.endsWith('*'));
   const keep = (list, label) =>
     list.filter(e => {
-      const rt = deno ? 'deno' : 'bun:ffi';
-      const reason = !deno && byValue(e) ? 'a struct passed or returned by value is not supported by bun:ffi' : e.variadic ? 'a variadic function is not supported by ' + rt : null;
+      const rt = target === 'deno' ? 'deno' : target === 'node' ? 'node:ffi' : 'bun:ffi';
+      const reason = target !== 'deno' && byValue(e) ? 'a struct passed or returned by value is not supported by ' + rt : e.variadic ? 'a variadic function is not supported by ' + rt : null;
 
       if(reason) ir.skipped.push({ name: label(e), reason });
       return !reason;
