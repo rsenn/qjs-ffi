@@ -85,9 +85,11 @@ New/changed tests get the 5x flakiness check per
 
 ### Phase 7 — docs/examples pass
 
-1. Update `README.md` to document the new API as primary, old API as
-   "legacy" (`legacy.js`).
-2. Update `test-ffi.js`/`test.js`/`test2.js`/`examples/` to the new API.
+Done: `README.md` has the new API as primary and `legacy.js` as the old one;
+`test-ffi.js`, `test.js` and `examples/portmidi.js` use the new API (the
+generated `lib/*.js` examples already did; `test2.js` uses no ffi). Left:
+`test-portmidi.js` stops at `Pm_CreateVirtualInput`, which the installed
+libportmidi does not have.
 
 ---
 

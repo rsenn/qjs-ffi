@@ -1,11 +1,45 @@
 import { lazyProperty, memoize } from 'util';
-import { dlopen, dlsym, RTLD_NOW, toArrayBuffer, toPointer, toString } from 'ffi';
-import { call, define } from '../legacy.js';
+import { dlopen, ptr, toArrayBuffer, toString } from 'ffi';
 
-export { dlopen, dlsym, RTLD_NOW, toArrayBuffer, toString, toPointer } from 'ffi';
-export { define, call } from '../legacy.js';
+export { dlopen, ptr, toArrayBuffer, toString } from 'ffi';
 
-const libportmidi = dlopen('libportmidi.so', RTLD_NOW);
+const { symbols: pm } = dlopen('libportmidi.so', {
+  Pm_Initialize: { args: [], returns: 'i32' },
+  Pm_Terminate: { args: [], returns: 'i32' },
+  Pm_HasHostError: { args: ['pointer'], returns: 'i32' },
+  Pm_GetErrorText: { args: ['i32'], returns: 'cstring' },
+  Pm_GetHostErrorText: { args: ['pointer', 'u32'], returns: 'void' },
+  Pm_CountDevices: { args: [], returns: 'i32' },
+  Pm_GetDefaultInputDeviceID: { args: [], returns: 'i32' },
+  Pm_GetDefaultOutputDeviceID: { args: [], returns: 'i32' },
+  Pm_GetDeviceInfo: { args: ['i32'], returns: 'pointer' },
+  Pm_OpenInput: { args: ['pointer', 'i32', 'pointer', 'i32', 'pointer', 'pointer'], returns: 'i32' },
+  Pm_OpenOutput: { args: ['pointer', 'i32', 'pointer', 'i32', 'pointer', 'pointer', 'i32'], returns: 'i32' },
+  Pm_SetFilter: { args: ['pointer', 'i32'], returns: 'i32' },
+  Pm_SetChannelMask: { args: ['pointer', 'i32'], returns: 'i32' },
+  Pm_Abort: { args: ['pointer'], returns: 'i32' },
+  Pm_Close: { args: ['pointer'], returns: 'i32' },
+  Pm_Synchronize: { args: ['pointer'], returns: 'i32' },
+  Pm_Read: { args: ['pointer', 'pointer', 'i32'], returns: 'i32' },
+  Pm_Poll: { args: ['pointer'], returns: 'i32' },
+  Pm_Write: { args: ['pointer', 'pointer', 'i32'], returns: 'i32' },
+  Pm_WriteShort: { args: ['pointer', 'i32', 'i32'], returns: 'i32' },
+  Pm_WriteSysEx: { args: ['pointer', 'i32', 'pointer'], returns: 'i32' },
+});
+
+/* the virtual ports exist only in newer portmidi: absent here, they throw when called */
+let pmv = {};
+
+const missing = name => () => {
+  throw new Error(name + ' is not in this libportmidi');
+};
+
+try {
+  pmv = dlopen('libportmidi.so', {
+    Pm_CreateVirtualInput: { args: ['cstring', 'cstring', 'pointer'], returns: 'i32' },
+    Pm_CreateVirtualOutput: { args: ['cstring', 'cstring', 'pointer'], returns: 'i32' },
+  }).symbols;
+} catch(e) {}
 
 export function PmError(n) {
   return {
@@ -56,7 +90,7 @@ export class PmDeviceInfo extends ArrayBuffer {
 
   /* 0: int structVersion */
   set structVersion(value) {
-    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = toPointer(value);
+    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = ptr(value);
     new Int32Array(this, 0)[0] = value;
   }
   get structVersion() {
@@ -64,16 +98,16 @@ export class PmDeviceInfo extends ArrayBuffer {
   }
 
   get interf() {
-    return toString('0x' + new BigInt64Array(this, 8)[0].toString(16));
+    return toString(new BigUint64Array(this, 8)[0]);
   }
 
   get name() {
-    return toString('0x' + new BigInt64Array(this, 16)[0].toString(16));
+    return toString(new BigUint64Array(this, 16)[0]);
   }
 
   /* 24: int input */
   set input(value) {
-    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = toPointer(value);
+    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = ptr(value);
     new Int32Array(this, 24)[0] = value;
   }
   get input() {
@@ -82,7 +116,7 @@ export class PmDeviceInfo extends ArrayBuffer {
 
   /* 28: int output */
   set output(value) {
-    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = toPointer(value);
+    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = ptr(value);
     new Int32Array(this, 28)[0] = value;
   }
   get output() {
@@ -91,7 +125,7 @@ export class PmDeviceInfo extends ArrayBuffer {
 
   /* 32: int opened */
   set opened(value) {
-    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = toPointer(value);
+    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = ptr(value);
     new Int32Array(this, 32)[0] = value;
   }
   get opened() {
@@ -100,7 +134,7 @@ export class PmDeviceInfo extends ArrayBuffer {
 
   /* 36: int is_virtual */
   set is_virtual(value) {
-    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = toPointer(value);
+    if(typeof value == 'object' && value != null && value instanceof ArrayBuffer) value = ptr(value);
     new Int32Array(this, 36)[0] = value;
   }
   get is_virtual() {
@@ -130,9 +164,8 @@ export class PmDeviceInfo extends ArrayBuffer {
  *
  * @return   {Number}
  */
-define('Pm_Initialize', dlsym(libportmidi, 'Pm_Initialize'), null, 'int');
 export function Pm_Initialize() {
-  return call('Pm_Initialize');
+  return pm.Pm_Initialize();
 }
 
 /**
@@ -140,9 +173,8 @@ export function Pm_Initialize() {
  *
  * @return   {Number}
  */
-define('Pm_Terminate', dlsym(libportmidi, 'Pm_Terminate'), null, 'int');
 export function Pm_Terminate() {
-  return call('Pm_Terminate');
+  return pm.Pm_Terminate();
 }
 
 /**
@@ -152,9 +184,8 @@ export function Pm_Terminate() {
  *
  * @return   {Number}
  */
-define('Pm_HasHostError', dlsym(libportmidi, 'Pm_HasHostError'), null, 'int', 'void *');
 export function Pm_HasHostError(stream) {
-  return call('Pm_HasHostError', stream);
+  return pm.Pm_HasHostError(stream);
 }
 
 /**
@@ -164,9 +195,8 @@ export function Pm_HasHostError(stream) {
  *
  * @return   {String}
  */
-define('Pm_GetErrorText', dlsym(libportmidi, 'Pm_GetErrorText'), null, 'char *', 'int');
 export function Pm_GetErrorText(errnum) {
-  return call('Pm_GetErrorText', errnum);
+  return pm.Pm_GetErrorText(errnum);
 }
 
 /**
@@ -175,9 +205,8 @@ export function Pm_GetErrorText(errnum) {
  * @param    {String}        msg
  * @param    {Number}        len
  */
-define('Pm_GetHostErrorText', dlsym(libportmidi, 'Pm_GetHostErrorText'), null, 'void', 'char *', 'unsigned int');
 export function Pm_GetHostErrorText(msg, len) {
-  call('Pm_GetHostErrorText', msg, len);
+  pm.Pm_GetHostErrorText(msg, len);
 }
 
 /**
@@ -185,9 +214,8 @@ export function Pm_GetHostErrorText(msg, len) {
  *
  * @return   {Number}
  */
-define('Pm_CountDevices', dlsym(libportmidi, 'Pm_CountDevices'), null, 'int');
 export function Pm_CountDevices() {
-  return call('Pm_CountDevices');
+  return pm.Pm_CountDevices();
 }
 
 /**
@@ -195,9 +223,8 @@ export function Pm_CountDevices() {
  *
  * @return   {Number}
  */
-define('Pm_GetDefaultInputDeviceID', dlsym(libportmidi, 'Pm_GetDefaultInputDeviceID'), null, 'int');
 export function Pm_GetDefaultInputDeviceID() {
-  return call('Pm_GetDefaultInputDeviceID');
+  return pm.Pm_GetDefaultInputDeviceID();
 }
 
 /**
@@ -205,9 +232,8 @@ export function Pm_GetDefaultInputDeviceID() {
  *
  * @return   {Number}
  */
-define('Pm_GetDefaultOutputDeviceID', dlsym(libportmidi, 'Pm_GetDefaultOutputDeviceID'), null, 'int');
 export function Pm_GetDefaultOutputDeviceID() {
-  return call('Pm_GetDefaultOutputDeviceID');
+  return pm.Pm_GetDefaultOutputDeviceID();
 }
 
 /**
@@ -217,9 +243,8 @@ export function Pm_GetDefaultOutputDeviceID() {
  *
  * @return   {Number}
  */
-define('Pm_GetDeviceInfo', dlsym(libportmidi, 'Pm_GetDeviceInfo'), null, 'buffer', 'int');
 export function Pm_GetDeviceInfo(id) {
-  const ptr = call('Pm_GetDeviceInfo', id);
+  const ptr = pm.Pm_GetDeviceInfo(id);
 
   return Object.setPrototypeOf(toArrayBuffer(ptr, 0, 40).slice(0), PmDeviceInfo.prototype);
 }
@@ -236,10 +261,9 @@ export function Pm_GetDeviceInfo(id) {
  *
  * @return   {Number}
  */
-define('Pm_OpenInput', dlsym(libportmidi, 'Pm_OpenInput'), null, 'int', 'void *', 'int', 'void *', 'int', 'int', 'void *');
 export function Pm_OpenInput(stream, inputDevice, inputDriverInfo = null, bufferSize = 0, time_proc = null, time_info = null) {
   let streamPtr = new BigUint64Array(1);
-  let ret = call('Pm_OpenInput', streamPtr.buffer, inputDevice, inputDriverInfo, bufferSize, time_proc, time_info);
+  let ret = pm.Pm_OpenInput(streamPtr.buffer, inputDevice, inputDriverInfo, bufferSize, time_proc, time_info);
   let ptr = Number(streamPtr[0]);
   let buf = toArrayBuffer(ptr, 0, 48).slice(0);
   if(typeof stream == 'function') stream(buf, ptr);
@@ -262,10 +286,9 @@ export function Pm_OpenInput(stream, inputDevice, inputDriverInfo = null, buffer
  *
  * @return   {Number}
  */
-define('Pm_OpenOutput', dlsym(libportmidi, 'Pm_OpenOutput'), null, 'int', 'void *', 'int', 'void *', 'int', 'int', 'void *', 'int');
 export function Pm_OpenOutput(stream, outputDevice, outputDriverInfo = null, bufferSize = 0, time_proc = null, time_info = null, latency = 0) {
   let streamPtr = new BigUint64Array(1);
-  let ret = call('Pm_OpenOutput', streamPtr.buffer, outputDevice, outputDriverInfo, bufferSize, time_proc, time_info, latency);
+  let ret = pm.Pm_OpenOutput(streamPtr.buffer, outputDevice, outputDriverInfo, bufferSize, time_proc, time_info, latency);
   let ptr = Number(streamPtr[0]);
   let buf = toArrayBuffer(ptr, 0, 48).slice(0);
   if(typeof stream == 'function') stream(buf, ptr);
@@ -282,9 +305,8 @@ export function Pm_OpenOutput(stream, outputDevice, outputDriverInfo = null, buf
  *
  * @return   {Number}
  */
-define('Pm_CreateVirtualInput', dlsym(libportmidi, 'Pm_CreateVirtualInput'), null, 'int', 'string', 'string', 'void *');
 export function Pm_CreateVirtualInput(name, interf) {
-  return call('Pm_CreateVirtualInput', name, interf, null);
+  return (pmv.Pm_CreateVirtualInput || missing('Pm_CreateVirtualInput'))(name, interf, null);
 }
 
 /**
@@ -295,9 +317,8 @@ export function Pm_CreateVirtualInput(name, interf) {
  *
  * @return   {Number}
  */
-define('Pm_CreateVirtualOutput', dlsym(libportmidi, 'Pm_CreateVirtualOutput'), null, 'int', 'string', 'string', 'void *');
 export function Pm_CreateVirtualOutput(name, interf) {
-  return call('Pm_CreateVirtualOutput', name, interf, null);
+  return (pmv.Pm_CreateVirtualOutput || missing('Pm_CreateVirtualOutput'))(name, interf, null);
 }
 
 /**
@@ -308,9 +329,8 @@ export function Pm_CreateVirtualOutput(name, interf) {
  *
  * @return   {Number}
  */
-define('Pm_SetFilter', dlsym(libportmidi, 'Pm_SetFilter'), null, 'int', 'void *', 'int');
 export function Pm_SetFilter(stream, filters) {
-  return call('Pm_SetFilter', stream, filters);
+  return pm.Pm_SetFilter(stream, filters);
 }
 
 /**
@@ -321,9 +341,8 @@ export function Pm_SetFilter(stream, filters) {
  *
  * @return   {Number}
  */
-define('Pm_SetChannelMask', dlsym(libportmidi, 'Pm_SetChannelMask'), null, 'int', 'void *', 'int');
 export function Pm_SetChannelMask(stream, mask) {
-  return call('Pm_SetChannelMask', stream, mask);
+  return pm.Pm_SetChannelMask(stream, mask);
 }
 
 /**
@@ -333,9 +352,8 @@ export function Pm_SetChannelMask(stream, mask) {
  *
  * @return   {Number}
  */
-define('Pm_Abort', dlsym(libportmidi, 'Pm_Abort'), null, 'int', 'void *');
 export function Pm_Abort(stream) {
-  return call('Pm_Abort', stream);
+  return pm.Pm_Abort(stream);
 }
 
 /**
@@ -345,9 +363,8 @@ export function Pm_Abort(stream) {
  *
  * @return   {Number}
  */
-define('Pm_Close', dlsym(libportmidi, 'Pm_Close'), null, 'int', 'void *');
 export function Pm_Close(stream) {
-  return call('Pm_Close', stream);
+  return pm.Pm_Close(stream);
 }
 
 /**
@@ -357,9 +374,8 @@ export function Pm_Close(stream) {
  *
  * @return   {Number}
  */
-define('Pm_Synchronize', dlsym(libportmidi, 'Pm_Synchronize'), null, 'int', 'void *');
 export function Pm_Synchronize(stream) {
-  return call('Pm_Synchronize', stream);
+  return pm.Pm_Synchronize(stream);
 }
 
 /**
@@ -371,9 +387,8 @@ export function Pm_Synchronize(stream) {
  *
  * @return   {Number}
  */
-define('Pm_Read', dlsym(libportmidi, 'Pm_Read'), null, 'int', 'void *', 'void *', 'int');
 export function Pm_Read(stream, buffer, length) {
-  return call('Pm_Read', stream, buffer, length);
+  return pm.Pm_Read(stream, buffer, length);
 }
 
 /**
@@ -383,9 +398,8 @@ export function Pm_Read(stream, buffer, length) {
  *
  * @return   {Number}
  */
-define('Pm_Poll', dlsym(libportmidi, 'Pm_Poll'), null, 'int', 'void *');
 export function Pm_Poll(stream) {
-  return call('Pm_Poll', stream);
+  return pm.Pm_Poll(stream);
 }
 
 /**
@@ -397,10 +411,9 @@ export function Pm_Poll(stream) {
  *
  * @return   {Number}
  */
-define('Pm_Write', dlsym(libportmidi, 'Pm_Write'), null, 'int', 'void *', 'void *', 'int');
 export function Pm_Write(stream, buffer, length) {
   length ??= buffer.byteLength >> 3;
-  return call('Pm_Write', stream, buffer, length);
+  return pm.Pm_Write(stream, buffer, length);
 }
 
 /**
@@ -412,9 +425,8 @@ export function Pm_Write(stream, buffer, length) {
  *
  * @return   {Number}
  */
-define('Pm_WriteShort', dlsym(libportmidi, 'Pm_WriteShort'), null, 'int', 'void *', 'int', 'int');
 export function Pm_WriteShort(stream, when, msg) {
-  return call('Pm_WriteShort', stream, when, msg);
+  return pm.Pm_WriteShort(stream, when, msg);
 }
 
 /**
@@ -426,9 +438,8 @@ export function Pm_WriteShort(stream, when, msg) {
  *
  * @return   {Number}
  */
-define('Pm_WriteSysEx', dlsym(libportmidi, 'Pm_WriteSysEx'), null, 'int', 'void *', 'int', 'void *');
 export function Pm_WriteSysEx(stream, when, msg) {
-  return call('Pm_WriteSysEx', stream, when, msg);
+  return pm.Pm_WriteSysEx(stream, when, msg);
 }
 
 /**

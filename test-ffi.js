@@ -1,14 +1,13 @@
-import { JSCallback, debug, dlopen, dlerror, dlclose, dlsym, toString, toArrayBuffer, toPointer, errno, JSContext, RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND, RTLD_DEFAULT, RTLD_NEXT, pointerSize, } from 'ffi';
+import { ptr, toArrayBuffer, toString } from 'ffi';
 
 function main() {
-  let ab = toArrayBuffer('BLAH\nTEST!\0');
-  let ptr = toPointer(ab);
+  const bytes = Uint8Array.from('BLAH\nTEST!\0', c => c.charCodeAt(0));
+  const p = ptr(bytes);
 
-  let ab2 = toArrayBuffer(ptr, 4, false);
-  console.log('ptr', ptr);
-  let str = toString(ptr, 5);
+  const view = toArrayBuffer(p, 4); // the C string at p + 4, not a copy
+  const str = toString(p, 5);
 
-  console.log({ ab, ptr, ab2, str });
+  console.log({ bytes, p, view, str });
 }
 
 main();
