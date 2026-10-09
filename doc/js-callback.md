@@ -178,5 +178,4 @@ lets JS call into native code, `JSCallback` lets native code call into JS.
 ## See also
 
 - [`doc/c-function.md`](c-function.md)
-- [`TODO.md`](../TODO.md) -- Phase 0 of the `bun:ffi`-compatible API migration this class is part of. Replaces the previous `CallClosure`/`opaque-call.[ch]`, whose trampoline was hardcoded to a fixed `int64_t(*)(void*)` signature and always invoked the JS function with zero arguments.
 - [bun:ffi docs](https://bun.com/docs/runtime/ffi)

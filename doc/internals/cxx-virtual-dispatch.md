@@ -3,7 +3,7 @@
 Status: **implemented** in `tools/gen-bindings/` (`vtable.js`, `clang.js`,
 `ir.js`, `emit/classes.js`). Scope: the C++ classes that
 `tools/gen-bindings.js` emits (see `classesCode()` and
-[TODO.md](../../TODO.md), "C++ gaps" item 1). Tests:
+[TODO.md](../../TODO.md), "gen-bindings C++ gaps" item 1). Tests:
 `tests/test-gen-bindings-virtual.js` on `tests/cxx/virt.{hpp,cpp}`.
 
 ## 1. Problem
@@ -164,7 +164,7 @@ Not done, in the order worth doing them. Each is independent.
 | 1 | **Say when a virtual method is left on its symbol** (done: a warning, as planned, not an error). `unslottedVirtuals()` in `vtable.js` lists the virtual or pure methods of a class that is not `final` and has no slot, with why (no dump, or the dump cannot tell it from another method of the same name, count and constness); they go to `ir.warnings`, are printed by `main.js` and noted at the end of the module. A `final` class has none. The check on real input is that `virt.hpp` gives none | `tests/test-gen-bindings-virtual.js`: a class entry with a virtual method and no slot gives the warning and a slotted one does not |
 | 2 | **IR slots equal the compiler's.** A test that compiles `virt.cpp` with `-fdump-vtable-layouts` itself and compares every `vtableSlot` in the IR with the row the dump gives (the check the original plan wanted, so a change in clang's output or in `methodOf()` fails loudly) | the test fails if `assignVtableSlots()` is made to add 1 |
 | 3 | **Native fast path.** `CFunction({ vtableIndex: n, args, returns })` in `ffi.c` reads `this->vptr[n]` on every call and reuses one `cif`, dropping the per-call `toArrayBuffer` view and the `Map`. Needs a benchmark first (10^6 calls of `legs()` through `__virtual()` against a plain `CFunction`); a change to the C module, so its own review and tests in `tests/test-c-function.js` | the benchmark shows a difference worth the extra API |
-| 4 | **Multiple inheritance.** A secondary base's slots point at `this`-adjusting thunks and need the subobject pointer (`BaseOffsets`, TODO.md "C++ gaps" item 1). The vtable dump already lists those slots | out of scope until the base offsets are captured |
+| 4 | **Multiple inheritance.** A secondary base's slots point at `this`-adjusting thunks and need the subobject pointer (`BaseOffsets`, TODO.md "gen-bindings C++ gaps" item 1). The vtable dump already lists those slots | out of scope until the base offsets are captured |
 
 Not planned: calling `Base::f()` explicitly from a subclass wrapper (the old,
 non-virtual behavior); if it is wanted, as `Class.prototype.f.nonVirtual`.

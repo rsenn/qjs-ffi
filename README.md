@@ -88,9 +88,10 @@ The other functions are in [doc/ffi.md](doc/ffi.md).
 
 ## Installation
 
-Needs CMake, a C compiler, the libffi development files, and QuickJS with its
+Needs CMake, a C compiler, QuickJS with its
 `qjsm` launcher. `clang` is only needed to run the binding generator, and `git`
-with network access only for the `BUILD_LIBFFI` and `ENABLE_TCC` options below.
+with network access for `ENABLE_TCC`, and for `BUILD_LIBFFI` when the libffi
+development files are missing (it builds libffi then); see the options below.
 
 ```sh
 cmake -S . -B build
@@ -113,8 +114,10 @@ generator is installed too, see [doc/gen-bindings.md](doc/gen-bindings.md).
 CMake options:
 
 *   `BUILD_STATIC` also builds a static `quickjs-ffi.a`
-*   `BUILD_LIBFFI` checks out libffi into third_party/libffi and builds it
-    instead of using the system library
+*   `BUILD_LIBFFI` is `AUTO` (default), `ON` or `OFF`: `ON` checks out libffi
+    into third_party/libffi and builds it instead of using the system
+    library, `AUTO` does that only when no system libffi is found, `OFF`
+    never does
 *   `ENABLE_TCC` checks out TinyCC into third_party/tinycc, builds libtcc and
     exports `cc()`, see [doc/c-compiler.md](doc/c-compiler.md)
 

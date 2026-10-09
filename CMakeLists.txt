@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.5)
 project(qjs-ffi VERSION 0.9 LANGUAGES C)
 
 option(BUILD_STATIC "Also build a static quickjs-ffi module (${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.a)" OFF)
-option(BUILD_LIBFFI "Checkout libffi into third_party/libffi and build it from source instead of using the system library" OFF)
+set(BUILD_LIBFFI AUTO CACHE STRING "Build libffi from source (checked out into third_party/libffi): ON always, AUTO when no system libffi is found, OFF never")
+set_property(CACHE BUILD_LIBFFI PROPERTY STRINGS ON OFF AUTO)
 option(ENABLE_TCC "Checkout TinyCC into third_party/tinycc, build libtcc from source and export cc() (in-memory C compiler) from the ffi module" OFF)
 
 message("Building project [1;31m${PROJECT_NAME}[0m")
@@ -16,17 +17,23 @@ if(NOT PKG_CONFIG_FOUND)
   include(FindPkgConfig)
 endif(NOT PKG_CONFIG_FOUND)
 
-if(BUILD_LIBFFI)
-  # quickjs-ffi (MODULE, needs -fPIC code) always gets the PIC build;
-  # quickjs-ffi-static gets its own non--fPIC build further down, once
-  # BUILD_STATIC's target exists to link it into.
-  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLibFFI.cmake)
-  build_libffi(libffi-shared PIC)
-  set(LIBFFI_LIBRARY "${libffi-shared_LIBRARY}")
-  set(LIBFFI_INCLUDE_DIR "${libffi-shared_INCLUDE_DIR}")
-  include_directories("${LIBFFI_INCLUDE_DIR}")
-  set(FFI_FOUND TRUE)
-else(BUILD_LIBFFI)
+# LIBFFI_BUILD: whether libffi is built from source. ON forces it, OFF never
+# does, AUTO does only when the system has no libffi.
+string(TOUPPER "${BUILD_LIBFFI}" _libffi_mode)
+
+if(NOT "${_libffi_mode}" STREQUAL "AUTO")
+  if(_libffi_mode)
+    set(_libffi_mode ON)
+  else(_libffi_mode)
+    set(_libffi_mode OFF)
+  endif(_libffi_mode)
+endif(NOT "${_libffi_mode}" STREQUAL "AUTO")
+
+set(LIBFFI_BUILD FALSE)
+
+if("${_libffi_mode}" STREQUAL "ON")
+  set(LIBFFI_BUILD TRUE)
+else("${_libffi_mode}" STREQUAL "ON")
   pkg_search_module(LIBFFI libffi)
 
   if(pkgcfg_lib_LIBFFI_ffi)
@@ -36,7 +43,24 @@ else(BUILD_LIBFFI)
   if(NOT LIBFFI_FOUND)
     find_library(LIBFFI_LIBRARY ffi)
   endif(NOT LIBFFI_FOUND)
-endif(BUILD_LIBFFI)
+
+  if("${_libffi_mode}" STREQUAL "AUTO" AND NOT LIBFFI_FOUND AND NOT LIBFFI_LIBRARY)
+    message(STATUS "No system libffi found, building it from source (BUILD_LIBFFI=AUTO)")
+    set(LIBFFI_BUILD TRUE)
+  endif("${_libffi_mode}" STREQUAL "AUTO" AND NOT LIBFFI_FOUND AND NOT LIBFFI_LIBRARY)
+endif("${_libffi_mode}" STREQUAL "ON")
+
+if(LIBFFI_BUILD)
+  # quickjs-ffi (MODULE, needs -fPIC code) always gets the PIC build;
+  # quickjs-ffi-static gets its own non--fPIC build further down, once
+  # BUILD_STATIC's target exists to link it into.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLibFFI.cmake)
+  build_libffi(libffi-shared PIC)
+  set(LIBFFI_LIBRARY "${libffi-shared_LIBRARY}")
+  set(LIBFFI_INCLUDE_DIR "${libffi-shared_INCLUDE_DIR}")
+  include_directories("${LIBFFI_INCLUDE_DIR}")
+  set(FFI_FOUND TRUE)
+endif(LIBFFI_BUILD)
 
 if(ENABLE_TCC)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLibTCC.cmake)
@@ -103,9 +127,9 @@ target_include_directories(quickjs-ffi PRIVATE)
 set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
 target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
 target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${LIBFFI_LIBRARY})
-if(BUILD_LIBFFI)
+if(LIBFFI_BUILD)
   add_dependencies(quickjs-ffi libffi-shared)
-endif(BUILD_LIBFFI)
+endif(LIBFFI_BUILD)
 if(ENABLE_TCC)
   target_compile_definitions(quickjs-ffi PRIVATE -DCONFIG_TCC=1 "-DCONFIG_TCC_LIB_DIR=\"${libtcc-shared_LIB_DIR}\"")
   target_link_libraries(quickjs-ffi PUBLIC ${libtcc-shared_LIBRARY} m)
@@ -123,7 +147,7 @@ if(BUILD_STATIC)
                          ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
   target_compile_definitions(quickjs-ffi-static PRIVATE -DJS_BINDINGS_INIT_MODULE=1)
 
-  if(BUILD_LIBFFI)
+  if(LIBFFI_BUILD)
     # A separate, non--fPIC libffi build for the static target -- the
     # -fPIC one above is only meant for linking into the MODULE's shared
     # object.
@@ -131,10 +155,10 @@ if(BUILD_STATIC)
     set(FFI_STATIC_LIBFFI "${libffi-static_LIBRARY}")
     target_link_libraries(quickjs-ffi-static PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${FFI_STATIC_LIBFFI})
     add_dependencies(quickjs-ffi-static libffi-static)
-  else(BUILD_LIBFFI)
+  else(LIBFFI_BUILD)
     set(FFI_STATIC_LIBFFI "${LIBFFI_LIBRARY}")
     target_link_libraries(quickjs-ffi-static PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${FFI_STATIC_LIBFFI})
-  endif(BUILD_LIBFFI)
+  endif(LIBFFI_BUILD)
 
   if(ENABLE_TCC)
     # Likewise a separate, non--fPIC libtcc build for the static target.

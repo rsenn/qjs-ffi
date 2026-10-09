@@ -158,5 +158,4 @@ function that takes a pointer, such as `ptr()` or `read`, unwraps a
 ## See also
 
 - [`doc/js-callback.md`](js-callback.md)
-- [`TODO.md`](../TODO.md) -- Phase 1 of the `bun:ffi`-compatible API migration this class is part of.
 - [bun:ffi docs](https://bun.com/docs/runtime/ffi)

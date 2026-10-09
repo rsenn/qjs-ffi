@@ -45,7 +45,7 @@ Design notes for contributors; not user documentation.
 | Page | Covers |
 | ---- | ------ |
 | [Virtual dispatch](internals/cxx-virtual-dispatch.md) | how generated C++ classes call virtual methods through the vtable, and what is left |
-| [TODO](../TODO.md) | the bun:ffi conformance plan and open work |
+| [TODO](../TODO.md) | open work: bun:ffi differences, classes as types, C++ gaps |
 
 ## Layout
 

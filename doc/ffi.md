@@ -229,7 +229,7 @@ pointer outlives nothing. In particular
 ## Differences from bun:ffi
 
 This module follows bun:ffi but is not a drop-in replacement yet. The open
-items are tracked in [TODO.md](../TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies):
+items are tracked in [TODO.md](../TODO.md#1-bunffi-differences-still-open):
 
 Not implemented:
 
