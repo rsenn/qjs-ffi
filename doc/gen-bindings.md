@@ -457,12 +457,12 @@ it, without it in the process:
 ```js
 import { CFunction, dlsym, dlopen, RTLD_NOW } from 'ffi';
 
-const __lib = dlopen("libgeom.so", RTLD_NOW);
-if (__lib == null) throw new Error("gen-bindings: dlopen(libgeom.so) failed");
+const __lib = dlopen('libgeom.so', RTLD_NOW);
+if (__lib == null) throw new Error('gen-bindings: dlopen(libgeom.so) failed');
 
 function __sym(name) {
   const p = dlsym(__lib, name);
-  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);
+  if(p == null) throw new Error('gen-bindings: symbol not found: ' + name);
   return p;
 }
 ```
@@ -851,7 +851,7 @@ qjs-ffi-genbindings --from-ir=geom.ir.json --library=/usr/lib/libgeom.so \
 ```
 
 ```js
-const { library, symbols } = JSON.parse(std.loadFile("geom.specs.json"));
+const { library, symbols } = JSON.parse(std.loadFile('geom.specs.json'));
 const lib = dlopen(library, symbols); // lib.symbols.geom_abs(-3), lib.symbols.counter
 ```
 

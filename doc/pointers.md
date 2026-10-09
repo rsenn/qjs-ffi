@@ -60,7 +60,7 @@ argument that is not a pointer is the same `TypeError`:
 
 ```js
 ptr(buffer, Symbol());    // TypeError: ptr: argument 2 must be BigInt | Number
-ptr("0x1000");            // TypeError: cannot convert a string to a pointer; encode it as a buffer
+ptr('0x1000');            // TypeError: cannot convert a string to a pointer; encode it as a buffer
 ```
 
 ## `ptr()`
@@ -75,7 +75,7 @@ be negative. A number is returned as it is. Anything else throws a
 `TypeError`.
 
 ```js
-import { ptr } from "ffi";
+import { ptr } from 'ffi';
 
 const bytes = new Uint8Array(32);
 const p = ptr(bytes);
@@ -119,7 +119,7 @@ the memory must stay valid for as long as the buffer is used. Without a
 deallocator the memory is never freed. `.slice(0)` makes a copy:
 
 ```js
-import { toArrayBuffer, ptr } from "ffi";
+import { toArrayBuffer, ptr } from 'ffi';
 
 const src = new Uint8Array([1, 2, 3, 4, 5]);
 const view = new Uint8Array(toArrayBuffer(ptr(src), 1, 3)); // [2, 3, 4]
@@ -135,10 +135,10 @@ const copy = toArrayBuffer(ptr(src), 0, 5).slice(0); // not affected by later wr
 JavaScript one. With a context it is the fifth argument; without, the fourth:
 
 ```js
-import { toArrayBuffer, dlsym, CFunction, RTLD_DEFAULT } from "ffi";
+import { toArrayBuffer, dlsym, CFunction, RTLD_DEFAULT } from 'ffi';
 
-const malloc = CFunction({ ptr: dlsym(RTLD_DEFAULT, "malloc"), args: ["u64"], returns: "pointer" });
-const free = dlsym(RTLD_DEFAULT, "free");
+const malloc = CFunction({ ptr: dlsym(RTLD_DEFAULT, 'malloc'), args: ['u64'], returns: 'pointer' });
+const free = dlsym(RTLD_DEFAULT, 'free');
 
 let ab = toArrayBuffer(malloc(1024n), 0, 1024, free); // free(bytes, <ignored>)
 ab = null; // when the buffer is collected: free() runs
@@ -155,7 +155,7 @@ that is an `ArrayBuffer` (or view) or a string. A string is taken as content
 and is copied, as an `ArrayBuffer` is unless `copy` is `false`:
 
 ```js
-toArrayBuffer("hello"); // an ArrayBuffer holding 5 bytes
+toArrayBuffer('hello'); // an ArrayBuffer holding 5 bytes
 toArrayBuffer(buffer, 4, false); // the first 4 bytes of `buffer`, not copied
 ```
 
@@ -187,7 +187,7 @@ All reads are little-endian. Reading past the memory, or from a bad address,
 crashes the process.
 
 ```js
-import { read, ptr } from "ffi";
+import { read, ptr } from 'ffi';
 
 const mem = new Uint8Array([1, 0xff, 2, 0x80, 0x78, 0x56, 0x34, 0x12]);
 
@@ -225,12 +225,12 @@ little-endian and unchecked: writing past the memory, or to a bad address,
 crashes the process.
 
 ```js
-import { write, read, ptr } from "ffi";
+import { write, read, ptr } from 'ffi';
 
 const mem = new Uint8Array(16);
 
 write.u32(ptr(mem), 4, 0x12345678);
-write.cstring(ptr(mem), 8, "hi"); // 2
+write.cstring(ptr(mem), 8, 'hi'); // 2
 read.u32(ptr(mem), 4); // 0x12345678
 ```
 
@@ -247,14 +247,14 @@ gives `""`. As in bun:ffi it may be called with `new`, which also gives a string
 `ptr` may be an address or an `ArrayBuffer` or view.
 
 ```js
-import { CString, ptr } from "ffi";
+import { CString, ptr } from 'ffi';
 
-const bytes = Uint8Array.from("hello\0world", c => c.charCodeAt(0));
+const bytes = Uint8Array.from('hello\0world', c => c.charCodeAt(0));
 
 console.log(CString(ptr(bytes))); // hello
 console.log(CString(ptr(bytes), 6, 5)); // world
 console.log(CString(ptr(bytes), 6)); // world
-console.log(CString(null) === ""); // true
+console.log(CString(null) === ''); // true
 ```
 
 A `byteLength` below 1 is a `TypeError`, as in bun. To get a string from a function that returns `char *`,

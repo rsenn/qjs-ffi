@@ -18,7 +18,7 @@ such a constructor is a type.
 ## Usage
 
 ```js
-import { dlopen, read, write, toArrayBuffer } from "ffi";
+import { dlopen, read, write, toArrayBuffer } from 'ffi';
 
 class Point extends ArrayBuffer {
   static size = 16; // sizeof(Point), required
@@ -29,9 +29,9 @@ class Point extends ArrayBuffer {
   set y(v) { write.f64(this, 8, v); }
 }
 
-const { symbols } = dlopen("libgeom.so", {
-  Point_len: { args: [Point], returns: "f64" },
-  Point_new: { args: ["f64", "f64"], returns: Point },
+const { symbols } = dlopen('libgeom.so', {
+  Point_len: { args: [Point], returns: 'f64' },
+  Point_new: { args: ['f64', 'f64'], returns: Point },
   origin: { type: Point }, // a global `Point origin;`
 });
 
@@ -82,10 +82,10 @@ object. It reads like the C declaration, and a table of specs stays plain data
 (a JSON file the generator wrote, `--emit-specs`) while the classes are code:
 
 ```js
-const { symbols } = dlopen("libgeom.so", {
-  Point_len: { args: ["Point *"], returns: "f64" },
-  Point_new: { args: ["f64", "f64"], returns: "Point *" },
-  origin: { type: "Point" }, // a global `Point origin;`
+const { symbols } = dlopen('libgeom.so', {
+  Point_len: { args: ['Point *'], returns: 'f64' },
+  Point_new: { args: ['f64', 'f64'], returns: 'Point *' },
+  origin: { type: 'Point' }, // a global `Point origin;`
 }, { Point });               // the third argument: name -> class
 ```
 
@@ -108,7 +108,7 @@ of a variable (a variable that holds a pointer) stay plain pointers.
 ## Type checking
 
 ```js
-symbols.stat(".", new Glob()); // TypeError: argument 2 must be a Stat, not a Glob
+symbols.stat('.', new Glob()); // TypeError: argument 2 must be a Stat, not a Glob
 ```
 
 | Argument | Accepted for a declared class `C` |

@@ -86,8 +86,8 @@ and it nests (`int grid[3][2]` is `{ array: { array: "i32", length: 2 }, length:
 3 }`):
 
 ```js
-const buf = { array: "i8", length: 4096 }; // char buf[4096]
-const sum = CFunction({ ptr, args: [{ array: "i32", length: 3 }], returns: "i32" });
+const buf = { array: 'i8', length: 4096 }; // char buf[4096]
+const sum = CFunction({ ptr, args: [{ array: 'i32', length: 3 }], returns: 'i32' });
 ```
 
 `length` is 1 to 2^20 (1048576), a bigger or missing one throws a `RangeError`,
@@ -101,7 +101,7 @@ array.
 `"i32"` is written, and the other way round:
 
 ```js
-import { dlopen, FFIType } from "ffi";
+import { dlopen, FFIType } from 'ffi';
 
 const { symbols } = dlopen(null, {
   abs: { args: [FFIType.i32], returns: FFIType.i32 },
@@ -159,10 +159,10 @@ part of a buffer gives the length of that part:
 
 ```js
 const { symbols } = dlopen(null, {
-  memchr: { args: ["buffer", "i32", "buffer_length"], returns: "pointer" },
+  memchr: { args: ['buffer', 'i32', 'buffer_length'], returns: 'pointer' },
 });
 
-const buf = Uint8Array.from("abcdef", c => c.charCodeAt(0));
+const buf = Uint8Array.from('abcdef', c => c.charCodeAt(0));
 symbols.memchr(buf, 100, buf) - ptr(buf); // 3: 'd' is the fourth byte
 ```
 

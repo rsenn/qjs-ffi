@@ -6,9 +6,9 @@ arguments the native caller passed. It mirrors [bun:ffi's
 `JSCallback`](https://bun.com/docs/runtime/ffi#jscallback).
 
 ```js
-import { JSCallback } from "ffi";
+import { JSCallback } from 'ffi';
 
-const cb = new JSCallback((a, b) => a + b, { args: ["i32", "i32"], returns: "i32" });
+const cb = new JSCallback((a, b) => a + b, { args: ['i32', 'i32'], returns: 'i32' });
 
 someNativeApiExpectingAFunctionPointer(cb.ptr);
 
@@ -65,7 +65,7 @@ A callback lives until `close()`, as in bun, **not** until its object is
 collected: the pointer of one that nothing references any more stays callable.
 
 ```js
-const p = new JSCallback(() => 7, { args: [], returns: "i32" }).ptr;
+const p = new JSCallback(() => 7, { args: [], returns: 'i32' }).ptr;
 
 // ... the object is gone, p still calls the function
 ```
@@ -128,7 +128,7 @@ native function carries on, and when it returns the [`CFunction`](c-function.md)
 call that started it **throws that exception**, as in bun:
 
 ```js
-const cmp = new JSCallback(() => { throw new RangeError("boom"); }, { args: ["pointer", "pointer"], returns: "i32" });
+const cmp = new JSCallback(() => { throw new RangeError('boom'); }, { args: ['pointer', 'pointer'], returns: 'i32' });
 
 try {
   qsort(data, 3, 4, cmp);
@@ -149,7 +149,7 @@ try {
 ## Example: using a JSCallback with qsort()
 
 ```js
-import { dlopen, dlsym, JSCallback, CFunction, RTLD_DEFAULT } from "ffi";
+import { dlopen, dlsym, JSCallback, CFunction, RTLD_DEFAULT } from 'ffi';
 
 const cmp = new JSCallback(
   (a, b) => {
@@ -157,13 +157,13 @@ const cmp = new JSCallback(
     // in a real comparator you'd deref them via toArrayBuffer()/toString().
     return 0;
   },
-  { args: ["pointer", "pointer"], returns: "i32" },
+  { args: ['pointer', 'pointer'], returns: 'i32' },
 );
 
 const qsort = CFunction({
-  ptr: dlsym(RTLD_DEFAULT, "qsort"),
-  args: ["pointer", "u64", "u64", "pointer"],
-  returns: "void",
+  ptr: dlsym(RTLD_DEFAULT, 'qsort'),
+  args: ['pointer', 'u64', 'u64', 'pointer'],
+  returns: 'void',
 });
 
 // qsort(base, nmemb, size, cmp.ptr);

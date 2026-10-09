@@ -393,8 +393,7 @@ await tests({
 
   '--describe: describeClass()/describeObject() report parameter names, C types and overloads'() {
     return withGenerated(['--std=c++17', '--describe'], async m => {
-      const { describeClass } = await import('../../qjs-modules/lib/describe-class.js');
-      const { describeObject } = await import('../../qjs-modules/lib/describe-object.js');
+      const { describeClass, describeObject } = await import('../../qjs-modules/lib/describe.js');
       const shape = describeClass(m.geo_Shape);
       const method = name => shape.prototypeChain[0].methods.find(f => f.name === name);
 
@@ -449,7 +448,7 @@ await tests({
 
   '--structs --describe: struct wrappers report constructor signatures, at() and the layout'() {
     return withGenerated(['--std=c++17', '--structs', '--describe'], async m => {
-      const { describeClass } = await import('../../qjs-modules/lib/describe-class.js');
+      const { describeClass } = await import('../../qjs-modules/lib/describe.js');
       const d = describeClass(m.geo_Point);
 
       same(['init'], d.constructorParams);

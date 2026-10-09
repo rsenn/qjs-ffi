@@ -7,10 +7,10 @@ mean different things in them (`toArrayBuffer(pointer, length)` against
 module, `node/ffi.js`, installed next to `ffi`:
 
 ```js
-import { dlopen, getInt32, setInt32 } from "node/ffi.js";
+import { dlopen, getInt32, setInt32 } from 'node/ffi';
 
-const { lib, functions } = dlopen("libm.so.6", {
-  cos: { arguments: ["float64"], return: "float64" },
+const { lib, functions } = dlopen('libm.so.6', {
+  cos: { arguments: ['float64'], return: 'float64' },
 });
 
 functions.cos(0); // 1

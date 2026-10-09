@@ -7,11 +7,11 @@ lives in the JavaScript module `legacy.js`, which builds each function on a
 directly; this page is for code that still uses `define()` and `call()`.
 
 ```js
-import { dlsym, RTLD_DEFAULT } from "ffi";
-import { define, call } from "ffi/legacy.js";
+import { dlsym, RTLD_DEFAULT } from 'ffi';
+import { define, call } from 'ffi/legacy';
 
-define("strlen", dlsym(RTLD_DEFAULT, "strlen"), null, "int", "char *");
-console.log(call("strlen", "hello")); // 5
+define('strlen', dlsym(RTLD_DEFAULT, 'strlen'), null, 'int', 'char *');
+console.log(call('strlen', 'hello')); // 5
 ```
 
 `ffi/legacy.js` is installed in the QuickJS JS module directory and copied to

@@ -12,9 +12,9 @@ first argument, through `dlsym()` and [`CFunction`](c-function.md): a limited
 form of introspection of the interpreter itself.
 
 ```js
-import { JSContext, dlsym, CFunction, RTLD_DEFAULT } from "ffi";
+import { JSContext, dlsym, CFunction, RTLD_DEFAULT } from 'ffi';
 
-const JS_GetRuntime = CFunction({ ptr: dlsym(RTLD_DEFAULT, "JS_GetRuntime"), args: ["pointer"], returns: "pointer" });
+const JS_GetRuntime = CFunction({ ptr: dlsym(RTLD_DEFAULT, 'JS_GetRuntime'), args: ['pointer'], returns: 'pointer' });
 
 const rt = JS_GetRuntime(JSContext());
 ```

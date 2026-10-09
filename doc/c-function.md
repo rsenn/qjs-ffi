@@ -13,17 +13,17 @@ against that stored `cif`/function pointer with no string lookup involved.
 ## Usage
 
 ```js
-import { dlopen, dlsym, CFunction, RTLD_DEFAULT } from "ffi";
+import { dlopen, dlsym, CFunction, RTLD_DEFAULT } from 'ffi';
 
-const fp = dlsym(RTLD_DEFAULT, "strdup");
+const fp = dlsym(RTLD_DEFAULT, 'strdup');
 
 const strdup = CFunction({
   ptr: fp,
-  args: ["cstring"],
-  returns: "cstring",
+  args: ['cstring'],
+  returns: 'cstring',
 });
 
-console.log(strdup("hello")); // "hello"
+console.log(strdup('hello')); // "hello"
 ```
 
 `CFunction()` may be called with or without `new`, as in bun:ffi: either way it
@@ -67,15 +67,15 @@ arguments are not known until the call:
 
 ```js
 const snprintf = CFunction({
-  ptr: dlsym(RTLD_DEFAULT, "snprintf"),
-  args: ["pointer", "u64", "cstring"],
-  returns: "i32",
+  ptr: dlsym(RTLD_DEFAULT, 'snprintf'),
+  args: ['pointer', 'u64', 'cstring'],
+  returns: 'i32',
   variadic: true,
 });
 
 const buf = new Uint8Array(64);
 
-snprintf(buf, 64n, "%d %s %.2f", "i32", 42, "cstring", "hi", "f64", 2.5);
+snprintf(buf, 64n, '%d %s %.2f', 'i32', 42, 'cstring', 'hi', 'f64', 2.5);
 ```
 
 A pair's type is a scalar type name or `FFIType` number (not a struct, `void` or
@@ -111,12 +111,12 @@ by that class: see [Classes as types](struct.md).
 Calling a libm function with `f64` arguments and return:
 
 ```js
-import { dlopen, dlsym, CFunction, RTLD_DEFAULT } from "ffi";
+import { dlopen, dlsym, CFunction, RTLD_DEFAULT } from 'ffi';
 
 const pow = CFunction({
-  ptr: dlsym(RTLD_DEFAULT, "pow"),
-  args: ["f64", "f64"],
-  returns: "f64",
+  ptr: dlsym(RTLD_DEFAULT, 'pow'),
+  args: ['f64', 'f64'],
+  returns: 'f64',
 });
 
 console.log(pow(2, 10)); // 1024
@@ -126,9 +126,9 @@ console.log(pow(2, 10)); // 1024
 
 ```js
 const llabs = CFunction({
-  ptr: dlsym(RTLD_DEFAULT, "llabs"),
-  args: ["i64"],
-  returns: "i64",
+  ptr: dlsym(RTLD_DEFAULT, 'llabs'),
+  args: ['i64'],
+  returns: 'i64',
 });
 
 llabs(-9007199254740993n); // 9007199254740993n
@@ -137,8 +137,8 @@ llabs(-9007199254740993n); // 9007199254740993n
 `malloc`/`free` via `pointer`:
 
 ```js
-const malloc = CFunction({ ptr: dlsym(RTLD_DEFAULT, "malloc"), args: ["u64"], returns: "pointer" });
-const free = CFunction({ ptr: dlsym(RTLD_DEFAULT, "free"), args: ["pointer"], returns: "void" });
+const malloc = CFunction({ ptr: dlsym(RTLD_DEFAULT, 'malloc'), args: ['u64'], returns: 'pointer' });
+const free = CFunction({ ptr: dlsym(RTLD_DEFAULT, 'free'), args: ['pointer'], returns: 'void' });
 
 const p = malloc(16n);
 free(p);

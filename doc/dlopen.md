@@ -27,10 +27,10 @@ wraps it as a [`CFunction`](c-function.md). The result is
 | `[Symbol.dispose]()` | The same as `close()`, so `using lib = dlopen(...)` closes it (the registered `Symbol.for("Symbol.dispose")` where the engine has none). |
 
 ```js
-import { dlopen } from "ffi";
+import { dlopen } from 'ffi';
 
-const lib = dlopen("libm.so.6", {
-  pow: { args: ["f64", "f64"], returns: "f64" },
+const lib = dlopen('libm.so.6', {
+  pow: { args: ['f64', 'f64'], returns: 'f64' },
 });
 
 console.log(lib.symbols.pow(2, 10)); // 1024
@@ -41,7 +41,7 @@ lib.close();
 the symbols that are already loaded into the process:
 
 ```js
-const { symbols: { abs } } = dlopen(null, { abs: { args: ["i32"], returns: "i32" } });
+const { symbols: { abs } } = dlopen(null, { abs: { args: ['i32'], returns: 'i32' } });
 ```
 
 Each spec is `{ args, returns, abi }`, exactly as for
@@ -63,15 +63,15 @@ a string or anything else is a `TypeError`), and otherwise with `dlsym(RTLD_DEFA
 functions from pointers you got elsewhere in one call:
 
 ```js
-import { linkSymbols, dlsym, RTLD_DEFAULT } from "ffi";
+import { linkSymbols, dlsym, RTLD_DEFAULT } from 'ffi';
 
 const { symbols } = linkSymbols({
-  myabs: { ptr: dlsym(RTLD_DEFAULT, "abs"), args: ["i32"], returns: "i32" },
-  strlen: { args: ["cstring"], returns: "u64" }, // found with dlsym(RTLD_DEFAULT, "strlen")
+  myabs: { ptr: dlsym(RTLD_DEFAULT, 'abs'), args: ['i32'], returns: 'i32' },
+  strlen: { args: ['cstring'], returns: 'u64' }, // found with dlsym(RTLD_DEFAULT, "strlen")
 });
 
 symbols.myabs(-7); // 7
-symbols.strlen("hello"); // 5n
+symbols.strlen('hello'); // 5n
 ```
 
 A symbol that is not found throws a `TypeError`. Only available where the
@@ -90,12 +90,12 @@ same in `dlopen()`, `linkSymbols()` and [`cc()`](c-compiler.md):
 
 ```js
 const { symbols } = cc({
-  source: "counter.c", // int counter = 5; const double pi = 3.14; struct { float x, y; } origin;
+  source: 'counter.c', // int counter = 5; const double pi = 3.14; struct { float x, y; } origin;
   symbols: {
-    counter: { type: "i32" },
-    pi: { type: "f64", readonly: true },
-    origin: { type: ["f32", "f32"] },
-    hello: { args: [], returns: "i32" }, // functions as before
+    counter: { type: 'i32' },
+    pi: { type: 'f64', readonly: true },
+    origin: { type: ['f32', 'f32'] },
+    hello: { args: [], returns: 'i32' }, // functions as before
   },
 });
 
@@ -132,11 +132,11 @@ An extension: a spec with `value` or `enum` is a constant, a plain
 valid:
 
 ```js
-const { symbols } = dlopen("libfoo.so", {
+const { symbols } = dlopen('libfoo.so', {
   FOO_MAX: { value: 4096 },
-  FOO_MASK: { value: 0xffffffffffffffffn, type: "u64" },
-  Color: { enum: { RED: 0, GREEN: 1, BLUE: 4 }, type: "u32" },
-  Flags: { enum: { A: 1, B: 2, C: 4 }, type: "u8", flags: true },
+  FOO_MASK: { value: 0xffffffffffffffffn, type: 'u64' },
+  Color: { enum: { RED: 0, GREEN: 1, BLUE: 4 }, type: 'u32' },
+  Flags: { enum: { A: 1, B: 2, C: 4 }, type: 'u8', flags: true },
 });
 
 symbols.FOO_MAX;    // 4096
@@ -166,7 +166,7 @@ in the **dlopen(3)** manual page.
 ### `dlopen(path, flags)`
 
 ```js
-const handle = dlopen("libz.so.1", RTLD_NOW | RTLD_GLOBAL);
+const handle = dlopen('libz.so.1', RTLD_NOW | RTLD_GLOBAL);
 ```
 
 Returns the library handle as a pointer (a `number` or a `bigint`), or `null`
@@ -176,7 +176,7 @@ the main program.
 ### `dlsym(handle, name)`
 
 ```js
-const fp = dlsym(handle, "compress");
+const fp = dlsym(handle, 'compress');
 ```
 
 Returns the address of the symbol, or `null` if it is not found. `handle` is a
@@ -200,7 +200,7 @@ Returns the text of the last libdl error as a string and clears it, or `null`
 if there is none.
 
 ```js
-const h = dlopen("libnope.so", RTLD_NOW); // null
+const h = dlopen('libnope.so', RTLD_NOW); // null
 console.log(dlerror()); // "libnope.so: cannot open shared object file: ..."
 console.log(dlerror()); // null
 ```

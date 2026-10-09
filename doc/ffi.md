@@ -7,11 +7,11 @@ symbol table passed to `dlopen()` gives directly callable functions, with no
 name lookup at call time, and 64-bit integers are `BigInt`.
 
 ```js
-import { dlopen } from "ffi";
+import { dlopen } from 'ffi';
 
-const { symbols, close } = dlopen("libm.so.6", {
-  pow: { args: ["f64", "f64"], returns: "f64" },
-  sqrt: { args: ["f64"], returns: "f64" },
+const { symbols, close } = dlopen('libm.so.6', {
+  pow: { args: ['f64', 'f64'], returns: 'f64' },
+  sqrt: { args: ['f64'], returns: 'f64' },
 });
 
 console.log(symbols.pow(2, 10)); // 1024
@@ -28,7 +28,7 @@ import { dlopen, dlsym, dlclose, dlerror, errno,
          FFIType, suffix, pointerSize, JSContext, debug,
          RTLD_LAZY, RTLD_NOW, RTLD_GLOBAL, RTLD_LOCAL,
          RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND,
-         RTLD_DEFAULT, RTLD_NEXT } from "ffi";
+         RTLD_DEFAULT, RTLD_NEXT } from 'ffi';
 ```
 
 The module also has a default export, an object holding all of these (the same
@@ -62,7 +62,7 @@ is an object of [classes](struct.md#naming-a-class-types) that a `"Point *"`
 names):
 
 ```js
-import { dlopen, FFIType, suffix } from "ffi";
+import { dlopen, FFIType, suffix } from 'ffi';
 
 const path = `libsqlite3.${suffix}`;
 const { symbols: { sqlite3_libversion } } = dlopen(path, {
@@ -102,25 +102,25 @@ passed or returned by value is an array of member types.
 `CFunction()` wraps a pointer you already have, for example from `dlsym()`:
 
 ```js
-import { dlsym, CFunction, RTLD_DEFAULT } from "ffi";
+import { dlsym, CFunction, RTLD_DEFAULT } from 'ffi';
 
 const strdup = CFunction({
-  ptr: dlsym(RTLD_DEFAULT, "strdup"),
-  args: ["cstring"],
-  returns: "cstring",
+  ptr: dlsym(RTLD_DEFAULT, 'strdup'),
+  args: ['cstring'],
+  returns: 'cstring',
 });
 
-console.log(strdup("hello"));
+console.log(strdup('hello'));
 ```
 
 `linkSymbols()` is `dlopen()` without opening a library: every entry is
 resolved from its own `ptr`, or else with `dlsym(RTLD_DEFAULT, name)`:
 
 ```js
-import { linkSymbols } from "ffi";
+import { linkSymbols } from 'ffi';
 
 const { symbols: { gnu_get_libc_version } } = linkSymbols({
-  gnu_get_libc_version: { args: [], returns: "cstring" },
+  gnu_get_libc_version: { args: [], returns: 'cstring' },
 });
 
 console.log(gnu_get_libc_version());
@@ -134,14 +134,14 @@ See [CFunction](c-function.md) and [Libraries and symbols](dlopen.md#linksymbols
 `.ptr` gives, to pass to C:
 
 ```js
-import { JSCallback, CFunction, dlsym, read, RTLD_DEFAULT } from "ffi";
+import { JSCallback, CFunction, dlsym, read, RTLD_DEFAULT } from 'ffi';
 
 const compare = new JSCallback((a, b) => read.i32(a) - read.i32(b), {
-  args: ["pointer", "pointer"],
-  returns: "i32",
+  args: ['pointer', 'pointer'],
+  returns: 'i32',
 });
 
-const qsort = CFunction({ ptr: dlsym(RTLD_DEFAULT, "qsort"), args: ["pointer", "u64", "u64", "pointer"], returns: "void" });
+const qsort = CFunction({ ptr: dlsym(RTLD_DEFAULT, 'qsort'), args: ['pointer', 'u64', 'u64', 'pointer'], returns: 'void' });
 
 const numbers = new Int32Array([5, 3, 9, 1]);
 qsort(numbers, numbers.length, 4n, compare);
@@ -171,7 +171,7 @@ array, `toArrayBuffer()` makes an `ArrayBuffer` over memory at an address, and
 `read` reads a value straight from an address:
 
 ```js
-import { ptr, read, toArrayBuffer } from "ffi";
+import { ptr, read, toArrayBuffer } from 'ffi';
 
 const bytes = new Uint8Array([1, 2, 3, 4]);
 const p = ptr(bytes);
@@ -190,11 +190,11 @@ See [Pointers and memory](pointers.md).
 the same signatures:
 
 ```js
-import { cc } from "ffi";
+import { cc } from 'ffi';
 
 const { symbols: { hello } } = cc({
-  source: "hello.c",
-  symbols: { hello: { args: [], returns: "int" } },
+  source: 'hello.c',
+  symbols: { hello: { args: [], returns: 'int' } },
 });
 
 console.log(hello()); // 42
