@@ -28,7 +28,7 @@ endfunction(checkout_libffi)
 # via ExternalProject_Add's autotools (configure/make) support - pass PIC
 # to compile it with -fPIC (for linking into the quickjs-ffi MODULE), omit
 # it for the quickjs-ffi-static STATIC target. Called twice, under two
-# different target names, when BUILD_STATIC_MODULES is also set, since one
+# different target names, when BUILD_STATIC is also set, since one
 # build tree can't hold both a -fPIC and a non--fPIC libffi.a at once.
 #
 # Sets, in the parent scope: <target>_LIBRARY, <target>_INCLUDE_DIR.
@@ -48,6 +48,12 @@ macro(build_libffi TARGET)
     message("-- Building LIBFFI from source (${TARGET}, no -fPIC)")
   endif(BUILD_LIBFFI_PIC)
 
+  # musl-gcc has no kernel headers; static trampolines (tramp.c) need linux/limits.h
+  set(${TARGET}_CONFIGURE_EXTRA "")
+  if(CMAKE_C_COMPILER MATCHES "musl")
+    set(${TARGET}_CONFIGURE_EXTRA --disable-exec-static-tramp)
+  endif(CMAKE_C_COMPILER MATCHES "musl")
+
   ExternalProject_Add(
     "${TARGET}"
     SOURCE_DIR "${LIBFFI_SOURCE_DIR}"
@@ -57,7 +63,7 @@ macro(build_libffi TARGET)
       sh -c "cd '${LIBFFI_SOURCE_DIR}' && test -x configure || ./autogen.sh"
     COMMAND
       "${LIBFFI_SOURCE_DIR}/configure" "--prefix=${${TARGET}_INSTALL_DIR}"
-      --disable-shared --enable-static --disable-docs
+      --disable-shared --enable-static --disable-docs ${${TARGET}_CONFIGURE_EXTRA}
       "CC=${CMAKE_C_COMPILER}" "CFLAGS=${${TARGET}_C_FLAGS}"
     BUILD_COMMAND make -C "${${TARGET}_BINARY_DIR}"
     INSTALL_COMMAND make -C "${${TARGET}_BINARY_DIR}" install

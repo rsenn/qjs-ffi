@@ -225,7 +225,7 @@ revision of [upstream TinyCC](https://github.com/TinyCC/tinycc) into
 `third_party/tinycc` (needs `git` and network access the first time), builds
 `libtcc.a` and `libtcc1.a` from it with the module's own C compiler, and links
 `libtcc.a` into the `ffi` module (and into `quickjs-ffi.a` when
-`BUILD_STATIC_MODULES` is on).
+`BUILD_STATIC` is on).
 
 TinyCC's own runtime files (its `libtcc1.a` and headers such as `stddef.h` and
 `stdarg.h`) are looked up in the build tree's `libtcc-*/install/lib/tcc`; that

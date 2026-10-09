@@ -12,3 +12,14 @@ foreach(tool genbindings:gen-bindings genstructs:gen-structs)
   execute_process(COMMAND chmod 755 "${wrapper}")
   message(STATUS "Installing: ${wrapper}")
 endforeach()
+
+# qjs-ffi-describe.js and qjs-ffi-describe.sh: describe.js is a library whose
+# main() runs only when it is the started script, so its wrapper calls run().
+set(bin "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${QJS_FFI_BINDIR}")
+set(tools "${CMAKE_INSTALL_PREFIX}/${QJS_FFI_DATADIR}/qjs-ffi/tools")
+
+file(WRITE "${bin}/qjs-ffi-describe.js" "#!/usr/bin/env qjsm\nimport { run } from '${tools}/describe.js';\nrun();\n")
+file(WRITE "${bin}/qjs-ffi-describe.sh" "#!/bin/sh\nexec sh '${tools}/describe.sh' \"$@\"\n")
+execute_process(COMMAND chmod 755 "${bin}/qjs-ffi-describe.js" "${bin}/qjs-ffi-describe.sh")
+message(STATUS "Installing: ${bin}/qjs-ffi-describe.js")
+message(STATUS "Installing: ${bin}/qjs-ffi-describe.sh")

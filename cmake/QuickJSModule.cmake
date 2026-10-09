@@ -203,7 +203,7 @@ function(make_module FNAME)
     STATUS "Building QuickJS module: ${FNAME} (deps: ${DEPS}, libs: ${LIBS}) JS_${UNAME}_MODULE=1")
 
   if(WASI OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
-    set(BUILD_SHARED_MODULES OFF)
+    set(BUILD_SHARED OFF)
   endif(WASI OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
 
   if(NOT WASI AND "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
@@ -214,7 +214,7 @@ function(make_module FNAME)
 
   #dump(VNAME ${VNAME}_SOURCES SOURCES)
 
-  if(BUILD_SHARED_MODULES)
+  if(BUILD_SHARED)
     #add_library(${TARGET_NAME} MODULE ${SOURCES})
     add_library(${TARGET_NAME} SHARED ${SOURCES})
 
@@ -247,7 +247,7 @@ function(make_module FNAME)
       add_dependencies(${TARGET_NAME} ${DEPS})
     endif(DEPS)
 
-  endif(BUILD_SHARED_MODULES)
+  endif(BUILD_SHARED)
 
   add_library(${TARGET_NAME}-static STATIC ${SOURCES})
 
@@ -268,9 +268,9 @@ endfunction()
 
 if(WASI OR EMSCRIPTEN)
   set(CMAKE_EXECUTABLE_SUFFIX ".wasm")
-  option(BUILD_SHARED_MODULES "Build shared modules" OFF)
+  option(BUILD_SHARED "Build shared modules" OFF)
 else(WASI OR EMSCRIPTEN)
-  option(BUILD_SHARED_MODULES "Build shared modules" ON)
+  option(BUILD_SHARED "Build shared modules" ON)
 endif(WASI OR EMSCRIPTEN)
 
 if(WIN32 OR MINGW)

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 project(qjs-ffi VERSION 0.9 LANGUAGES C)
 
-option(BUILD_STATIC_MODULES "Also build a static quickjs-ffi module (${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.a)" OFF)
+option(BUILD_STATIC "Also build a static quickjs-ffi module (${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.a)" OFF)
 option(BUILD_LIBFFI "Checkout libffi into third_party/libffi and build it from source instead of using the system library" OFF)
 option(ENABLE_TCC "Checkout TinyCC into third_party/tinycc, build libtcc from source and export cc() (in-memory C compiler) from the ffi module" OFF)
 
@@ -19,11 +19,12 @@ endif(NOT PKG_CONFIG_FOUND)
 if(BUILD_LIBFFI)
   # quickjs-ffi (MODULE, needs -fPIC code) always gets the PIC build;
   # quickjs-ffi-static gets its own non--fPIC build further down, once
-  # BUILD_STATIC_MODULES's target exists to link it into.
+  # BUILD_STATIC's target exists to link it into.
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLibFFI.cmake)
   build_libffi(libffi-shared PIC)
   set(LIBFFI_LIBRARY "${libffi-shared_LIBRARY}")
-  set(LIBFFI_INCLUDE_DIRd "${libffi-shared_INCLUDE_DIR}")
+  set(LIBFFI_INCLUDE_DIR "${libffi-shared_INCLUDE_DIR}")
+  include_directories("${LIBFFI_INCLUDE_DIR}")
   set(FFI_FOUND TRUE)
 else(BUILD_LIBFFI)
   pkg_search_module(LIBFFI libffi)
@@ -111,7 +112,7 @@ if(ENABLE_TCC)
   add_dependencies(quickjs-ffi libtcc-shared)
 endif(ENABLE_TCC)
 
-if(BUILD_STATIC_MODULES)
+if(BUILD_STATIC)
   # Statically-linked module: no JS_SHARED_LIBRARY define, so ffi.c's
   # JS_INIT_MODULE macro resolves to js_init_module_ffi (the symbol a host
   # embedding this module statically calls by name), not js_init_module
@@ -161,7 +162,7 @@ if(BUILD_STATIC_MODULES)
 set(QUICKJS_FFI_LIBRARIES \"${QUICKJS_FFI_LIBRARIES}\")
 set(QUICKJS_FFI_LINK_FLAGS \"${QUICKJS_FFI_LINK_FLAGS}\")
 ")
-endif(BUILD_STATIC_MODULES)
+endif(BUILD_STATIC)
 
 if(NOT CMAKE_INSTALL_LIBDIR)
   set(CMAKE_INSTALL_LIBDIR lib)
@@ -201,6 +202,7 @@ endif(NOT CMAKE_INSTALL_DATADIR)
 # the tree is installed as a whole and bin/ gets two-line wrappers importing
 # it by its installed path.
 install(DIRECTORY tools/ DESTINATION "${CMAKE_INSTALL_DATADIR}/qjs-ffi/tools" FILES_MATCHING PATTERN "*.js")
+install(PROGRAMS tools/describe.sh DESTINATION "${CMAKE_INSTALL_DATADIR}/qjs-ffi/tools")
 install(CODE "set(QJS_FFI_BINDIR \"${CMAKE_INSTALL_BINDIR}\")
 set(QJS_FFI_DATADIR \"${CMAKE_INSTALL_DATADIR}\")")
 install(SCRIPT cmake/install-tool-wrappers.cmake)

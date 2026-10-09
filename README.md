@@ -112,7 +112,7 @@ generator is installed too, see [doc/gen-bindings.md](doc/gen-bindings.md).
 
 CMake options:
 
-*   `BUILD_STATIC_MODULES` also builds a static `quickjs-ffi.a`
+*   `BUILD_STATIC` also builds a static `quickjs-ffi.a`
 *   `BUILD_LIBFFI` checks out libffi into third_party/libffi and builds it
     instead of using the system library
 *   `ENABLE_TCC` checks out TinyCC into third_party/tinycc, builds libtcc and
