@@ -1,13 +1,11 @@
-import * as std from 'std';
-
 /* How this script is invoked, for use in the usage banner and the
  * generated file's "regenerate with:" comment. Installed (via
  * CMakeLists.txt) as bin/qjs-ffi-genbindings with this shebang, so
- * scriptArgs[0] is that binary's path when run that way, or a relative
+ * process.argv[1] is that binary's path when run that way, or a relative
  * "tools/gen-bindings.js"-style path under `qjsm`.
  */
 export function invocationName() {
-  const s = (typeof scriptArgs !== 'undefined' && scriptArgs[0]) || 'gen-bindings.js';
+  const s = process.argv[1] || 'gen-bindings.js';
   const base = s.replace(/.*\//, '');
   return base.endsWith('.js') ? 'qjsm ' + s : base;
 }
@@ -62,7 +60,7 @@ export function usage() {
   const rows = OPTIONS.map(o => [o.names.map(n => spell(o, n)).join(', '), o.help]);
   const width = Math.max(...rows.map(r => r[0].length));
 
-  std.err.puts('Usage: ' + invocationName() + ' [options] <source.c>... | --from-ir=<ir.json>\n' + rows.map(([flags, help]) => '  ' + flags.padEnd(width + 2) + help + '\n').join(''));
+  console.error(['Usage: ' + invocationName() + ' [options] <source.c>... | --from-ir=<ir.json>', ...rows.map(([flags, help]) => '  ' + flags.padEnd(width + 2) + help)].join('\n'));
 }
 
 /* the option `arg` spells, with its value, or null. `next` gives the
@@ -98,7 +96,7 @@ export function parseArgs(argv) {
     if(m) {
       if(m.o.key === 'help') {
         usage();
-        std.exit(0);
+        process.exit(0);
       }
 
       if(m.o.key === 'emitSpecs' && m.value === '') throw new Error('--emit-specs= needs a file name');

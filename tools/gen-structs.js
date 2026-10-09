@@ -51,51 +51,51 @@
  *   -o, --output=<path>   write the module here instead of stdout
  *   -h, --help        show this help
  */
-import * as std from 'std';
-import { loadIR, generate, generateC } from './gen-bindings/emit/structs.js';
+import { writeFileSync } from 'fs';
+import { loadIR, generate, generateC } from "./gen-bindings/emit/structs.js";
 
 function usage() {
-  std.err.puts(
-    'Usage: qjsm gen-structs.js [options] <ir.json>...\n' +
-      '  --struct=<name>       only this struct and the ones it nests (repeatable)\n' +
-      '  --format=js|c         JS module (default) or C header with the same layout\n' +
+  console.error(
+    "Usage: qjsm gen-structs.js [options] <ir.json>...\n" +
+      "  --struct=<name>       only this struct and the ones it nests (repeatable)\n" +
+      "  --format=js|c         JS module (default) or C header with the same layout\n" +
       '  --describe            layout and Symbol.for("describe") signatures on each class (JS only)\n' +
-      '  --jsdoc               JSDoc block with member types on each class (JS only)\n' +
-      '  -o, --output=<path>   write the module here instead of stdout\n' +
-      '  -h, --help            show this help\n',
+      "  --jsdoc               JSDoc block with member types on each class (JS only)\n" +
+      "  -o, --output=<path>   write the module here instead of stdout\n" +
+      "  -h, --help            show this help",
   );
 }
 
 function parseArgs(argv) {
-  const opts = { files: [], structs: [], output: null, format: 'js' };
+  const opts = { files: [], structs: [], output: null, format: "js" };
 
   for(let i = 0; i < argv.length; i++) {
     const a = argv[i];
 
-    if(a === '-h' || a === '--help') {
+    if(a === "-h" || a === "--help") {
       usage();
-      std.exit(0);
-    } else if(a.startsWith('--struct=')) {
-      opts.structs.push(a.slice('--struct='.length));
-    } else if(a === '--describe') {
+      process.exit(0);
+    } else if(a.startsWith("--struct=")) {
+      opts.structs.push(a.slice("--struct=".length));
+    } else if(a === "--describe") {
       opts.describe = true;
-    } else if(a === '--jsdoc') {
+    } else if(a === "--jsdoc") {
       opts.jsdoc = true;
-    } else if(a.startsWith('--format=')) {
-      opts.format = a.slice('--format='.length);
-      if(opts.format !== 'js' && opts.format !== 'c') throw new Error('unknown format: ' + opts.format);
-    } else if(a === '-o' || a === '--output') {
+    } else if(a.startsWith("--format=")) {
+      opts.format = a.slice("--format=".length);
+      if(opts.format !== "js" && opts.format !== "c") throw new Error("unknown format: " + opts.format);
+    } else if(a === "-o" || a === "--output") {
       opts.output = argv[++i];
-    } else if(a.startsWith('--output=')) {
-      opts.output = a.slice('--output='.length);
-    } else if(a.startsWith('-')) {
-      throw new Error('unknown option: ' + a);
+    } else if(a.startsWith("--output=")) {
+      opts.output = a.slice("--output=".length);
+    } else if(a.startsWith("-")) {
+      throw new Error("unknown option: " + a);
     } else {
       opts.files.push(a);
     }
   }
 
-  if(!opts.files.length) throw new Error('missing <ir.json> argument');
+  if(!opts.files.length) throw new Error("missing <ir.json> argument");
   return opts;
 }
 
@@ -103,11 +103,11 @@ function main() {
   let opts;
 
   try {
-    opts = parseArgs(scriptArgs.slice(1));
+    opts = parseArgs(process.argv.slice(2));
   } catch(e) {
-    std.err.puts('gen-structs.js: ' + e.message + '\n');
+    console.error("gen-structs.js: " + e.message);
     usage();
-    std.exit(1);
+    process.exit(1);
   }
 
   let out;
@@ -115,20 +115,17 @@ function main() {
   try {
     const ir = loadIR(opts.files);
 
-    out = opts.format === 'c' ? generateC(ir, opts) : generate(ir, opts);
+    out = opts.format === "c" ? generateC(ir, opts) : generate(ir, opts);
   } catch(e) {
-    std.err.puts('gen-structs.js: ' + e.message + '\n');
-    std.exit(1);
+    console.error("gen-structs.js: " + e.message);
+    process.exit(1);
   }
 
   if(opts.output) {
-    const f = std.open(opts.output, 'w');
-    f.puts(out);
-    f.close();
+    writeFileSync(opts.output, out);
   } else {
-    std.puts(out);
+    process.stdout.write(out);
   }
 }
 
 main();
-

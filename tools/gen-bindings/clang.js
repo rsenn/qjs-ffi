@@ -1,5 +1,5 @@
-import * as std from 'std';
-import { mkdir, realpath, remove, stat } from 'os';
+import { closeSync, existsSync, mkdirSync, openSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync, readFileSync } from 'fs';
+import { execSync } from 'child_process';
 import { JsonParser } from 'json';
 import { AstCondenser } from './condense.js';
 import { walkDecls, collectRecordTypedefs } from './ir.js';
@@ -44,8 +44,24 @@ function fnv1a(s) {
 }
 
 function mtime(path) {
-  const [st, err] = stat(path);
-  return err ? -1 : st.mtime;
+  try {
+    return statSync(path).mtimeMs;
+  } catch(e) {
+    return -1;
+  }
+}
+
+/* runs the shell command `cmd`; its output goes where `cmd` redirects it, and a failing exit status is not an error here. */
+function shell(cmd) {
+  try {
+    execSync(cmd, { stdio: 'ignore' });
+  } catch(e) {}
+}
+
+function rm(path) {
+  try {
+    unlinkSync(path);
+  } catch(e) {}
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
@@ -56,18 +72,15 @@ function cachePath(opts, source, cmd) {
 }
 
 function mkdirs(dir) {
-  let path = '';
-
-  for(const part of dir.split('/')) {
-    path += part + '/';
-    if(part && part !== '.') mkdir(path, 0o755);
-  }
+  try {
+    if(dir) mkdirSync(dir, { recursive: true, mode: 0o755 });
+  } catch(e) {}
 }
 
 /* Loads the condensed AST from the cache if no file it was built from is
  * newer than it, else null. */
 function readAstCache(file) {
-  const cached = std.loadFile(file);
+  const cached = readFileSync(file, 'utf-8');
   if(cached === null) return null;
 
   const stamp = mtime(file);
@@ -192,14 +205,19 @@ export function runLayoutDump(opts, source, ast) {
   }
 
   const layouts = {};
-  const [real, err] = realpath(source);
+  let real = null;
+
+  try {
+    real = realpathSync(source);
+  } catch(e) {}
+
   if(!types.length && !typedefNames.length) return layouts;
-  if(err) return layouts;
+  if(!real) return layouts;
 
   mkdirs(opts.cacheDir);
   const probe = opts.cacheDir.replace(/\/*$/, '/') + 'probe-' + fnv1a(real + Date.now()) + (isCxx(opts, source) ? '.cpp' : '.c');
-  const f = std.open(probe, 'w');
-  f.puts(
+  writeFileSync(
+    probe,
     '#include "' +
       real +
       '"\n' +
@@ -208,16 +226,18 @@ export function runLayoutDump(opts, source, ast) {
       typedefNames.map((n, i) => 'struct __gb_t' + i + ' { char b[sizeof(' + n + ')]; };\nenum { __gb_tu' + i + ' = sizeof(struct __gb_t' + i + ') };\n').join('') +
       vtableProbes.join(''),
   );
-  f.close();
 
   // Only code generation lays a vtable out, which costs more than parsing.
   const compile = vtableProbes.length ? ['-Xclang', '-fdump-vtable-layouts', '-S', '-emit-llvm', '-o', '/dev/null'] : ['-fsyntax-only'];
   const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', ...compile, ...langArgs(opts, source), ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
-  const p = std.popen(parts.map(shquote).join(' ') + ' 2>/dev/null', 'r');
-  const out = p.readAsString();
+  const dump = probe + '.out';
 
-  p.close();
-  remove(probe);
+  shell(parts.map(shquote).join(' ') + ' 2>/dev/null >' + shquote(dump));
+
+  const out = readFileSync(dump, 'utf-8') || '';
+
+  rm(dump);
+  rm(probe);
 
   for(const block of out.split('*** Dumping AST Record Layout').slice(1)) {
     const type = /^Type: (.*)$/m.exec(block);
@@ -295,7 +315,7 @@ function includeDirsFor(opts, source, missing) {
     for(let dir = source.replace(/\/?[^/]*$/, ''); dir !== ''; dir = dir.replace(/\/?[^/]*$/, '')) {
       if(opts.includes.includes(dir)) continue;
 
-      if(!stat(dir + '/' + inc)[1]) {
+      if(existsSync(dir + '/' + inc)) {
         if(!dirs.includes(dir)) dirs.push(dir);
         break;
       }
@@ -317,7 +337,7 @@ export function runClangAstDump(opts, source) {
     if(!dirs.length) return ast;
 
     for(const dir of dirs) {
-      std.err.puts('gen-bindings.js: note: ' + source + ' needs ' + ast.clangErrors.missing.join(', ') + ', adding -I' + dir + '\n');
+      console.error('gen-bindings.js: note: ' + source + ' needs ' + ast.clangErrors.missing.join(', ') + ', adding -I' + dir);
       opts.includes.push(dir);
     }
   }
@@ -338,25 +358,30 @@ function runClangOnce(opts, source) {
     if(hit) return hit;
   }
 
-  // stdout is the pipe, so clang's stderr goes to a file next to the cache
+  // clang's stdout and stderr go to files next to the cache; stdout is parsed from its file
   mkdirs(opts.cacheDir);
 
   const errFile = opts.cacheDir.replace(/\/*$/, '/') + 'clang-' + fnv1a(source + Date.now()) + '.err';
-  const f = std.popen(cmd + ' 2>' + shquote(errFile), 'r');
+  const astFile = errFile.replace(/\.err$/, '.ast');
+
+  shell(cmd + ' >' + shquote(astFile) + ' 2>' + shquote(errFile));
+
   let ast = null,
     error = null;
+  const fd = openSync(astFile, 'r');
 
   try {
-    ast = new AstCondenser(new JsonParser((buf, len) => f.read(buf, 0, len), source)).root();
+    ast = new AstCondenser(new JsonParser((buf, len) => readSync(fd, new Uint8Array(buf), 0, len, null), source)).root();
   } catch(e) {
     error = e;
   }
 
-  f.close();
+  closeSync(fd);
+  rm(astFile);
 
-  const errText = std.loadFile(errFile) || '';
+  const errText = readFileSync(errFile, 'utf-8') || '';
 
-  remove(errFile);
+  rm(errFile);
 
   if(!ast || !ast.inner) throw new Error((error ? 'failed to parse clang AST JSON output: ' + error.message + '; ' : 'clang produced no output; ') + 'stderr was:\n' + errText);
 
@@ -367,11 +392,9 @@ function runClangOnce(opts, source) {
   ast.layouts = runLayoutDump(opts, source, ast);
 
   if(opts.cache) {
-    const out = std.open(cache, 'w');
-    if(out) {
-      out.puts(JSON.stringify({ files: astFiles(ast), ast }));
-      out.close();
-    }
+    try {
+      writeFileSync(cache, JSON.stringify({ files: astFiles(ast), ast }));
+    } catch(e) {}
   }
 
   return ast;

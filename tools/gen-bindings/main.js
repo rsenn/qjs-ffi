@@ -1,4 +1,4 @@
-import * as std from 'std';
+import { writeFileSync, readFileSync } from 'fs';
 import { usage, parseArgs } from './args.js';
 import { sourceFilter, runClangAstDump } from './clang.js';
 import { collectIR, newIR, mergeIR } from './ir.js';
@@ -13,7 +13,7 @@ import { scanDefines, localIncludes } from './defines.js';
 /* the #define constants of `file`, those of the headers it includes with
  * quotes first (only with --follow-includes, and only under its directory). */
 function definesOf(file, opts, known, visited = new Set()) {
-  const text = visited.has(file) ? null : std.loadFile(file);
+  const text = visited.has(file) ? null : readFileSync(file, 'utf-8');
   const dir = file.replace(/[^/]*$/, '');
   const out = [];
 
@@ -29,33 +29,33 @@ function definesOf(file, opts, known, visited = new Set()) {
 export function main() {
   let opts;
   try {
-    opts = parseArgs(scriptArgs.slice(1));
+    opts = parseArgs(process.argv.slice(2));
   } catch(e) {
-    std.err.puts('gen-bindings.js: ' + e.message + '\n');
+    console.error('gen-bindings.js: ' + e.message);
     usage();
-    std.exit(1);
+    process.exit(1);
   }
 
   let ir;
 
   if(opts.fromIr) {
-    const text = std.loadFile(opts.fromIr);
+    const text = readFileSync(opts.fromIr, 'utf-8');
     if(text === null) {
-      std.err.puts('gen-bindings.js: cannot read ' + opts.fromIr + '\n');
-      std.exit(1);
+      console.error('gen-bindings.js: cannot read ' + opts.fromIr);
+      process.exit(1);
     }
 
     try {
       // the JS form (--emit-ir --js) is `export default <literal>;`
-      ir = /^\s*export default /.test(text) ? std.evalScript('(' + text.replace(/^\s*export default /, '').replace(/;\s*$/, '') + ')') : JSON.parse(text);
+      ir = /^\s*export default /.test(text) ? Function('return (' + text.replace(/^\s*export default /, '').replace(/;\s*$/, '') + ')')() : JSON.parse(text);
     } catch(e) {
-      std.err.puts('gen-bindings.js: cannot parse ' + opts.fromIr + ': ' + e.message + '\n');
-      std.exit(1);
+      console.error('gen-bindings.js: cannot parse ' + opts.fromIr + ': ' + e.message);
+      process.exit(1);
     }
 
     if(ir.version !== newIR().version) {
-      std.err.puts('gen-bindings.js: ' + opts.fromIr + ' is IR version ' + ir.version + ', this is version ' + newIR().version + '; make it again with --emit-ir\n');
-      std.exit(1);
+      console.error('gen-bindings.js: ' + opts.fromIr + ' is IR version ' + ir.version + ', this is version ' + newIR().version + '; make it again with --emit-ir');
+      process.exit(1);
     }
 
     Object.assign(opts, ir.source);
@@ -69,21 +69,21 @@ export function main() {
       try {
         root = runClangAstDump(opts, source);
       } catch(e) {
-        std.err.puts('gen-bindings.js: ' + e.message + '\n');
-        std.exit(1);
+        console.error('gen-bindings.js: ' + e.message);
+        process.exit(1);
       }
 
       if(root.clangErrors) {
         const e = root.clangErrors;
 
-        std.err.puts('gen-bindings.js: warning: clang reported ' + e.count + ' error(s) in ' + source + ', what it could not parse is missing or wrong: ' + e.first + '\n');
-        if(e.missing.length) std.err.puts('gen-bindings.js: warning: not found: ' + e.missing.join(', ') + '; add the directory that has it with -I<dir>\n');
+        console.error('gen-bindings.js: warning: clang reported ' + e.count + ' error(s) in ' + source + ', what it could not parse is missing or wrong: ' + e.first);
+        if(e.missing.length) console.error('gen-bindings.js: warning: not found: ' + e.missing.join(', ') + '; add the directory that has it with -I<dir>');
       }
 
       const isSourceFile = sourceFilter(opts, source);
       const found = collectIR(root, isSourceFile, i + ':');
 
-      if(!found.methods.length && !found.classes.length) std.err.puts('gen-bindings.js: warning: no bindable functions found in ' + source + '\n');
+      if(!found.methods.length && !found.classes.length) console.error('gen-bindings.js: warning: no bindable functions found in ' + source);
       found.defines = definesOf(source, opts, {});
       mergeIR(ir, found);
     });
@@ -96,9 +96,9 @@ export function main() {
   const clashes = opts.emitIr || opts.emitSpecs ? [] : nameCollisions(ir, opts);
 
   if(clashes.length) {
-    for(const c of clashes) std.err.puts('gen-bindings.js: after dropping ' + opts.namespaces.map(n => n + '::').join(', ') + ', "' + c.ident + '" would be exported by: ' + c.entities.join('; ') + '\n');
-    std.err.puts('gen-bindings.js: name collision, nothing written; drop fewer --namespace values\n');
-    std.exit(1);
+    for(const c of clashes) console.error('gen-bindings.js: after dropping ' + opts.namespaces.map(n => n + '::').join(', ') + ', "' + c.ident + '" would be exported by: ' + c.entities.join('; '));
+    console.error('gen-bindings.js: name collision, nothing written; drop fewer --namespace values');
+    process.exit(1);
   }
 
   const specs = opts.emitSpecs ? irToSpecs(ir, { library: opts.library }) : null;
@@ -107,15 +107,13 @@ export function main() {
   const dest = opts.emitIr || (typeof opts.emitSpecs == 'string' && opts.emitSpecs) || opts.output;
 
   if(dest) {
-    const f = std.open(dest, 'w');
-    f.puts(out);
-    f.close();
+    writeFileSync(dest, out);
   } else {
-    std.puts(out);
+    process.stdout.write(out);
   }
 
-  if(ir.warnings && ir.warnings.length) std.err.puts('gen-bindings.js: warning: ' + ir.warnings.length + ' virtual method(s) have no vtable slot and are bound to their own symbol' + (opts.emitIr ? ', see "warnings" in the IR' : ', see comment at end of output') + '\n');
+  if(ir.warnings && ir.warnings.length) console.error('gen-bindings.js: warning: ' + ir.warnings.length + ' virtual method(s) have no vtable slot and are bound to their own symbol' + (opts.emitIr ? ', see "warnings" in the IR' : ', see comment at end of output'));
 
   if(ir.skipped.length)
-    std.err.puts('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : specs ? ', see "omitted" in the specs' : ', see comment at end of output') + '\n');
+    console.error('gen-bindings.js: skipped ' + ir.skipped.length + ' unsupported function(s)' + (opts.emitIr ? ', see "skipped" in the IR' : specs ? ', see "omitted" in the specs' : ', see comment at end of output'));
 }

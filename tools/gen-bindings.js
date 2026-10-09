@@ -18,6 +18,6 @@
  * in more than one is emitted once. --help lists the options, and
  * doc/gen-bindings.md explains them.
  */
-import { main } from './gen-bindings/main.js';
+import { main } from "./gen-bindings/main.js";
 
 main();

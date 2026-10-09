@@ -1,7 +1,7 @@
+import { readFileSync } from 'fs';
 import { jsLiteral, flattenName } from './common.js';
 import { SIZES, arrayOf } from '../ffi-types.js';
 import { DESCRIBE_HELPERS } from './describe.js';
-import * as std from 'std';
 
 /* --- the IR ---------------------------------------------------------------- */
 
@@ -9,7 +9,7 @@ import * as std from 'std';
 export function loadIR(files) {
   return mergeIRs(
     files.map(file => {
-      const text = std.loadFile(file);
+      const text = readFileSync(file, 'utf-8');
       if(text === null) throw new Error('cannot read ' + file);
 
       return JSON.parse(text);

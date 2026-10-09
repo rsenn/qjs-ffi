@@ -250,9 +250,6 @@ script does):
     types)`, `cc({ ..., types })`);
 *   the [node:ffi](node-ffi.md) API.
 
-`tests/test-bun-diff.js` runs 77 probe cases under bun and under this module;
-they give the same output (checked against bun 1.4.2).
-
 Different on purpose or for now:
 
 *   `toBuffer()` returns an `ArrayBuffer` (QuickJS has no `Buffer`).
@@ -261,7 +258,3 @@ Different on purpose or for now:
 *   A closed `JSCallback` passed as a pointer is a `TypeError`; bun passes a stale
     pointer. An out-of-range `bigint`
     pointer wraps modulo 2^64, as in bun.
-
-`tests/test-bun-diff.js` runs one script under `bun` and under `qjsm`; all 77
-cases of it give what bun 1.4.2 gives (`tests/bun-diff/known-differences.txt` is
-empty).

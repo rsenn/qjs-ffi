@@ -1,0 +1,3 @@
+- child-process-shim-self-import (/usr/local/lib/quickjs/node/child_process.js:22): the installed qjsm resolves the bare name child_process to this node shim, whose own import of child_process then resolves to the shim again, so any import of child_process fails with circular module dependency warnings and a stack overflow; tools/gen-bindings/clang.js and so every gen-bindings and gen-structs run fail to load. confirmed with qjsm on a script that only imports execSync from child_process.
+
+    import { execSync } from 'child_process';

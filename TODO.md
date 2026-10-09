@@ -121,11 +121,6 @@ Probed against this module (built with `ENABLE_TCC=ON`). Phases 1-5 above and
 `cc()` ([`doc/c-compiler.md`](doc/c-compiler.md)) are done; this is what is left.
 Ordered roughly by how likely bun code is to trip over it.
 
-Re-run 2026-10-07 against bun 1.4.2 with the build that has `K_STRUCT_PTR`, the
-`types` argument and `gc_mark`: all 77 cases of `tests/bun-diff/probe.mjs` still
-give what bun gives (`diff` of the two outputs is empty); the new class types
-are not in the probe, as bun has none.
-
 ### 5.1 Missing
 
 1. `JSCallback` option `threadsafe`: accepted and ignored (the `.threadsafe`
@@ -484,5 +479,4 @@ Status: 1, 2 and 4 done (`tests/test-constants.js`, `tests/test-gen-bindings-con
 *   The runtime helpers (`__rd`, `__wr`, `__view`, `__ptr`) become one
     per-target prelude; the specs and classes are shared. Open: what the
     Node layer lacks of `read`/`write`/`toArrayBuffer`; test each target
-    with the runtime itself when it is installed (`tests/bun-diff` shows
-    how bun is driven).
+    with the runtime itself when it is installed.

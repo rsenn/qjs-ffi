@@ -814,7 +814,7 @@ _Static_assert(offsetof(struct shape, id) == 0, "shape.id offset");
 ...
 ```
 
-`describe.sh [-r <runtime>] [--json] [--js] [--class] <module> [export...]`
+`describe.sh [-r <runtime>] [--json] [--js] [--dts] [--flat] [--class] <module> [export...]`
 lists what a module, an object or a class has: the exports of a generated
 module or one from `lib/` with the C types when it was generated with
 `--describe`, but also `ffi.so` itself, `node:fs`, or `bun:ffi`. It runs
@@ -835,7 +835,13 @@ every one that can (`./tools/describe.sh -r node node:fs`, with the script
 named the way it was started), the others noted on stderr. A module is a path or a specifier the runtime imports; an export may be a dotted
 path; `--global` takes properties of `globalThis` instead of a module; `--json`
 prints the raw results; `--js` prints a skeleton of the module as JavaScript
-(`export function f(a, b) {}`, classes with empty method bodies). Importing a module loads its libraries, so
+(`export function f(a, b) {}`, classes with empty method bodies); `--dts` prints
+TypeScript declarations, with the C types of a binding generated with
+`--describe` as `number`, `bigint`, `string` and `Pointer`; `--flat` prints one
+sorted line per export and member, so that two runtimes' dumps diff line by
+line. `-r browser` runs it in a headless Chrome or Firefox (`DESCRIBE_BROWSER`
+names the executable; `tools/describe-browser.js` drives it over the DevTools
+protocol or WebDriver BiDi), for `--global navigator` or a module URL. Importing a module loads its libraries, so
 `QUICKJS_MODULE_PATH` must find the `ffi` module.
 
 ## Specs from the IR
