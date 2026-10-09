@@ -3,15 +3,17 @@
 # the JavaScript runtime of your choice: QuickJS (qjsm or qjs), Node.js, Bun or
 # Deno. The same dump of the same API in two runtimes can then be compared.
 #
-# Usage: describe.sh [-r|--runtime <name>] [--json] [--class] <module> [export...]
-#        describe.sh [-r|--runtime <name>] [--json] [--class] --global [name...]
+# Usage: describe.sh [-r|--runtime <name>] [--json] [--js] [--class] <module> [export...]
+#        describe.sh [-r|--runtime <name>] [--json] [--js] [--class] --global [name...]
 #
-#   <module>       a file (a generated binding, ffi.so, lib/*.js) or a specifier
+#   <module>       a file (a generated binding, ffi.so, lib/bindings/*.js) or a specifier
 #                  the runtime imports: node:fs, bun:ffi, ffi
 #   export         a name or dotted path (read.u8); every export by default
 #   --global       describe properties of globalThis (Bun, process.versions)
-#   --class        describe every function as a class (native constructors)
+#   --class        describe a function as a class unless its prototype is plain
+#                  (native constructors)
 #   --json         print the raw describeClass()/describeObject() results
+#   --js           print a skeleton of the module as JavaScript, bodies empty
 #   -r, --runtime  qjsm (default), qjs, node, bun or deno; or $DESCRIBE_RUNTIME
 #
 # With nothing but a module name, no runtime is run for a dump: every runtime
@@ -38,6 +40,13 @@
 
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
 
+# The comment header above, minus its leading "# ".
+usage() {
+  sed -n '2,/^$/{/^$/d;s/^# \{0,1\}//;p;}' "$0"
+}
+
+[ $# -gt 0 ] || { usage >&2; exit 1; }
+
 runtimes='qjsm qjs node bun deno'
 script="$dir/describe.js"
 runtime=${DESCRIBE_RUNTIME:-}
@@ -56,6 +65,10 @@ while [ $# -gt 0 ]; do
       runtime=${1#--runtime=}
       explicit=1
       shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
       ;;
     *) break ;;
   esac

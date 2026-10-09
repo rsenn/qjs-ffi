@@ -8,8 +8,8 @@
  * describe.sh, which starts the runtime of your choice.
  *
  * Usage:
- *   describe.js [--json] [--class] <module> [export...]
- *   describe.js [--json] [--class] --global [name...]
+ *   describe.js [--json] [--js] [--class] <module> [export...]
+ *   describe.js [--json] [--js] [--class] --global [name...]
  *
  * <module> is a file (a path, or anything with a .js, .mjs, .ts, .so or .node
  * extension) or a specifier the runtime can import: 'node:fs', 'bun:ffi', or
@@ -19,11 +19,16 @@
  * --global describes properties of globalThis instead of a module's exports
  * ('Bun', 'process.versions', 'Buffer'); without names, globalThis itself.
  *
- * --class describes every function as a class, which is what a native
- * constructor (Buffer, Map) needs where the source does not start with `class`.
- * A function whose prototype has members of its own is shown as a class anyway.
+ * --class describes a function as a class unless it is plain: its prototype
+ * inherits straight from Object.prototype and has no member but `constructor`.
+ * That is what a native constructor (Buffer, Map) needs where the source does
+ * not start with `class`. A function whose prototype has members of its own
+ * is shown as a class without the flag.
  *
  * --json prints the raw describe results instead of the summary.
+ *
+ * --js prints a skeleton of the module as JavaScript: the classes, functions
+ * and objects with empty bodies, `export function f(a, b) {}`.
  *
  * --probe only tries to load <module>: no output, status 0 if it loads, 1 if
  * not (describe.sh uses it to find the runtimes that have a module).
@@ -39,7 +44,7 @@ const SIG = Symbol.for('describe');
 
 export function paramNames(fn) {
   const src = Function.prototype.toString.call(fn);
-  const match = src.match(/^[^(]*\(([^)]*)\)/);
+  const match = /^class[\s{]/.test(src) ? src.match(/\bconstructor\s*\(([^)]*)\)/) : src.match(/^[^(]*\(([^)]*)\)/);
   if(!match) return [];
   return match[1]
     .split(',')
@@ -54,7 +59,7 @@ export function describeFunction(fn, key) {
 
   return {
     name: key,
-    kind: /^class\s/.test(src) ? 'class' : /^async\s*\*/.test(src) ? 'async-generator' : /^\s*\*/.test(src) ? 'generator' : /^async\s/.test(src) ? 'async' : 'function',
+    kind: /^class\s/.test(src) ? 'class' : /^async\s*(function\s*)?\*/.test(src) ? 'async-generator' : /^(function\s*)?\*/.test(src) ? 'generator' : /^async\s/.test(src) ? 'async' : 'function',
     params: paramNames(fn),
     arity: fn.length,
     ...(signatures && { signatures }),
@@ -241,9 +246,22 @@ function isClass(v) {
   return p !== null && typeof p === 'object' && Object.getOwnPropertyNames(p).length > 1;
 }
 
+/* { variant: 'async' } and so on for an async or generator function; {} for a plain one. */
+function variantOf(v) {
+  const kind = describeFunction(v, '').kind;
+
+  return kind === 'function' || kind === 'class' ? {} : { variant: kind };
+}
+
+/* a function with nothing on its prototype: { constructor } and no parent. */
+function isPlain(v) {
+  const p = v.prototype;
+  return p === undefined || p === null || (Object.getPrototypeOf(p) === Object.prototype && Object.getOwnPropertyNames(p).join(',') === 'constructor');
+}
+
 export function describeAny(v, asClass) {
-  if(typeof v === 'function' && (asClass || isClass(v))) return { kind: 'class', ...describeClass(v) };
-  if(typeof v === 'function') return { kind: 'function', ...describeObject(v), arity: v.length, native: /\[native code\]/.test(Function.prototype.toString.call(v)), signatures: v[SIG] };
+  if(typeof v === 'function' && (isClass(v) || (asClass && !isPlain(v)))) return { kind: 'class', ...describeClass(v) };
+  if(typeof v === 'function') return { kind: 'function', ...describeObject(v), ...variantOf(v), arity: v.length, native: /\[native code\]/.test(Function.prototype.toString.call(v)), signatures: v[SIG] };
   if(v !== null && typeof v === 'object') return { kind: 'object', ...describeObject(v) };
 
   return { kind: 'value', type: v === null ? 'null' : typeof v, value: v };
@@ -288,6 +306,114 @@ function members(level, prefix = '') {
   return out;
 }
 
+/* --- JavaScript skeleton (--js) -------------------------------------------- */
+
+const IDENT = /^[A-Za-z_$][\w$]*$/;
+const RESERVED = /^(break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|void|while|with|yield|let|static|await|async)$/;
+const quoteStr = v => "'" + v.replace(/[\\'\n\r]/g, c => (c === '\n' ? '\\n' : c === '\r' ? '\\r' : '\\' + c)) + "'";
+
+/* a member name as it stands in a class or object body: `name`, `[Symbol.iterator]` or `'a-b'`. */
+const keyOf = name => (IDENT.test(name) ? name : /^Symbol\./.test(name) ? '[' + name + ']' : quoteStr(name));
+
+/* the parameter list `a, b`: names JavaScript knows, else `arg0..arg<arity-1>`; a name that is not an identifier (`{...}`) becomes `arg<i>`. */
+function paramList(params, arity = 0, signatures) {
+  const names = signatures && signatures.length ? signatures[0].params : params;
+  const list = names.length ? names : Array.from({ length: arity }, (_, i) => 'arg' + i);
+
+  return list.map((n, i) => (IDENT.test(n) ? n : 'arg' + i)).join(', ');
+}
+
+/* a field's value as a literal: 42, 'text', 10n, null; `{}` for any object. */
+function literal(f) {
+  switch(f.type) {
+    case 'string': return quoteStr(f.value);
+    case 'bigint': return f.value + 'n';
+    case 'number': return Number.isFinite(f.value) ? String(f.value) : Number.isNaN(f.value) ? 'NaN' : f.value > 0 ? 'Infinity' : '-Infinity';
+    case 'boolean': return String(f.value);
+    case 'undefined': return 'undefined';
+    case 'symbol': return 'Symbol()';
+    default: return f.value === null ? 'null' : '{}';
+  }
+}
+
+/* one function or method: `async *name(a, b) {}`; `static` prefixes it in a class body. */
+function methodLine(m, prefix) {
+  const mark = { async: 'async ', generator: '*', 'async-generator': 'async *' }[m.kind] || '';
+
+  return prefix + mark + keyOf(m.name) + '(' + paramList(m.params, m.arity, m.signatures) + ') {}';
+}
+
+/* the members of one level (a prototype or a static object), as lines of a class (`;` ends a field) or of an object (`,` does). */
+function memberLines(level, indent, { inClass, isStatic }) {
+  const out = [];
+  const end = inClass ? ';' : ',';
+  const pre = indent + (isStatic ? 'static ' : '');
+
+  for(const f of level.fields) {
+    if(f.name.startsWith('__') || f.name === 'Symbol(describe)') continue;
+    out.push(pre + keyOf(f.name) + (inClass ? ' = ' : ': ') + literal(f) + end);
+  }
+
+  for(const m of level.methods) {
+    if(m.kind === 'class') out.push(pre + keyOf(m.name) + (inClass ? ' = ' : ': ') + 'class {}' + end);
+    else out.push(methodLine(m, pre) + (inClass ? '' : ','));
+  }
+
+  for(const a of new Set([...level.getters, ...level.setters])) {
+    if(level.getters.includes(a)) out.push(pre + 'get ' + keyOf(a) + '() {}' + (inClass ? '' : ','));
+    if(level.setters.includes(a)) out.push(pre + 'set ' + keyOf(a) + '(value) {}' + (inClass ? '' : ','));
+  }
+
+  return out;
+}
+
+/* the skeleton of one export, as `export ...` lines; `default` uses `export default`, and a reserved word such as `in` becomes `const _in = ...; export { _in as in };`. */
+function skeletonOf(name, d) {
+  const last = name.split('.').pop();
+  const dflt = last === 'default';
+  const reserved = !dflt && RESERVED.test(last);
+  const id = reserved ? '_' + last : last;
+  const ex = dflt ? 'export default ' : reserved ? '' : 'export ';
+  const lines = skeletonBody(d, id, dflt, ex);
+
+  return reserved ? [...lines, 'export { ' + id + ' as ' + last + ' };'] : lines;
+}
+
+function skeletonBody(d, id, dflt, ex) {
+
+  switch(d.kind) {
+    case 'value':
+      return [ex + (dflt ? '' : 'const ' + id + ' = ') + literal(d) + ';'];
+
+    case 'function': {
+      const kw = { async: 'async function', generator: 'function*', 'async-generator': 'async function*' }[d.variant] || 'function';
+
+      return [ex + kw + (dflt ? '' : ' ' + id) + '(' + paramList(d.constructorParams || [], d.arity, d.signatures) + ') {}'];
+    }
+
+    case 'object': {
+      const body = memberLines(d, '  ', { inClass: false, isStatic: false });
+
+      return [ex + (dflt ? '' : 'const ' + id + ' = ') + (body.length ? '{\n' + body.join('\n') + '\n}' : '{}') + ';'];
+    }
+  }
+
+  const parent = d.prototypeChain[1] && d.prototypeChain[1].constructorName;
+  const ctor = d.constructorSignatures ? paramList([], 0, d.constructorSignatures) : paramList(d.constructorParams, 0);
+  const body = [
+    '  constructor(' + ctor + ') {}',
+    ...(d.staticChain[0] ? memberLines(d.staticChain[0], '  ', { inClass: true, isStatic: true }) : []),
+    ...(d.prototypeChain[0] ? memberLines(d.prototypeChain[0], '  ', { inClass: true, isStatic: false }) : []),
+  ];
+
+  return [ex + 'class' + (dflt ? '' : ' ' + id) + (parent && IDENT.test(parent) ? ' extends ' + parent : '') + ' {\n' + body.join('\n') + '\n}'];
+}
+
+/* the whole module as JS source with empty bodies: `export function f(a, b) {}`, `export class X extends Y {...}`. */
+export function skeleton(described) {
+  return Object.entries(described).flatMap(([name, d]) => skeletonOf(name, d)).join('\n\n') + '\n';
+}
+
 function show(name, d) {
   switch(d.kind) {
     case 'value':
@@ -326,14 +452,15 @@ export function lookup(root, path) {
 
 function usage() {
   return eprint(
-    'Usage: describe.js [--json] [--class] <module> [export...]\n' +
-      '       describe.js [--json] [--class] --global [name...]\n' +
+    'Usage: describe.js [--json] [--js] [--class] <module> [export...]\n' +
+      '       describe.js [--json] [--js] [--class] --global [name...]\n' +
       '       describe.js --probe <module>   (exit status only)\n' +
       '  <module>   a file, or a specifier the runtime imports (node:fs, bun:ffi, ffi)\n' +
       '  export     a name or dotted path to describe; all exports by default\n' +
       '  --global   describe globalThis properties (Bun, process.versions, Buffer) instead\n' +
-      '  --class    describe every function as a class\n' +
-      '  --json     print the raw describeClass()/describeObject() results\n',
+      '  --class    describe a function as a class unless its prototype is plain\n' +
+      '  --json     print the raw describeClass()/describeObject() results\n' +
+      '  --js       print a skeleton of the module as JavaScript, bodies empty\n',
   );
 }
 
@@ -342,7 +469,7 @@ async function main() {
   const positional = [];
 
   for(const a of argv()) {
-    if(/^--(json|class|global|probe)$/.test(a)) flags.add(a.slice(2));
+    if(/^--(json|js|class|global|probe)$/.test(a)) flags.add(a.slice(2));
     else if(a === '-h' || a === '--help') flags.add('help');
     else if(a.startsWith('--')) return fail('unknown option: ' + a);
     else positional.push(a);
@@ -389,6 +516,11 @@ async function main() {
     described[name] = describeAny(v, flags.has('class'));
   }
 
+  if(flags.has('js')) {
+    console.log(skeleton(described).trimEnd());
+    return;
+  }
+
   if(flags.has('json')) {
     console.log(JSON.stringify(described, jsonReplacer, 2));
     return;
@@ -406,4 +538,7 @@ async function main() {
 const script = typeof scriptArgs !== 'undefined' ? scriptArgs[0] : import.meta.main === undefined ? process.argv[1] : undefined;
 const isMain = script !== undefined ? script.split(/[\\/]/).pop() === import.meta.url.split('/').pop() : import.meta.main;
 
-if(isMain) main().catch(e => fail(e && e.stack ? e.stack : String(e)));
+/* runs the command line (bin/qjs-ffi-describe.js calls this). */
+export const run = () => main().catch(e => fail(e && e.stack ? e.stack : String(e)));
+
+if(isMain) run();

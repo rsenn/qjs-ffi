@@ -814,7 +814,7 @@ _Static_assert(offsetof(struct shape, id) == 0, "shape.id offset");
 ...
 ```
 
-`describe.sh [-r <runtime>] [--json] [--class] <module> [export...]`
+`describe.sh [-r <runtime>] [--json] [--js] [--class] <module> [export...]`
 lists what a module, an object or a class has: the exports of a generated
 module or one from `lib/` with the C types when it was generated with
 `--describe`, but also `ffi.so` itself, `node:fs`, or `bun:ffi`. It runs
@@ -834,7 +834,8 @@ runtime whether it can load the module and prints the command that dumps it for
 every one that can (`./tools/describe.sh -r node node:fs`, with the script
 named the way it was started), the others noted on stderr. A module is a path or a specifier the runtime imports; an export may be a dotted
 path; `--global` takes properties of `globalThis` instead of a module; `--json`
-prints the raw results. Importing a module loads its libraries, so
+prints the raw results; `--js` prints a skeleton of the module as JavaScript
+(`export function f(a, b) {}`, classes with empty method bodies). Importing a module loads its libraries, so
 `QUICKJS_MODULE_PATH` must find the `ffi` module.
 
 ## Specs from the IR
