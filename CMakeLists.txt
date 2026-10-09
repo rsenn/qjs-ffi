@@ -177,18 +177,19 @@ install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
                     WORLD_EXECUTE)
 
-# legacy.js (define()/call() on top of CFunction) sits next to the module, in the
-# build directory too, so that one QUICKJS_MODULE_PATH finds both.
-configure_file(legacy.js "${CMAKE_CURRENT_BINARY_DIR}/legacy.js" COPYONLY)
-install(FILES legacy.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
+# lib/ffi/legacy.js (define()/call() on top of CFunction) sits in the build directory too,
+# so that one QUICKJS_MODULE_PATH finds it.
+configure_file(lib/ffi/legacy.js "${CMAKE_CURRENT_BINARY_DIR}/ffi/legacy.js" COPYONLY)
 
-# node-ffi.js (the API of node:ffi on top of this module) sits next to it the same way.
-configure_file(node-ffi.js "${CMAKE_CURRENT_BINARY_DIR}/node-ffi.js" COPYONLY)
-install(FILES node-ffi.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
+# node/ffi.js (the API of node:ffi on top of this module) sits in the build directory too.
+configure_file(lib/node/ffi.js "${CMAKE_CURRENT_BINARY_DIR}/node/ffi.js" COPYONLY)
 
-# ffi-hooks.js maps node:ffi and bun:ffi to the modules for them: qjsm -I ffi-hooks.js script.js
-configure_file(ffi-hooks.js "${CMAKE_CURRENT_BINARY_DIR}/ffi-hooks.js" COPYONLY)
-install(FILES ffi-hooks.js DESTINATION "${QUICKJS_C_MODULE_DIR}")
+# lib/ (bindings/*.js generated bindings, ffi/legacy.js, node/ffi.js, posix/*.js) is installed as a tree.
+install(
+  DIRECTORY lib/
+  DESTINATION "${QUICKJS_JS_MODULE_DIR}"
+  FILES_MATCHING PATTERN "*.js"
+)
 
 if(NOT CMAKE_INSTALL_DATADIR)
   set(CMAKE_INSTALL_DATADIR share)

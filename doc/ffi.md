@@ -51,8 +51,8 @@ where the platform defines them. Run scripts with `qjsm`, see
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
 | [Generating bindings](gen-bindings.md) | `tools/gen-bindings.js`, a binding generator for C and C++ headers |
-| [Legacy API](legacy.md) | `define()` and `call()`, in the module `legacy.js` |
-| [node:ffi](node-ffi.md) | the API of Node's `node:ffi` on top of `ffi`, in the module `node-ffi.js`, and the hook file that maps `node:ffi` and `bun:ffi` to the right module |
+| [Legacy API](legacy.md) | `define()` and `call()`, in the module `ffi/legacy.js` |
+| [node:ffi](node-ffi.md) | the API of Node's `node:ffi` on top of `ffi`, in the module `node/ffi.js` |
 
 ## Usage
 
@@ -248,8 +248,7 @@ script does):
     argument, a return or a variable, and the `types` object that names such
     classes in a spec (`dlopen(path, symbols, types)`, `linkSymbols(symbols,
     types)`, `cc({ ..., types })`);
-*   the [node:ffi](node-ffi.md) API and the hook file that maps `node:ffi` and
-    `bun:ffi`.
+*   the [node:ffi](node-ffi.md) API.
 
 `tests/test-bun-diff.js` runs 77 probe cases under bun and under this module;
 they give the same output (checked against bun 1.4.2).

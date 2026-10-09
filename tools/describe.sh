@@ -1,10 +1,10 @@
 #!/bin/sh
-# Lists what a module, an object or a class has, with describe-module.js, in
+# Lists what a module, an object or a class has, with describe.js, in
 # the JavaScript runtime of your choice: QuickJS (qjsm or qjs), Node.js, Bun or
 # Deno. The same dump of the same API in two runtimes can then be compared.
 #
-# Usage: describe-module.sh [-r|--runtime <name>] [--json] [--class] <module> [export...]
-#        describe-module.sh [-r|--runtime <name>] [--json] [--class] --global [name...]
+# Usage: describe.sh [-r|--runtime <name>] [--json] [--class] <module> [export...]
+#        describe.sh [-r|--runtime <name>] [--json] [--class] --global [name...]
 #
 #   <module>       a file (a generated binding, ffi.so, lib/*.js) or a specifier
 #                  the runtime imports: node:fs, bun:ffi, ffi
@@ -19,27 +19,27 @@
 # that dumps it is printed for each one that can, with this script named the way
 # it was started:
 #
-#   $ ./tools/describe-module.sh node:fs
-#   ./tools/describe-module.sh -r node node:fs
-#   ./tools/describe-module.sh -r bun node:fs
-#   ./tools/describe-module.sh -r deno node:fs
+#   $ ./tools/describe.sh node:fs
+#   ./tools/describe.sh -r node node:fs
+#   ./tools/describe.sh -r bun node:fs
+#   ./tools/describe.sh -r deno node:fs
 #
 # Importing a binding loads the libraries it binds, so QUICKJS_MODULE_PATH has to
 # find the 'ffi' module (a build directory, say) as well as the usual
 # directories; it is passed on as it is.
 #
 # Examples:
-#   describe-module.sh build/ffi.so                  # which runtimes have it
-#   describe-module.sh -r qjsm build/ffi.so          # what it exports
-#   describe-module.sh -r node node:fs readFile promises.readFile
-#   describe-module.sh -r bun bun:ffi
-#   describe-module.sh -r bun --global Bun.FFI
-#   describe-module.sh -r node --class --global Buffer
+#   describe.sh build/ffi.so                  # which runtimes have it
+#   describe.sh -r qjsm build/ffi.so          # what it exports
+#   describe.sh -r node node:fs readFile promises.readFile
+#   describe.sh -r bun bun:ffi
+#   describe.sh -r bun --global Bun.FFI
+#   describe.sh -r node --class --global Buffer
 
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
 
 runtimes='qjsm qjs node bun deno'
-script="$dir/describe-module.js"
+script="$dir/describe.js"
 runtime=${DESCRIBE_RUNTIME:-}
 explicit=0
 [ -z "$runtime" ] || explicit=1
@@ -47,7 +47,7 @@ explicit=0
 while [ $# -gt 0 ]; do
   case $1 in
     -r|--runtime)
-      [ $# -ge 2 ] || { echo "describe-module.sh: $1 needs a runtime name" >&2; exit 1; }
+      [ $# -ge 2 ] || { echo "describe.sh: $1 needs a runtime name" >&2; exit 1; }
       runtime=$2
       explicit=1
       shift 2
@@ -98,7 +98,7 @@ if [ "$explicit" = 0 ] && [ $# -eq 1 ]; then
         fi
       done
 
-      [ "$found" = 1 ] || { echo "describe-module.sh: no installed runtime can load $1" >&2; exit 1; }
+      [ "$found" = 1 ] || { echo "describe.sh: no installed runtime can load $1" >&2; exit 1; }
       exit 0
       ;;
   esac
@@ -109,13 +109,13 @@ runtime=${runtime:-qjsm}
 case $runtime in
   qjsm|qjs|node|bun|deno) ;;
   *)
-    echo "describe-module.sh: unknown runtime '$runtime' (qjsm, qjs, node, bun, deno)" >&2
+    echo "describe.sh: unknown runtime '$runtime' (qjsm, qjs, node, bun, deno)" >&2
     exit 1
     ;;
 esac
 
 command -v "$runtime" >/dev/null 2>&1 || {
-  echo "describe-module.sh: $runtime not found" >&2
+  echo "describe.sh: $runtime not found" >&2
   exit 1
 }
 

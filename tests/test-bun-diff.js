@@ -24,7 +24,7 @@ if(!bun) {
   await tests({ 'bun is not installed, nothing to compare'() {} });
 } else {
   const theirs = cases(run(bun + ' ' + dir + 'probe.mjs'));
-  const ours = cases(run('qjsm -I ' + root + 'ffi-hooks.js ' + dir + 'probe.mjs'));
+  const ours = cases(run('qjsm ' + dir + 'probe.mjs'));
   const known = new Map(std.loadFile(dir + 'known-differences.txt').split('\n').filter(l => l && !l.startsWith('#')).map(l => l.split(' | ')));
   const differing = [...theirs.keys()].filter(k => theirs.get(k) !== ours.get(k));
 

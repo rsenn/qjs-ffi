@@ -1,15 +1,15 @@
 #!/usr/bin/env qjsm
-/* describe-module.js -- list what a module, an object or a class exports or
- * has, using describeClass()/describeObject() (describe/, copied from
- * qjs-modules lib/).
+/* describe.js -- list what a module, an object or a class exports or
+ * has, using describeClass()/describeObject() (copied from qjs-modules
+ * lib/, defined below).
  *
  * It runs unchanged under QuickJS (qjsm or qjs), Node.js, Bun and Deno, so the
  * same dump can be made of the same API in each of them and compared; see
- * describe-module.sh, which starts the runtime of your choice.
+ * describe.sh, which starts the runtime of your choice.
  *
  * Usage:
- *   describe-module.js [--json] [--class] <module> [export...]
- *   describe-module.js [--json] [--class] --global [name...]
+ *   describe.js [--json] [--class] <module> [export...]
+ *   describe.js [--json] [--class] --global [name...]
  *
  * <module> is a file (a path, or anything with a .js, .mjs, .ts, .so or .node
  * extension) or a specifier the runtime can import: 'node:fs', 'bun:ffi', or
@@ -26,17 +26,138 @@
  * --json prints the raw describe results instead of the summary.
  *
  * --probe only tries to load <module>: no output, status 0 if it loads, 1 if
- * not (describe-module.sh uses it to find the runtimes that have a module).
+ * not (describe.sh uses it to find the runtimes that have a module).
  *
  * With --describe, a generated binding's functions and classes also carry their
  * C types (Symbol.for('describe')), which are shown; otherwise only the
  * parameter names JavaScript knows. Importing a binding loads the shared
  * libraries it binds, so they have to be found (QUICKJS_MODULE_PATH for 'ffi').
  */
-import { describeClass } from './describe/describe-class.js';
-import { describeObject } from './describe/describe-object.js';
-
 const SIG = Symbol.for('describe');
+
+/* --- describeClass / describeObject ---------------------------------------- */
+
+export function paramNames(fn) {
+  const src = Function.prototype.toString.call(fn);
+  const match = src.match(/^[^(]*\(([^)]*)\)/);
+  if(!match) return [];
+  return match[1]
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(p => p.replace(/=.*$/, '').replace(/\{.*$/, '{...}').replace(/\[.*$/, '[...]').trim());
+}
+
+export function describeFunction(fn, key) {
+  const src = Function.prototype.toString.call(fn);
+  const signatures = fn[SIG];
+
+  return {
+    name: key,
+    kind: /^class\s/.test(src) ? 'class' : /^async\s*\*/.test(src) ? 'async-generator' : /^\s*\*/.test(src) ? 'generator' : /^async\s/.test(src) ? 'async' : 'function',
+    params: paramNames(fn),
+    arity: fn.length,
+    ...(signatures && { signatures }),
+  };
+}
+
+function symbolName(sym) {
+  for(const key of Object.getOwnPropertyNames(Symbol)) if(Symbol[key] === sym) return `Symbol.${key}`;
+
+  return sym.toString();
+}
+
+export function describeMembers(o) {
+  const skip = typeof o === 'function' ? ['constructor', 'prototype', 'length', 'name'] : ['constructor'];
+  const members = { methods: [], getters: [], setters: [], fields: [] };
+
+  function process(key, label) {
+    const desc = Object.getOwnPropertyDescriptor(o, key);
+    if(desc.get || desc.set) {
+      if(desc.get) members.getters.push(label);
+      if(desc.set) members.setters.push(label);
+    } else if(typeof desc.value === 'function') {
+      members.methods.push(describeFunction(desc.value, label));
+    } else {
+      members.fields.push({ name: label, type: typeof desc.value, value: desc.value });
+    }
+  }
+
+  for(const key of Object.getOwnPropertyNames(o)) {
+    if(skip.includes(key)) continue;
+    process(key, key);
+  }
+  for(const sym of Object.getOwnPropertySymbols(o)) process(sym, symbolName(sym));
+
+  return members;
+}
+
+export function describeClass(Ctor, opts = {}) {
+  if(typeof Ctor !== 'function') throw new TypeError('describeClass expects a class/constructor function');
+
+  const result = {
+    name: Ctor.name || '(anonymous)',
+    constructorParams: paramNames(Ctor),
+    ...(Ctor[SIG] && { constructorSignatures: Ctor[SIG] }),
+    staticChain: [],
+    prototypeChain: [],
+  };
+
+  let sctor = Ctor;
+  let sdepth = 0;
+  while(sctor && sctor !== Function.prototype && sdepth < 20) {
+    result.staticChain.push({
+      level: sdepth,
+      constructorName: sctor.name || '(anonymous)',
+      ...describeMembers(sctor),
+    });
+    sctor = Object.getPrototypeOf(sctor);
+    sdepth++;
+  }
+
+  let proto = Ctor.prototype;
+  let depth = 0;
+  while(proto && proto !== Object.prototype && depth < 20) {
+    result.prototypeChain.push({
+      level: depth,
+      constructorName: proto.constructor?.name || '(anonymous)',
+      ...describeMembers(proto),
+    });
+    proto = Object.getPrototypeOf(proto);
+    depth++;
+  }
+
+  if(opts.instance) result.instanceFields = describeMembers(opts.instance).fields;
+
+  return result;
+}
+
+export function describeObject(obj, opts = {}) {
+  if(obj === null || (typeof obj !== 'object' && typeof obj !== 'function')) throw new TypeError('describeObject expects an object or function');
+
+  const result = {
+    name: (typeof obj === 'function' ? obj.name : obj.constructor?.name) || '(anonymous)',
+    type: typeof obj,
+    ...describeMembers(obj),
+    prototypeChain: [],
+  };
+
+  if(typeof obj === 'function') result.constructorParams = paramNames(obj);
+
+  let proto = Object.getPrototypeOf(obj), depth = 0;
+
+  while(proto && proto !== Object.prototype && proto !== Function.prototype && depth < 20) {
+    result.prototypeChain.push({
+      level: depth,
+      constructorName: proto.constructor?.name || '(anonymous)',
+      ...describeMembers(proto),
+    });
+    proto = Object.getPrototypeOf(proto);
+    depth++;
+  }
+
+  return result;
+}
 
 /* --- the runtime ----------------------------------------------------------- */
 
@@ -67,7 +188,7 @@ async function eprint(text) {
 }
 
 async function fail(message) {
-  await eprint('describe-module.js: ' + message);
+  await eprint('describe.js: ' + message);
   return exit(1);
 }
 
@@ -84,7 +205,7 @@ const isPath = s => /^\.{0,2}\//.test(s) || (/\.(m?js|cjs|m?ts|so|dll|node)$/.te
 /* Loads the module `target`. A path is made absolute first (a relative
  * specifier would be taken relative to this script). A native addon that
  * `import` refuses is loaded the way `require` would. */
-async function load(target) {
+export async function load(target) {
   if(!isPath(target)) return import(target);
 
   const dir = await cwd();
@@ -120,7 +241,7 @@ function isClass(v) {
   return p !== null && typeof p === 'object' && Object.getOwnPropertyNames(p).length > 1;
 }
 
-function describeAny(v, asClass) {
+export function describeAny(v, asClass) {
   if(typeof v === 'function' && (asClass || isClass(v))) return { kind: 'class', ...describeClass(v) };
   if(typeof v === 'function') return { kind: 'function', ...describeObject(v), arity: v.length, native: /\[native code\]/.test(Function.prototype.toString.call(v)), signatures: v[SIG] };
   if(v !== null && typeof v === 'object') return { kind: 'object', ...describeObject(v) };
@@ -129,6 +250,8 @@ function describeAny(v, asClass) {
 }
 
 const replacer = (k, x) => (typeof x === 'bigint' ? x + 'n' : x);
+const EMPTY_OMIT = new Set(['constructorParams', 'fields', 'getters', 'methods', 'prototypeChain', 'setters']);
+const jsonReplacer = (k, x) => (Array.isArray(x) && x.length === 0 && EMPTY_OMIT.has(k) ? undefined : replacer(k, x));
 
 function short(v) {
   let s;
@@ -187,7 +310,7 @@ function show(name, d) {
 }
 
 /* The value at a dotted path: a key of `root` itself wins over a path. */
-function lookup(root, path) {
+export function lookup(root, path) {
   if(Object.prototype.hasOwnProperty.call(root, path) || path in Object(root)) return root[path];
 
   let v = root;
@@ -203,9 +326,9 @@ function lookup(root, path) {
 
 function usage() {
   return eprint(
-    'Usage: describe-module.js [--json] [--class] <module> [export...]\n' +
-      '       describe-module.js [--json] [--class] --global [name...]\n' +
-      '       describe-module.js --probe <module>   (exit status only)\n' +
+    'Usage: describe.js [--json] [--class] <module> [export...]\n' +
+      '       describe.js [--json] [--class] --global [name...]\n' +
+      '       describe.js --probe <module>   (exit status only)\n' +
       '  <module>   a file, or a specifier the runtime imports (node:fs, bun:ffi, ffi)\n' +
       '  export     a name or dotted path to describe; all exports by default\n' +
       '  --global   describe globalThis properties (Bun, process.versions, Buffer) instead\n' +
@@ -267,7 +390,7 @@ async function main() {
   }
 
   if(flags.has('json')) {
-    console.log(JSON.stringify(described, replacer, 2));
+    console.log(JSON.stringify(described, jsonReplacer, 2));
     return;
   }
 
@@ -278,4 +401,9 @@ async function main() {
   for(const [name, d] of Object.entries(described)) for(const l of show(name, d)) console.log(l);
 }
 
-main().catch(e => fail(e && e.stack ? e.stack : String(e)));
+/* main() runs only when this file is the script being started, not when it is
+ * imported; qjsm reports import.meta.main false, so it compares file names. */
+const script = typeof scriptArgs !== 'undefined' ? scriptArgs[0] : import.meta.main === undefined ? process.argv[1] : undefined;
+const isMain = script !== undefined ? script.split(/[\\/]/).pop() === import.meta.url.split('/').pop() : import.meta.main;
+
+if(isMain) main().catch(e => fail(e && e.stack ? e.stack : String(e)));

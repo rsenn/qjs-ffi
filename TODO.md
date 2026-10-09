@@ -33,9 +33,6 @@
 - `CMakeLists.txt` builds one shared module per binding (`ffi.c` +
   `js-callback.c` + `c-function.c` + `ffi-type.c` → `quickjs-ffi` MODULE,
   `CMakeLists.txt:110`).
-- Existing smoke tests: `test.js`, `test2.js`, `test-ffi.js`, `test-portmidi.js`
-  (manual, run under `qjsm`/`qjs`, no assertions/harness — visual inspection
-  of `console.log` output).
 
 ## 2. Bun.js `bun:ffi` API (target shape)
 
@@ -85,11 +82,9 @@ New/changed tests get the 5x flakiness check per
 
 ### Phase 7 — docs/examples pass
 
-Done: `README.md` has the new API as primary and `legacy.js` as the old one;
-`test-ffi.js`, `test.js` and `examples/portmidi.js` use the new API (the
-generated `lib/*.js` examples already did; `test2.js` uses no ffi). Left:
-`test-portmidi.js` stops at `Pm_CreateVirtualInput`, which the installed
-libportmidi does not have.
+Done: `README.md` has the new API as primary and `ffi/legacy.js` as the old
+one; `examples/portmidi.js` uses the new API (the generated
+`lib/bindings/*.js` examples already did).
 
 ---
 
@@ -305,8 +300,7 @@ Status: 1-4 done (`tests/test-struct-types.js`, 11 tests; `K_STRUCT_PTR` in
 7. **Other runtimes** -> `gen-bindings.js --target=bun|deno|node`: bun:ffi
    and Deno.dlopen have no constructor-as-type, so those targets keep the
    string types (`"pointer"`) and the generated classes take the
-   `ArrayBuffer` through `ptr()`; node emits `node:ffi` calls (doc/node-ffi.md), testable under qjsm with
-   `-I ffi-hooks.js`. Plan in section 8.
+   `ArrayBuffer` through `ptr()`; node emits `node:ffi` calls (doc/node-ffi.md), testable under qjsm. Plan in section 8.
 
 ### Open points
 

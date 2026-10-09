@@ -1,6 +1,6 @@
 import { tests, eq, assert } from './tinytest.js';
 import { dlsym, RTLD_DEFAULT } from 'ffi';
-import { define, call } from '../legacy.js';
+import { define, call } from '../lib/ffi/legacy.js';
 
 function assertThrows(fn, msg) {
   try {

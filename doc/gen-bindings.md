@@ -41,7 +41,7 @@ qjs-ffi-genbindings [options] --from-ir=<ir.json>
 both take the same options. Run from a checkout:
 
 ```sh
-qjsm tools/gen-bindings.js --library=libcairo.so.2 /usr/include/cairo/cairo.h -o lib/cairo.js
+qjsm tools/gen-bindings.js --library=libcairo.so.2 /usr/include/cairo/cairo.h -o lib/bindings/cairo.js
 ```
 
 The generator needs `clang` and `qjsm` with the `json` module of qjs-modules.
@@ -79,7 +79,7 @@ The generated module needs only `ffi`, and one with `read` (see
 | `-h`, `--help` | the usage text. |
 
 Companions in `tools/`: `gen-structs.js` (`qjs-ffi-genstructs`) makes the struct
-classes, or a C header, from an IR on its own, and `describe-module.sh` lists
+classes, or a C header, from an IR on its own, and `describe.sh` lists
 what a module, object or class has. Both are covered
 [below](#the-ir-on-its-own).
 
@@ -814,24 +814,24 @@ _Static_assert(offsetof(struct shape, id) == 0, "shape.id offset");
 ...
 ```
 
-`describe-module.sh [-r <runtime>] [--json] [--class] <module> [export...]`
+`describe.sh [-r <runtime>] [--json] [--class] <module> [export...]`
 lists what a module, an object or a class has: the exports of a generated
 module or one from `lib/` with the C types when it was generated with
 `--describe`, but also `ffi.so` itself, `node:fs`, or `bun:ffi`. It runs
-`describe-module.js` in QuickJS (`qjsm`, the default, or `qjs`), Node.js, Bun or
+`describe.js` in QuickJS (`qjsm`, the default, or `qjs`), Node.js, Bun or
 Deno, so the same API can be dumped in two runtimes and compared:
 
 ```sh
-describe-module.sh -r qjsm build/ffi.so               # what ffi exports
-describe-module.sh -r bun bun:ffi                     # what bun:ffi exports
-describe-module.sh -r bun --global Bun.FFI            # an object by its path
-describe-module.sh -r node --class --global Buffer    # a native constructor as a class
-describe-module.sh -r node node:fs readFile promises.readFile
+describe.sh -r qjsm build/ffi.so               # what ffi exports
+describe.sh -r bun bun:ffi                     # what bun:ffi exports
+describe.sh -r bun --global Bun.FFI            # an object by its path
+describe.sh -r node --class --global Buffer    # a native constructor as a class
+describe.sh -r node node:fs readFile promises.readFile
 ```
 
 With nothing but a module name it does not dump anything: it asks each installed
 runtime whether it can load the module and prints the command that dumps it for
-every one that can (`./tools/describe-module.sh -r node node:fs`, with the script
+every one that can (`./tools/describe.sh -r node node:fs`, with the script
 named the way it was started), the others noted on stderr. A module is a path or a specifier the runtime imports; an export may be a dotted
 path; `--global` takes properties of `globalThis` instead of a module; `--json`
 prints the raw results. Importing a module loads its libraries, so
@@ -910,8 +910,8 @@ Enums, typedefs and structs are not part of the specs.
 ## Using the result
 
 *   Run the module with `qjsm`, with `ffi` on `QUICKJS_MODULE_PATH`, and import
-    it: `import * as cairo from './lib/cairo.js'`.
-*   Ready-made bindings are in `lib/` (cairo, SDL2, freetype, libcurl, libusb,
+    it: `import * as cairo from './lib/bindings/cairo.js'`.
+*   Ready-made bindings are in `lib/bindings/` (cairo, SDL2, freetype, libcurl, libusb,
     libarchive, zlib); `examples/` and `tests/test-cairo.js` use them. They are
     output of an earlier version of the generator, so regenerate them with a
     current `ffi` module before depending on newer features.

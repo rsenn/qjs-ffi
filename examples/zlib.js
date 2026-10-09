@@ -1,5 +1,5 @@
-import * as zlib from '../lib/zlib.js';
-import { z_stream, deflateInit } from '../lib/zlib-extras.js';
+import * as zlib from '../lib/bindings/zlib.js';
+import { z_stream, deflateInit } from '../lib/bindings/zlib-extras.js';
 import * as os from 'os';
 import { open, out } from 'std';
 

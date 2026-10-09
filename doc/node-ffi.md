@@ -4,10 +4,10 @@ Node 26 has an experimental [`node:ffi`](https://nodejs.org/api/ffi.html). Its
 API is not bun:ffi's, which is what the module `ffi` follows, and two names
 mean different things in them (`toArrayBuffer(pointer, length)` against
 `toArrayBuffer(ptr, byteOffset, byteLength)`). So the Node API is a separate
-module, `node-ffi.js`, installed next to `ffi`:
+module, `node/ffi.js`, installed next to `ffi`:
 
 ```js
-import { dlopen, getInt32, setInt32 } from "node-ffi.js";
+import { dlopen, getInt32, setInt32 } from "node/ffi.js";
 
 const { lib, functions } = dlopen("libm.so.6", {
   cos: { arguments: ["float64"], return: "float64" },
@@ -16,24 +16,6 @@ const { lib, functions } = dlopen("libm.so.6", {
 functions.cos(0); // 1
 lib.close();
 ```
-
-## Running a script written for `node:ffi`
-
-A script that says `import { dlopen } from "node:ffi"` runs unchanged with the
-hook file installed next to the module:
-
-```sh
-qjsm -I ffi-hooks.js script.js
-```
-
-`-I` runs the hook first and it stays for every later import, dynamic ones too.
-It maps `node:ffi` to `node-ffi.js`, and `bun:ffi` to `ffi`, so a script written
-for Bun runs the same way.
-
-**Without the hook `qjsm` reads `node:ffi` as plain `ffi`**, which is the bun
-API under Node's name: `dlopen()` then returns `{ symbols, close }`, not
-`{ lib, functions }`, and a script written for Node misbehaves without saying
-why.
 
 ## What it has
 

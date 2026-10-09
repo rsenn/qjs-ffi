@@ -2,14 +2,14 @@ import { tests, eq, assert } from './tinytest.js';
 import * as std from 'std';
 import * as os from 'os';
 import { dlopen, toBuffer } from 'ffi';
-import * as cairo from '../lib/cairo.js';
-import { CAIRO_FORMAT_ARGB32, CAIRO_STATUS_SUCCESS, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD } from '../lib/cairo.js';
+import * as cairo from '../lib/bindings/cairo.js';
+import { CAIRO_FORMAT_ARGB32, CAIRO_STATUS_SUCCESS, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD } from '../lib/bindings/cairo.js';
 
 const WIDTH = 320,
   HEIGHT = 240;
 const OUT_DIR = '.tmp';
 
-// lib/cairo.js is generated from cairo.h only; SVG lives in cairo-svg.h.
+// lib/bindings/cairo.js is generated from cairo.h only; SVG lives in cairo-svg.h.
 const svg = dlopen('libcairo.so.2', {
   cairo_svg_surface_create: { args: ['cstring', 'f64', 'f64'], returns: 'pointer' },
 }).symbols;

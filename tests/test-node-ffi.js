@@ -1,5 +1,5 @@
 import { tests, eq, assert } from './tinytest.js';
-import * as nffi from 'node-ffi.js';
+import * as nffi from 'node/ffi.js';
 import { CFunction } from 'ffi';
 
 const { dlopen, DynamicLibrary } = nffi;

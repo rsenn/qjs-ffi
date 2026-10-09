@@ -8,15 +8,15 @@ directly; this page is for code that still uses `define()` and `call()`.
 
 ```js
 import { dlsym, RTLD_DEFAULT } from "ffi";
-import { define, call } from "legacy.js";
+import { define, call } from "ffi/legacy.js";
 
 define("strlen", dlsym(RTLD_DEFAULT, "strlen"), null, "int", "char *");
 console.log(call("strlen", "hello")); // 5
 ```
 
-`legacy.js` is installed next to `ffi.so` (the QuickJS C module directory) and
-copied to the build directory, so one `QUICKJS_MODULE_PATH` finds both. In the
-source tree, import it by path (`../legacy.js`).
+`ffi/legacy.js` is installed in the QuickJS JS module directory and copied to
+the build directory, so one `QUICKJS_MODULE_PATH` finds both it and `ffi.so`. In the
+source tree, import it by path (`../lib/ffi/legacy.js`).
 
 ## `define()`
 

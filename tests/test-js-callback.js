@@ -1,7 +1,7 @@
 import * as std from 'std';
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
 import { JSCallback, CFunction, dlsym, toArrayBuffer, RTLD_DEFAULT } from 'ffi';
-import { define, call } from '../legacy.js';
+import { define, call } from '../lib/ffi/legacy.js';
 
 function assertThrows(fn, msg) {
   try {
