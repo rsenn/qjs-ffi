@@ -7,9 +7,9 @@
  * Runs headless by default (SDL_VIDEODRIVER=dummy, no real display needed).
  * Usage: qjsm examples/sdl2.js
  */
-import * as std from 'std';
-import * as sdl from '../lib/bindings/sdl2.js';
-import { pointerSize, toArrayBuffer } from 'ffi';
+import * as std from "std";
+import * as sdl from "../lib/bindings/sdl2.js";
+import { pointerSize, toArrayBuffer } from "ffi";
 
 const SDL_INIT_VIDEO = 0x20;
 const SDL_WINDOWPOS_UNDEFINED = 0x1fff0000;
@@ -29,28 +29,28 @@ function readPtr(buf, ofs = 0) {
 }
 
 function check(cond, what) {
-  if(!cond) throw new Error(what + ' failed: ' + sdl.SDL_GetError());
+  if(!cond) throw new Error(what + " failed: " + sdl.SDL_GetError());
 }
 
 function main() {
-  if(std.getenv('SDL_VIDEODRIVER') === undefined) std.setenv('SDL_VIDEODRIVER', 'dummy');
+  //if(std.getenv("SDL_VIDEODRIVER") === undefined) std.setenv("SDL_VIDEODRIVER", "dummy");
 
-  check(sdl.SDL_Init(SDL_INIT_VIDEO) === 0, 'SDL_Init');
+  check(sdl.SDL_Init(SDL_INIT_VIDEO) === 0, "SDL_Init");
 
   const width = 64,
     height = 48;
-  const window = sdl.SDL_CreateWindow('qjs-ffi + SDL2', SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, 0);
-  check(window, 'SDL_CreateWindow');
+  const window = sdl.SDL_CreateWindow("qjs-ffi + SDL2", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, 0);
+  check(window, "SDL_CreateWindow");
 
-  const surface = sdl.SDL_GetWindowSurface(window);
-  check(surface, 'SDL_GetWindowSurface');
+  const surface = sdl.SDL_Surface.at(sdl.SDL_GetWindowSurface(window));
+  check(surface, "SDL_GetWindowSurface");
 
-  const surfaceView = toArrayBuffer(surface, 40);
-  const w = new DataView(surfaceView).getInt32(SURFACE_W, true);
-  const h = new DataView(surfaceView).getInt32(SURFACE_H, true);
-  const pitch = new DataView(surfaceView).getInt32(SURFACE_PITCH, true);
-  const pixelsPtr = readPtr(surfaceView, SURFACE_PIXELS);
-  console.log('surface', w + 'x' + h, 'pitch', pitch);
+  console.log("surface", surface);
+  console.log("surface.w", surface.w);
+
+  const { w, h, pitch, pixels: pixelsPtr } = surface;
+
+  console.log("surface", w + "x" + h, "pitch", pitch);
 
   // Raw pixel write: a horizontal red -> blue gradient, straight into the
   // native ARGB8888 buffer -- no SDL_MapRGB/SDL_FillRect needed, since we
@@ -65,11 +65,28 @@ function main() {
       pixels[y * stride + x] = (0xff << 24) | (red << 16) | (0 << 8) | blue;
     }
 
-  check(sdl.SDL_UpdateWindowSurface(window) === 0, 'SDL_UpdateWindowSurface');
+  check(sdl.SDL_UpdateWindowSurface(window) === 0, "SDL_UpdateWindowSurface");
 
-  const first = pixels[0].toString(16).padStart(8, '0');
-  const last = pixels[w - 1].toString(16).padStart(8, '0');
-  console.log('row 0 first pixel 0x' + first + ', last pixel 0x' + last);
+  const first = pixels[0].toString(16).padStart(8, "0");
+  const last = pixels[w - 1].toString(16).padStart(8, "0");
+  console.log("row 0 first pixel 0x" + first + ", last pixel 0x" + last);
+
+  // Replace the instant cleanup at the end of main() with an event loop:
+
+  let running = true;
+  const eventBuf = new sdl.SDL_Event(); // SDL_Event union buffer
+
+  while(running) {
+    // SDL_PollEvent takes a pointer to an event structure
+    while(sdl.SDL_PollEvent(eventBuf) !== 0) {
+      // SDL_Quit event type is 0x100 (SDL_QUIT)
+      const eventType = eventBuf.type;
+
+      if(eventType === 0x100) running = false;
+    }
+    // Small sleep to prevent 100% CPU usage
+    sdl.SDL_Delay(10);
+  }
 
   sdl.SDL_DestroyWindow(window);
   sdl.SDL_Quit();
