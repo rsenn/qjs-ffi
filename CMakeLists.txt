@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 project(qjs-ffi VERSION 0.9 LANGUAGES C)
 
-option(BUILD_STATIC "Also build a static quickjs-ffi module (${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.a)" OFF)
 set(BUILD_LIBFFI AUTO CACHE STRING "Build libffi from source (checked out into third_party/libffi): ON always, AUTO when no system libffi is found, OFF never")
 set_property(CACHE BUILD_LIBFFI PROPERTY STRINGS ON OFF AUTO)
 option(ENABLE_TCC "Checkout TinyCC into third_party/tinycc, build libtcc from source and export cc() (in-memory C compiler) from the ffi module" OFF)
@@ -11,7 +10,11 @@ message("Building project [1;31m${PROJECT_NAME}[0m")
 set(DISABLE_WERROR ON)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Functions.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Compat.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
+quickjs_module_options(SHARED_DEFAULT ON STATIC_DEFAULT OFF)
 
 if(NOT PKG_CONFIG_FOUND)
   include(FindPkgConfig)
@@ -117,76 +120,57 @@ if(FFI_FOUND)
 endif(FFI_FOUND)
 # check_library_exists(ffi ffi_call "" HAVE_LIBFFI)
 
-if(BUILD_SHARED_LIBS)
-  add_definitions(-DJS_SHARED_LIBRARY)
-endif(BUILD_SHARED_LIBS)
+# Main: qjs-ffi (ffi.so, BUILD_SHARED) and qjs-ffi-static (quickjs-ffi.a plus
+# quickjs-ffi.module.cmake, BUILD_STATIC) from make_module(); the shared module is linked to
+# a -fPIC libffi (libtcc), the static one to its own non-PIC build.
+set(ffi_LIBRARIES_shared ${FFI_LIBRARIES} ${LIBFFI_LIBRARY})
+set(ffi_LIBRARIES_static ${FFI_LIBRARIES} ${LIBFFI_LIBRARY})
 
-# Main
-add_library(quickjs-ffi MODULE ${JS_BINDINGS_SOURCES})
-target_include_directories(quickjs-ffi PRIVATE)
-set_target_properties(quickjs-ffi PROPERTIES PREFIX "" OUTPUT_NAME "ffi")
-target_compile_definitions(quickjs-ffi PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
-target_link_libraries(quickjs-ffi PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${LIBFFI_LIBRARY})
-if(LIBFFI_BUILD)
-  add_dependencies(quickjs-ffi libffi-shared)
-endif(LIBFFI_BUILD)
+if(LIBFFI_BUILD AND BUILD_STATIC)
+  build_libffi(libffi-static)
+  set(ffi_LIBRARIES_static ${FFI_LIBRARIES} ${libffi-static_LIBRARY})
+endif(LIBFFI_BUILD AND BUILD_STATIC)
+
 if(ENABLE_TCC)
-  target_compile_definitions(quickjs-ffi PRIVATE -DCONFIG_TCC=1 "-DCONFIG_TCC_LIB_DIR=\"${libtcc-shared_LIB_DIR}\"")
-  target_link_libraries(quickjs-ffi PUBLIC ${libtcc-shared_LIBRARY} m)
-  add_dependencies(quickjs-ffi libtcc-shared)
+  list(APPEND ffi_LIBRARIES_shared ${libtcc-shared_LIBRARY} m)
+
+  if(BUILD_STATIC)
+    build_libtcc(libtcc-static)
+    list(APPEND ffi_LIBRARIES_static ${libtcc-static_LIBRARY} m)
+  endif(BUILD_STATIC)
 endif(ENABLE_TCC)
 
-if(BUILD_STATIC)
-  # Statically-linked module: no JS_SHARED_LIBRARY define, so ffi.c's
-  # JS_INIT_MODULE macro resolves to js_init_module_ffi (the symbol a host
-  # embedding this module statically calls by name), not js_init_module
-  # (the dlopen-discoverable name the MODULE target above uses).
-  add_library(quickjs-ffi-static STATIC ${JS_BINDINGS_SOURCES})
-  target_include_directories(quickjs-ffi-static PRIVATE)
-  set_target_properties(quickjs-ffi-static PROPERTIES PREFIX "" OUTPUT_NAME "quickjs-ffi"
-                         ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-  target_compile_definitions(quickjs-ffi-static PRIVATE -DJS_BINDINGS_INIT_MODULE=1)
+if(LIBDL)
+  list(APPEND ffi_LIBRARIES_static ${LIBDL})
+endif(LIBDL)
+
+set(ffi_LIBRARIES ${ffi_LIBRARIES_shared})
+make_module(ffi ${JS_BINDINGS_SOURCES})
+
+foreach(_t qjs-ffi qjs-ffi-static)
+  if(NOT TARGET ${_t})
+    continue()
+  endif(NOT TARGET ${_t})
+
+  string(REPLACE "qjs-ffi" "" _variant "${_t}") # "" or "-static"
+  string(REGEX REPLACE "^-" "" _variant "${_variant}")
+
+  if(NOT _variant)
+    set(_variant shared)
+  endif(NOT _variant)
+
+  target_compile_definitions(${_t} PRIVATE JS_BINDINGS_INIT_MODULE=1)
 
   if(LIBFFI_BUILD)
-    # A separate, non--fPIC libffi build for the static target -- the
-    # -fPIC one above is only meant for linking into the MODULE's shared
-    # object.
-    build_libffi(libffi-static)
-    set(FFI_STATIC_LIBFFI "${libffi-static_LIBRARY}")
-    target_link_libraries(quickjs-ffi-static PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${FFI_STATIC_LIBFFI})
-    add_dependencies(quickjs-ffi-static libffi-static)
-  else(LIBFFI_BUILD)
-    set(FFI_STATIC_LIBFFI "${LIBFFI_LIBRARY}")
-    target_link_libraries(quickjs-ffi-static PUBLIC ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${FFI_STATIC_LIBFFI})
+    add_dependencies(${_t} libffi-${_variant})
   endif(LIBFFI_BUILD)
 
   if(ENABLE_TCC)
-    # Likewise a separate, non--fPIC libtcc build for the static target.
-    build_libtcc(libtcc-static)
-    target_compile_definitions(quickjs-ffi-static PRIVATE -DCONFIG_TCC=1 "-DCONFIG_TCC_LIB_DIR=\"${libtcc-static_LIB_DIR}\"")
-    target_include_directories(quickjs-ffi-static PRIVATE "${libtcc-static_INCLUDE_DIR}")
-    target_link_libraries(quickjs-ffi-static PUBLIC ${libtcc-static_LIBRARY} m)
-    add_dependencies(quickjs-ffi-static libtcc-static)
-    list(APPEND FFI_STATIC_LIBFFI "${libtcc-static_LIBRARY}" m)
+    target_compile_definitions(${_t} PRIVATE CONFIG_TCC=1 "CONFIG_TCC_LIB_DIR=\"${libtcc-${_variant}_LIB_DIR}\"")
+    target_include_directories(${_t} PRIVATE "${libtcc-${_variant}_INCLUDE_DIR}")
+    add_dependencies(${_t} libtcc-${_variant})
   endif(ENABLE_TCC)
-
-  # quickjs-ffi.a (a plain archive, unlike the MODULE target above) carries
-  # no transitive link info of its own -- a consumer linking it in outside
-  # this project's own CMake graph (e.g. bundling several quickjs-*-static
-  # modules into one executable) needs it spelled out separately.
-  set(QUICKJS_FFI_LIBRARIES ${QUICKJS_LIBRARY} ${FFI_LIBRARIES} ${FFI_STATIC_LIBFFI})
-  if(LIBDL)
-    list(APPEND QUICKJS_FFI_LIBRARIES ${LIBDL})
-  endif(LIBDL)
-  set(QUICKJS_FFI_LINK_FLAGS "")
-  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/quickjs-ffi.cmake"
-"# Generated by qjs-ffi's CMakeLists.txt -- describes quickjs-ffi.a's
-# transitive (system/in-tree) library dependencies and linker flags, for a
-# consumer linking it in directly rather than through this CMake project.
-set(QUICKJS_FFI_LIBRARIES \"${QUICKJS_FFI_LIBRARIES}\")
-set(QUICKJS_FFI_LINK_FLAGS \"${QUICKJS_FFI_LINK_FLAGS}\")
-")
-endif(BUILD_STATIC)
+endforeach(_t)
 
 if(NOT CMAKE_INSTALL_LIBDIR)
   set(CMAKE_INSTALL_LIBDIR lib)
@@ -197,10 +181,6 @@ endif(NOT QUICKJS_C_MODULE_DIR)
 if(NOT CMAKE_INSTALL_BINDIR)
   set(CMAKE_INSTALL_BINDIR bin)
 endif(NOT CMAKE_INSTALL_BINDIR)
-
-install(TARGETS quickjs-ffi DESTINATION "${QUICKJS_C_MODULE_DIR}"
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ
-                    WORLD_EXECUTE)
 
 # lib/ffi/legacy.js (define()/call() on top of CFunction) sits in the build directory too,
 # so that one QUICKJS_MODULE_PATH finds it.
