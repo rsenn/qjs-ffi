@@ -66,4 +66,25 @@ await tests({
     assert(/anonymous struct or union/.test((out + std.loadFile(tmp + name)).split('\n').filter(l => l.includes('mixed_make')).join()), 'mixed_make is skipped');
     assert(m.mixed_make === undefined, 'mixed_make is not exported');
   },
+
+  'bun and deno stub a missing symbol too'() {
+    const full = realpath(tmp)[0];
+
+    for(const [target, have, cmd] of [['bun', 'bun', 'bun'], ['deno', 'deno', 'deno run --allow-ffi --allow-read']]) {
+      const file = full + '/test-gen-bindings-names.' + target + '.mjs';
+
+      sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--target=' + target, '--library=' + library, '-o', file, header].join(' '));
+      assert(std.loadFile(file) !== null, target + ': no module written');
+      if(sh('command -v ' + have).trim() === '') continue;
+
+      const probe = full + '/test-gen-bindings-names.' + target + '.probe.mjs';
+      const f = std.open(probe, 'w');
+      f.puts('import * as m from ' + JSON.stringify(file) + ';\ntry { m.absent_function(1); console.log("no throw"); } catch(e) { console.log(e.message); }\nconsole.log(typeof m.color_sum);\n');
+      f.close();
+
+      const r = sh(cmd + ' ' + probe);
+
+      assert(/symbol not found: absent_function/.test(r), target + ': ' + r);
+    }
+  },
 });

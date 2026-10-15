@@ -103,16 +103,15 @@ by-value structs and variadics are skipped, as noted in `doc/gen-bindings.md`.
 Found by [`doc/generated-vs-handwritten.md`](doc/generated-vs-handwritten.md)
 (problem numbers refer to its "Problems found in the generator"). Most valuable first.
 
-1. **C++ types the generator cannot name** (`cv::Size_<int>`, `ImVec2`, `std::string`,
-   typedef'd template instantiations): each drops the whole function. (#4)
-2. **Default arguments** of C++ functions become JS defaults. (#5)
+1. **C++ types still not named**: `std::string` and other standard-library types,
+   nested instances (`W<Size_<int>>`), members and constructors of template
+   instances, a class with a base by value. (#4)
+2. **Default arguments that are not literals** (`Size()`, a named constant):
+   the parameter stays required. (#5)
 3. **Static / no-`dlopen` targets**: emit a symbol table for a statically linked
     qjsm. (#10)
-4. Missing symbols for `--target=bun|deno|node`: they resolve all symbols in one
-   `dlopen()`, so one absent symbol still fails the import (qjs targets stub it). (#3)
-5. `doc/gen-bindings.md` Limitations: literal `#define` constants *are* bound,
-    expression macros are not. (#11)
-6. **Wrappers for C++ methods and for `--target=bun|deno|node`**: `--handle`, `--out` and
-   `--owned-return` apply to free C functions on the qjs target only.
-7. **Wrapper defaults by name**: a heuristic (`out`, `pp*`) or a `--out-all` mode would
-   save listing every out-parameter.
+4. **Wrappers for `--target=bun|deno|node`**: `--handle`, `--out` and `--owned-return`
+   are qjs-only (cells are ArrayBuffers read with DataView, strings come from `__cstr`).
+   `--handle` and a C++ destructor are not available for C++ functions and methods.
+5. **Check `--target=node` with a node that has `node:ffi`**: the missing-symbol stub
+   is written but was not run.

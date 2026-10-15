@@ -199,7 +199,13 @@ function __nameOf(p) {
 }
 
 function __sym(name) {
-  const p = Number(__f.dlsym(__lib, name));
+  let p;
+
+  try {
+    p = Number(__f.dlsym(__lib, name));
+  } catch(e) {
+    throw Object.assign(e, { missing: name });
+  }
 
   __names.set(p, name);
   return p;

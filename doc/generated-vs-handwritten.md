@@ -227,16 +227,16 @@ facts from the runs above; the project `TODO.md` is the place for the work.
     differently, makes the function unbindable.** nanovg: `NVGcolor` (an anonymous
     union of `float rgba[4]` and `struct{r,g,b,a}`) and `NVGpaint` (76 bytes against
     80). These are exactly the argument and return types of the common calls.
-3.  **Fixed 2026-10-15 for the qjs target: a missing symbol is a throwing stub.** **Missing symbols abort the import.** One absent symbol (an `#ifdef`ed or
+3.  **Fixed 2026-10-15: a missing symbol is a throwing stub (all targets; node untested here).** **Missing symbols abort the import.** One absent symbol (an `#ifdef`ed or
     other-platform declaration) makes the whole module unusable. Resolving lazily
     (on first call, or `sym ? CFunction : throwing stub`) or taking a
     `--check-symbols` list from the library would remove the manual `--exclude`
     loop (13 times for sqlite, impossible for the MariaDB header on a MySQL library).
-4.  **C++ types the generator cannot name.** `cv::Size_<int>`, `ImVec2` and `UMat`
+4.  **Fixed 2026-10-15 for value classes and template instances (type and non-type arguments); `std::string` and nested instances remain.** **C++ types the generator cannot name.** `cv::Size_<int>`, `ImVec2` and `UMat`
     returned by value, `std::string`. Template instantiations that are typedef'd
     (`typedef Size_<int> Size2i`) and small value classes are the most common
     arguments in real C++ APIs. Each unresolved type drops the whole function.
-5.  **Default arguments are lost.** A C++ default argument has no symbol; the
+5.  **Fixed 2026-10-15 for literal defaults.** **Default arguments are lost.** A C++ default argument has no symbol; the
     generated call needs every parameter. The AST has the default; the wrapper
     could be emitted with a `JS` default (`size = [0, 0]`).
 6.  **Fixed 2026-10-15: `--cstring=<fn>`.** **Return type `unsigned char *`/`const unsigned char *` is a number.** Text APIs
@@ -256,7 +256,7 @@ facts from the runs above; the project `TODO.md` is the place for the work.
     closed-builtin qjsm has none; the answer there stays a native module. A mode that
     emits the symbol table for a statically linked `qjsm` (`--emit-specs` already
     writes the dlopen specs) could close that gap.
-11. **The documentation says macros are not bound.** In these runs literal `#define`
+11. **Fixed 2026-10-15.** **The documentation says macros are not bound.** In these runs literal `#define`
     constants were: `SQLITE_OK`, `GLFW_PRESS`, `MAGIC_MIME`, `SFM_READ`,
     `LWS_CALLBACK_ESTABLISHED`. Expression macros were not (`paFloat32`, a cast
     expression). Update `gen-bindings.md` (Limitations) to say what is bound.

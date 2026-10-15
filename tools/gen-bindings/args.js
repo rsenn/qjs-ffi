@@ -36,6 +36,7 @@ const OPTIONS = [
   { names: ['--cstring'], arg: '<function>', key: 'cstrings', list: true, help: 'the return of this function (unsigned char *) is a string (repeatable)' },
   { names: ['--handle'], arg: '<type>:<dtor>', key: 'handles', list: true, help: 'a `type *` is an object closed by dtor() on close() or garbage collection (repeatable)' },
   { names: ['--out'], arg: '<function>:<arg>', key: 'outs', list: true, help: 'arg of function is an out-parameter: the wrapper returns what C stored there (repeatable)' },
+  { names: ['--out-auto'], key: 'outAuto', help: 'also treat as --out every `T **` of a --handle type and every pointer parameter named out* or pp<Name> (void and integer returns only)' },
   { names: ['--owned-return'], arg: '<function>[:<dtor>]', key: 'owned', list: true, help: 'the char * function returns is copied to a string, then freed with dtor (default free) (repeatable)' },
   { names: ['--c++'], key: 'cxx', help: 'parse every source as C++ (implied by .cc/.cpp/.cxx/.hh/.hpp/.hxx)' },
   { names: ['--std'], arg: '<std>', key: 'std', help: 'C++ standard for clang, e.g. c++17 (C++ sources only)' },
@@ -131,22 +132,29 @@ export function parseArgs(argv) {
   opts.outMap = new Map();
   opts.ownedMap = new Map();
 
+  // the colon of `name:arg`, not one of a `ns::name`
+  const split = o => {
+    const m = /^(.+?)(?<!:):(?!:)(.*)$/.exec(o);
+
+    return m ? [m[1], m[2]] : [o];
+  };
+
   for(const h of opts.handles) {
-    const [type, dtor] = h.split(':');
+    const [type, dtor] = split(h);
 
     if(!type || !dtor) throw new Error('--handle needs <type>:<destructor>, not "' + h + '"');
     opts.handleMap.set(type, dtor);
   }
 
   for(const o of opts.outs) {
-    const [fn, arg] = o.split(':');
+    const [fn, arg] = split(o);
 
     if(!fn || !arg) throw new Error('--out needs <function>:<arg>, not "' + o + '"');
     opts.outMap.set(fn, [...(opts.outMap.get(fn) || []), arg]);
   }
 
   for(const o of opts.owned) {
-    const [fn, dtor] = o.split(':');
+    const [fn, dtor] = split(o);
 
     if(!fn) throw new Error('--owned-return needs <function>[:<destructor>], not "' + o + '"');
     opts.ownedMap.set(fn, dtor || null);
@@ -154,7 +162,7 @@ export function parseArgs(argv) {
 
   opts.destructors = new Set(opts.handleMap.values());
 
-  if((opts.handleMap.size || opts.outMap.size || opts.ownedMap.size) && opts.target !== 'qjs') throw new Error('--handle, --out and --owned-return need --target=qjs');
+  if((opts.handleMap.size || opts.outMap.size || opts.ownedMap.size || opts.outAuto) && opts.target !== 'qjs') throw new Error('--handle, --out, --out-auto and --owned-return need --target=qjs');
   if(!opts.fromIr && !opts.sources.length) throw new Error('missing <source.c> argument');
 
   return opts;

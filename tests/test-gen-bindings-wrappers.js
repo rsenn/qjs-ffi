@@ -126,6 +126,26 @@ await tests({
     assert(/no function "no_close" to close it with/.test(bad('--handle=thing:no_close')), '--handle');
     assert(/half: --out parameter x is "f64", not a pointer/.test(bad('--out=half:x')), 'not a pointer');
     assert(/thing_value: --out needs a void or integer status return|has no cell type/.test(bad('--out=thing_value:t')), 'no cell type');
-    assert(/--handle, --out and --owned-return need --target=qjs/.test(bad('--target=deno', '--out=half:out')), 'target');
+    assert(/need --target=qjs/.test(bad('--target=deno', '--out=half:out')), 'target');
+  },
+
+  '--out-auto: a handle out-parameter and an out* or pp* parameter, nothing else'() {
+    const auto = 'test-gen-bindings-wrappers.auto.gen.js';
+
+    gen('--handle=thing:thing_free', '--out-auto', '-o', tmp + auto);
+
+    return import('../.tmp/' + auto).then(a => {
+      const t = a.thing_make(7);
+
+      eq(7, a.thing_value(t));
+      a.thing_free(t);
+      eq(2.5, a.half(5));
+      eq(4, a.minmax.length, 'lo and hi are not named like out-parameters');
+      eq(4, a.divmod.length);
+    });
+  },
+
+  '--out-auto needs --target=qjs'() {
+    assert(/need --target=qjs/.test(gen('--target=bun', '--out-auto', '-o', tmp + 'x.js')), 'refused');
   },
 });

@@ -8,13 +8,13 @@ import { header } from './emit/common.js';
  * dropped. Which children a node keeps is decided the moment its "kind" key
  * arrives (clang always writes "id", then "kind", before anything else).
  */
-const TOP_KINDS = new Set(['FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl', 'TypeAliasDecl', 'CXXRecordDecl', 'NamespaceDecl', 'LinkageSpecDecl']);
+const TOP_KINDS = new Set(['ClassTemplateDecl', 'FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl', 'TypeAliasDecl', 'CXXRecordDecl', 'NamespaceDecl', 'LinkageSpecDecl']);
 
 const CLASS_KINDS = new Set(['FieldDecl', 'VarDecl', 'EnumDecl', 'TypedefDecl', 'TypeAliasDecl', 'CXXRecordDecl', 'CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
 
 const DROP_KEYS = new Set(['range', 'referencedDecl', 'previousDecl', 'parentDeclContext', 'valueCategory', 'isUsed', 'isReferenced']);
 
-const RECORD_INFO_KEYS = new Set(['isAbstract', 'isPolymorphic']);
+const RECORD_INFO_KEYS = new Set(['isAbstract', 'isPolymorphic', 'canPassInRegisters']);
 
 /* System-library namespaces (std, __gnu_cxx, ...) hold megabytes of
  * declarations nobody binds. */
@@ -22,7 +22,7 @@ const SYSTEM_NAMESPACE = /^(std|__\w*)$/;
 
 const LOC_KEYS = new Set(['file', 'line', 'spellingLoc', 'expansionLoc']);
 
-const EXPR_KEYS = new Set(['kind', 'value', 'opcode', 'inner']);
+const EXPR_KEYS = new Set(['kind', 'value', 'opcode', 'inner', 'referencedDecl']);
 
 const EXPR_KIND = /(Expr|Literal|Operator)$/;
 
@@ -42,11 +42,17 @@ function nodePolicy(parent, kind) {
     case 'CXXMethodDecl':
     case 'CXXConstructorDecl':
     case 'CXXDestructorDecl':
-      return kind === 'ParmVarDecl' ? 'leaf' : 'skip';
+      return kind === 'ParmVarDecl' ? 'full' : 'skip';
+    case 'ParmVarDecl':
+      return EXPR_KIND.test(kind) ? 'expr' : 'skip';
     case 'EnumDecl':
       return kind === 'EnumConstantDecl' ? 'full' : 'skip';
     case 'RecordDecl':
       return kind === 'FieldDecl' || kind === 'RecordDecl' || kind === 'EnumDecl' || kind === 'AlignedAttr' ? 'full' : kind === 'PackedAttr' ? 'leaf' : 'skip';
+    case 'ClassTemplateDecl':
+      return kind === 'CXXRecordDecl' || kind === 'ClassTemplateSpecializationDecl' ? 'full' : kind === 'TemplateTypeParmDecl' || kind === 'NonTypeTemplateParmDecl' ? 'leaf' : 'skip';
+    case 'ClassTemplateSpecializationDecl':
+      return kind === 'TemplateArgument' ? 'leaf' : CLASS_KINDS.has(kind) ? 'full' : 'skip';
     case 'CXXRecordDecl':
       return CLASS_KINDS.has(kind) || kind === 'AlignedAttr' ? 'full' : kind === 'AccessSpecDecl' || kind === 'PackedAttr' || kind === 'FinalAttr' ? 'leaf' : 'skip';
     case 'TypedefDecl':

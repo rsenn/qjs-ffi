@@ -259,10 +259,20 @@ export function prepareClassTypes(ir, opts, classes) {
  * reason it would have had without by-value support.
  */
 export function resolveByValue(ir, opts) {
-  const index = mergeIRs([{ structs: ir.structs, classes: [], typedefs: ir.typedefs || [], enums: [] }]);
+  const index = mergeIRs([{ structs: [...ir.structs, ...(ir.classes || []).filter(c => c.byValue && c.type !== 'union').map(c => ({ ...c, type: 'struct' }))], classes: [], typedefs: ir.typedefs || [], enums: [] }]);
   const memo = new Map();
 
   ir.byValue = ir.byValue || {};
+
+  // clang spells a type inside its namespace unqualified ("Size_<float>" for
+  // cv::Size_<float>): a short name that is unique is that record
+  const shorts = new Map();
+
+  for(const name of index.structs.keys()) {
+    const short = name.replace(/^(?:\w+::)+/, '');
+
+    shorts.set(short, shorts.has(short) ? null : name);
+  }
 
   /* The reason the entry cannot be bound, or null once its types are settled. */
   const settle = entry => {
@@ -270,7 +280,7 @@ export function resolveByValue(ir, opts) {
 
     for(const b of entry.byValue) {
       const where = b.at < 0 ? 'return type' : 'parameter ' + entry.args[b.at].slice(0, entry.args[b.at].indexOf(': '));
-      const name = recordOf(b.name, index);
+      const name = recordOf(b.name, index) || (shorts.get(b.name.trim()) ? recordOf(shorts.get(b.name.trim()), index) : undefined);
       const rec = name && index.structs.get(name);
 
       if(!rec) return where + ': ' + b.reason;

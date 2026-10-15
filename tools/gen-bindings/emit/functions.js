@@ -5,7 +5,7 @@ import { jsDoc } from './jsdoc.js';
 import { runtimeCode, variablesCode, needsRuntime, denoHelpers, nodeHelpers } from './runtime.js';
 import { bunLike } from '../ffi-types.js';
 import { classesCode } from './classes.js';
-import { wrapperPlans, publicFunction, wrapperCode, wrapperHelpers } from './wrappers.js';
+import { wrapperPlans, applyCxxWrappers, publicFunction, wrapperCode, wrapperHelpers } from './wrappers.js';
 
 /* Emits `export const NAME = value;` for every constant variable whose value
  * is known at generation time (an `extern` one has none, only a symbol). */
@@ -80,7 +80,11 @@ function __sym(name) {
   let p = __syms.get(name);
 
   if(p === undefined) {
-    p = dlopen(${JSON.stringify(library)}, { [name]: { args: [], returns: "void" } }).symbols[name].ptr;
+    try {
+      p = dlopen(${JSON.stringify(library)}, { [name]: { args: [], returns: "void" } }).symbols[name].ptr;
+    } catch(e) {
+      throw /^Symbol ".*" not found/.test(e.message) ? Object.assign(e, { missing: name }) : e;
+    }
     __syms.set(name, p);
   }
 
@@ -96,7 +100,11 @@ function __sym(name) {
   let p = __syms.get(name);
 
   if(p === undefined) {
-    p = Number(Deno.UnsafePointer.value(Deno.dlopen(${JSON.stringify(library)}, { [name]: { type: "pointer" } }).symbols[name]));
+    try {
+      p = Number(Deno.UnsafePointer.value(Deno.dlopen(${JSON.stringify(library)}, { [name]: { type: "pointer" } }).symbols[name]));
+    } catch(e) {
+      throw /undefined symbol/.test(e.message) ? Object.assign(e, { missing: name }) : e;
+    }
     __syms.set(name, p);
   }
 
@@ -111,8 +119,9 @@ export function generateCFunction(ir, opts) {
 
   const { functions, cxxFunctions, classes, enums } = bindable(ir, opts);
   const { plans } = wrapperPlans(ir, opts);
+  const cxxWrapped = applyCxxWrappers(ir, opts).plans;
   const rawNeeded = new Set([...opts.destructors, ...[...opts.ownedMap.values()].filter(Boolean)]);
-  const freeUsed = [...plans.values()].some(p => p.owned === 'free');
+  const freeUsed = [...plans.values(), ...cxxWrapped].some(p => p.owned === 'free');
 
   prepareByValue(ir, opts);
   prepareClassTypes(ir, opts, classes);
@@ -121,7 +130,6 @@ export function generateCFunction(ir, opts) {
   const bun = opts.target === 'bun';
   const deno = opts.target === 'deno';
   const node = opts.target === 'node';
-  const bind = !bun && !deno && !node;
   const imports = bun
     ? ['CFunction', 'dlopen', opts.ffiType ? 'FFIType' : null, views ? 'toArrayBuffer' : null, views ? 'ptr as __ptr' : null, views ? 'CString' : null].filter(Boolean)
     : [
@@ -131,7 +139,7 @@ export function generateCFunction(ir, opts) {
     views ? 'read as __rd' : null,
     views ? 'write as __wr' : null,
     views ? 'ptr as __ptr' : null,
-    views || plans.size ? 'toString as __cstr' : null,
+    views || plans.size || cxxWrapped.length ? 'toString as __cstr' : null,
     'dlsym',
     opts.library ? 'dlopen' : null,
     opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
@@ -147,14 +155,15 @@ export function generateCFunction(ir, opts) {
   if(bun) out += BUN_SYM(opts.library);
   else if(!deno && !node && opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 
-  if(!bun && !deno && !node) out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw Object.assign(new Error("gen-bindings: symbol not found: " + name), { missing: name });\n' + '  return p;\n' + '}\n' + BIND;
+  out += BIND;
+  if(!bun && !deno && !node) out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw Object.assign(new Error("gen-bindings: symbol not found: " + name), { missing: name });\n' + '  return p;\n' + '}\n';
   if(opts.describe) out += DESCRIBE_HELPERS;
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
   out += definesCode(ir.defines, new Set([...functions, ...cxxFunctions, ...ir.fields, ...classes].map(x => safeIdent(x.name)).concat(enums.flatMap(e => e.fields.map(c => safeIdent(c.name))))));
   if(needsRuntime(ir, opts, classes)) out += runtimeCode(opts);
   out += variablesCode(ir, opts) + classesCode(ir, classes, opts, cxxFunctions);
-  if(plans.size) out += wrapperHelpers(opts, plans);
+  if(plans.size || cxxWrapped.length) out += wrapperHelpers(opts, new Map([...plans, ...cxxWrapped.map((p, i) => ['\0' + i, p])]));
   out += structTypesCode(ir, usedStructs([...functions, ...cxxFunctions, ...classes.flatMap(c => [...c.methods, ...c.constructors])]), opts);
   out += '\n';
 
@@ -166,7 +175,7 @@ export function generateCFunction(ir, opts) {
     const args = paramTypes(raw).map(t => cfType(t, opts));
     const ident = safeIdent(fn.name);
     let impl = wrapReturn(raw.returns, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(raw.returns, opts) + (fn.variadic ? ',variadic:true' : '') + '})', opts);
-    if(bind) impl = '__bind(' + jsLiteral(fn.name) + ', () => ' + impl + ')';
+    impl = '__bind(' + jsLiteral(fn.name) + ', () => ' + impl + ')';
 
     const doc = opts.jsdoc ? jsDoc([fn.name], [publicFunction(fn, plan)], new Set(classes.map(c => c.name)), '') : '';
 

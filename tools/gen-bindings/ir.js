@@ -35,6 +35,16 @@ export function collectTypedefs(root) {
  * previous constant's value + 1 for an implicit one -- same rule the C
  * standard uses.
  */
+function firstValue(node) {
+  for(const x of node.inner || []) {
+    const v = 'value' in x ? x.value : firstValue(x);
+
+    if(v !== undefined) return v;
+  }
+
+  return undefined;
+}
+
 function enumConstants(enumDecl) {
   const constants = [];
   let next = 0;
@@ -42,8 +52,8 @@ function enumConstants(enumDecl) {
   for(const c of enumDecl.inner || []) {
     if(c.kind !== 'EnumConstantDecl') continue;
 
-    const init = (c.inner || []).find(x => 'value' in x);
-    const value = init ? Number(init.value) : next;
+    const init = firstValue(c);
+    const value = init !== undefined ? Number(init) : next;
 
     constants.push({ name: c.name, value });
     next = value + 1;
@@ -117,6 +127,59 @@ const CLASS_MEMBER_KINDS = new Set(['CXXMethodDecl', 'CXXConstructorDecl', 'CXXD
  * methods and has no bases is still just data, i.e. an IR `structs` entry. */
 function isPlainRecord(node) {
   return !(node.bases && node.bases.length) && !(node.inner || []).some(c => !c.isImplicit && CLASS_MEMBER_KINDS.has(c.kind));
+}
+
+/* The spelling clang gives an instantiation, `Size_<int>` or `Vec<float, 3>`,
+ * or null when an argument is neither a type nor an integer. */
+function specializationName(node) {
+  const args = (node.inner || []).filter(c => c.kind === 'TemplateArgument');
+
+  if(!args.length || args.some(a => !(a.type || typeof a.value === 'number'))) return null;
+  return node.name + '<' + args.map(a => (a.type ? a.type.qualType : a.value)).join(', ') + '>';
+}
+
+/* Replaces every class template of the AST by one plain struct per
+ * instantiation the header names, so `Size_<int>` is a struct like any other:
+ * the pattern's data members with the template parameters replaced by the
+ * arguments (`T width` -> `int width`), no methods. A pattern with bases, or
+ * an argument of another kind, is left out. Runs before the layout probe,
+ * which gets the sizes and offsets from clang. */
+export function lowerSpecializations(ast) {
+  const lower = nodes => {
+    const out = [];
+
+    for(const node of nodes) {
+      if(node.kind === 'NamespaceDecl' || node.kind === 'LinkageSpecDecl') {
+        if(node.inner) node.inner = lower(node.inner);
+        out.push(node);
+      } else if(node.kind === 'ClassTemplateDecl') {
+        const params = (node.inner || []).filter(c => c.kind === 'TemplateTypeParmDecl' || c.kind === 'NonTypeTemplateParmDecl').map(c => c.name);
+        const pattern = (node.inner || []).find(c => c.kind === 'CXXRecordDecl');
+        const specs = (node.inner || []).filter(c => c.kind === 'ClassTemplateSpecializationDecl');
+        let first = true;
+
+        if(pattern && pattern.completeDefinition && !(pattern.bases || []).length)
+          for(const spec of specs) {
+            const name = specializationName(spec);
+            const args = (spec.inner || []).filter(c => c.kind === 'TemplateArgument');
+
+            if(!name || args.length !== params.length) continue;
+
+            const subst = t => (t && params.reduce((s, p, i) => s.replace(new RegExp('\\b' + p + '\\b', 'g'), args[i].type ? args[i].type.qualType : String(args[i].value)), t));
+            const fields = (pattern.inner || []).filter(c => c.kind === 'FieldDecl').map(f => ({ ...f, type: { ...f.type, qualType: subst(f.type.qualType), ...(f.type.desugaredQualType ? { desugaredQualType: subst(f.type.desugaredQualType) } : {}) } }));
+
+            out.push({ id: spec.id, kind: 'CXXRecordDecl', name, tagUsed: pattern.tagUsed, completeDefinition: true, ...(first ? { loc: node.loc, line: node.line } : {}), inner: fields });
+            first = false;
+          }
+      } else {
+        out.push(node);
+      }
+    }
+
+    return out;
+  };
+
+  ast.inner = lower(ast.inner || []);
 }
 
 /* Walks the translation unit's top-level declarations, tracking the
@@ -437,6 +500,43 @@ export function collectIR(root, isSourceFile, idPrefix) {
     addEnum(m.enumId);
   }
 
+  /* The value of a literal default argument (`int b = 3`, `-1.5`, `true`,
+   * `"hi"`, `nullptr`, an enum constant, integer arithmetic of these), or
+   * undefined when the expression is anything else (a call, a name). */
+  function defaultValue(e) {
+    const inner = (e.inner || [])[0];
+
+    switch (e.kind) {
+      case 'IntegerLiteral': return Number(e.value);
+      case 'FloatingLiteral': return Number(e.value);
+      case 'CharacterLiteral': return Number(e.value);
+      case 'CXXBoolLiteralExpr': return !!e.value;
+      case 'CXXNullPtrLiteralExpr': return null;
+      case 'StringLiteral': return /^"(?:[^"\\]|\\[^x0-7])*"$/.test(e.value) ? JSON.parse(e.value) : undefined;
+      case 'ImplicitCastExpr': case 'ParenExpr': case 'ExprWithCleanups': case 'CXXDefaultArgExpr': case 'CStyleCastExpr': case 'CXXStaticCastExpr': case 'ConstantExpr': return inner && defaultValue(inner);
+      case 'DeclRefExpr': {
+        const d = e.referencedDecl;
+        const values = d && d.kind === 'EnumConstantDecl' ? Object.values(enumIndex.enumsById).flatMap(x => x.constants).filter(c => c.name === d.name).map(c => c.value) : [];
+
+        return values.length && values.every(v => v === values[0]) ? values[0] : undefined;
+      }
+      case 'UnaryOperator': {
+        const v = inner && defaultValue(inner);
+
+        if(typeof v !== 'number' && typeof v !== 'boolean') return undefined;
+        return { '-': -v, '+': +v, '~': ~v, '!': !v }[e.opcode];
+      }
+      case 'BinaryOperator': {
+        const [a, b] = (e.inner || []).map(defaultValue);
+
+        if(typeof a !== 'number' || typeof b !== 'number') return undefined;
+        return { '+': a + b, '-': a - b, '*': a * b, '<<': a << b, '>>': a >> b, '|': a | b, '&': a & b }[e.opcode];
+      }
+    }
+
+    return undefined;
+  }
+
   /* Maps a function/method/constructor node's signature and returns
    * { isConst, ...the IR call description } (see describeCall), or null after
    * recording why in `skipped` under `label`.
@@ -467,7 +567,17 @@ export function collectIR(root, isSourceFile, idPrefix) {
         return null;
       }
 
-      params.push({ name: child.name || 'a' + params.length, type: pm });
+      params.push({ name: child.name || 'a' + params.length, type: pm, init: (child.inner || [])[0] });
+    }
+
+    /* the values of the last arguments that have a literal default */
+    const defaults = [];
+
+    for(let i = params.length - 1; i >= 0 && params[i].init; i--) {
+      const v = defaultValue(params[i].init);
+
+      if(v === undefined) break;
+      defaults.unshift(v);
     }
 
     const used = [retMap, ...params.map(p => p.type)].map(m => m.enumId).filter(id => id !== undefined);
@@ -481,6 +591,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
       isConst: split.isConst,
       args: params.map(p => p.name + ': ' + p.type.cf),
       returns: retMap.cf,
+      ...(defaults.length ? { defaults } : {}),
       ...(node.variadic ? { variadic: true } : {}),
       enums: [...new Set(used)].map(id => idPrefix + id),
       ...(byValue.length ? { byValue } : {}),
@@ -534,6 +645,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     if(layout) ((cls.size = layout.size), (cls.align = layout.align));
     if(info.isAbstract) cls.abstract = true;
     if(info.isPolymorphic) cls.polymorphic = true;
+    if(info.canPassInRegisters && !(node.bases || []).length) cls.byValue = true;
     if((node.inner || []).some(c => c.kind === 'FinalAttr')) cls.final = true;
 
     for(const base of node.bases || []) {

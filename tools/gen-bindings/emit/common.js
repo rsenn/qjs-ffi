@@ -189,7 +189,7 @@ export function hidesSize(c) {
 }
 
 function structTypeName(name) {
-  return '__s_' + safeIdent(name.slice('struct '.length).replace(/::/g, '_'));
+  return '__s_' + safeIdent(name.slice('struct '.length).replace(/\W/g, '_'));
 }
 
 /* The class identifier a "T *" type stands for under --class-types (see

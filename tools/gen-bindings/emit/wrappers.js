@@ -19,7 +19,7 @@ const pointee = t => t.replace(/\s*\*$/, '').trim();
 
 /* "const struct sqlite3 *" -> "sqlite3", or null when `t` is not `NAME *`. */
 function handleName(t) {
-  const m = /^(?:const\s+)?(?:struct\s+)?([A-Za-z_]\w*)\s*\*$/.exec(t.trim());
+  const m = /^(?:const\s+)?(?:struct\s+)?([A-Za-z_][\w:]*)\s*\*$/.exec(t.trim());
 
   return m && m[1];
 }
@@ -36,17 +36,41 @@ function readCell(cf, k) {
 
 const INTEGER = new Set(['i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'i64', 'u64', 'i64_fast', 'u64_fast']);
 
+/* The parameters --out-auto takes for out-parameters: a `T **` of a handle
+ * type, or a pointer to a scalar or pointer named out* or pp<Name>. */
+function autoOuts(fn, types, rawNames, opts, typedefs) {
+  if(fn.returns !== 'void' && !INTEGER.has(fn.returns)) return [];
+
+  return rawNames.filter((name, i) => {
+    const t = types[i];
+
+    if(!t.endsWith('*')) return false;
+
+    const inner = pointee(t);
+    const h = handleName(inner);
+
+    if(h && opts.handleMap.has(h) && inner.endsWith('*')) return true;
+    if(!/^(out|pp[A-Z_])/.test(name)) return false;
+    if(inner.endsWith('*')) return true;
+
+    const m = mapCType(inner, typedefs);
+
+    return !!m.cf && !m.cf.startsWith('struct ') && m.cf !== 'void';
+  });
+}
+
 /* What to wrap function `fn` with, or null when it needs nothing:
  * { args, outs: [{ index, name, cf, handle }], handleReturn, owned, status }
  * or { error }. `typedefs` is name -> C type, for the out-parameters. */
 function planOf(fn, opts, typedefs) {
   const types = paramTypes(fn);
   const names = paramNames(fn);
-  const wanted = opts.outMap.get(fn.name) || [];
   const rawNames = fn.args.map(p => p.slice(0, p.indexOf(': ')));
+  const explicit = opts.outMap.get(fn.name) || [];
+  const wanted = opts.outAuto ? [...new Set([...explicit, ...autoOuts(fn, types, rawNames, opts, typedefs)])] : explicit;
   const plan = { args: [], outs: [], handleReturn: null, owned: null, status: false };
 
-  for(const w of wanted) if(!rawNames.includes(w)) return { error: fn.name + ' has no parameter "' + w + '" (--out): ' + rawNames.join(', ') };
+  for(const w of explicit) if(!rawNames.includes(w)) return { error: fn.name + ' has no parameter "' + w + '" (--out): ' + rawNames.join(', ') };
 
   types.forEach((t, i) => {
     if(wanted.includes(rawNames[i])) {
@@ -99,16 +123,23 @@ export function wrapperPlans(ir, opts) {
   const { functions } = bindable(ir, opts);
   const typedefs = Object.fromEntries((ir.typedefs || []).map(t => [t.name, t.resolved || t.cType]));
   const byName = new Map(functions.map(f => [f.name, f]));
+  const known = new Set([...byName.keys(), ...cxxNames(ir, opts)]);
   const plans = new Map();
   const errors = [];
 
   for(const [type, dtor] of opts.handleMap) if(!byName.has(dtor)) errors.push('--handle=' + type + ':' + dtor + ': no function "' + dtor + '" to close it with');
   for(const [fn, dtor] of opts.ownedMap) {
-    if(!byName.has(fn)) errors.push('--owned-return=' + fn + ': no such function');
+    if(!known.has(fn)) errors.push('--owned-return=' + fn + ': no such function');
     else if(dtor && !byName.has(dtor)) errors.push('--owned-return=' + fn + ':' + dtor + ': no function "' + dtor + '" to free with');
   }
-  for(const fn of opts.outMap.keys()) if(!byName.has(fn)) errors.push('--out=' + fn + ': no such function');
-  for(const fn of opts.cstrings) if(!byName.has(fn)) errors.push('--cstring=' + fn + ': no such function');
+  for(const fn of opts.outMap.keys()) if(!known.has(fn)) errors.push('--out=' + fn + ': no such function');
+  for(const fn of opts.cstrings) if(!known.has(fn) && !ir.methods.some(m => m.name === fn)) errors.push('--cstring=' + fn + ': no such function');
+
+  if(opts.outMap.size || opts.ownedMap.size || opts.outAuto) {
+    const light = { ...ir, methods: ir.methods.map(m => ({ ...m })), classes: (ir.classes || []).map(c => ({ ...c, methods: c.methods.map(m => ({ ...m })) })) };
+
+    errors.push(...applyCxxWrappers(light, opts).errors);
+  }
 
   for(const f of functions) {
     const plan = planOf(f, opts, typedefs);
@@ -116,6 +147,60 @@ export function wrapperPlans(ir, opts) {
     if(plan && plan.error) errors.push(plan.error);
     else if(plan) plans.set(f.name, plan);
   }
+
+  return { plans, errors };
+}
+
+/* the qualified names of the C++ functions and methods: `ns::fn`, `Class::method`. */
+function cxxNames(ir, opts) {
+  const { cxxFunctions, classes } = bindable(ir, opts);
+
+  return [...cxxFunctions.map(f => f.name), ...classes.flatMap(c => c.methods.map(m => c.name + '::' + m.name))];
+}
+
+/* Wraps the C++ functions and methods that --out, --out-auto and
+ * --owned-return name (`ns::fn`, `Class::method`), in place: the entry then
+ * lists only the arguments the caller passes, and `wrap` keeps the raw
+ * signature and the plan for classFn(). --handle does not reach C++ entries.
+ * Returns the plans and the errors. */
+export function applyCxxWrappers(ir, opts) {
+  const { cxxFunctions, classes } = bindable(ir, opts);
+  const typedefs = Object.fromEntries((ir.typedefs || []).map(t => [t.name, t.resolved || t.cType]));
+  const plain = { ...opts, handleMap: new Map(), destructors: new Set() };
+  const plans = [];
+  const errors = [];
+
+  const hit = new Set();
+  const names = new Set();
+
+  // an overload without the named parameter is left alone
+  const wrap = (entry, name, isMethod) => {
+    const params = entry.args.map(a => a.slice(0, a.indexOf(': ')));
+    const explicit = opts.outMap.get(name) || [];
+
+    names.add(name);
+    if(explicit.some(w => !params.includes(w))) return;
+
+    const plan = planOf({ ...entry, name }, plain, typedefs);
+
+    if(!plan) return;
+    hit.add(name);
+    plan.label = name;
+    if(plan.error) return void errors.push(plan.error);
+    if(isMethod) plan.method = true;
+
+    const pub = publicFunction(entry, plan);
+
+    entry.wrap = { plan, rawArgs: entry.args, rawReturns: plan.owned ? 'void *' : entry.returns };
+    entry.args = pub.args;
+    if(plan.outs.length) delete entry.defaults;
+    plans.push(plan);
+  };
+
+  for(const f of cxxFunctions) wrap(f, f.name, false);
+  for(const c of classes) for(const m of c.methods) wrap(m, c.name + '::' + m.name, !m.static);
+
+  for(const [name, list] of opts.outMap) if(names.has(name) && !hit.has(name)) errors.push(name + ': no overload has the parameter(s) ' + list.join(', ') + ' (--out)');
 
   return { plans, errors };
 }
@@ -132,8 +217,8 @@ export function publicFunction(fn, plan) {
 /* The expression of the wrapper for `fn`, an arrow function around `raw`
  * (the name of the CFunction constant). */
 export function wrapperCode(fn, plan, raw, opts) {
-  const params = plan.args.filter(a => a.out === undefined).map(a => a.name);
-  const callArgs = plan.args.map(a => (a.out !== undefined ? '__o' + a.out : a.handle ? '__unh(' + a.name + ')' : a.name));
+  const params = [...(plan.method ? ['self'] : []), ...plan.args.filter(a => a.out === undefined).map(a => a.name)];
+  const callArgs = [...(plan.method ? ['self'] : []), ...plan.args.map(a => (a.out !== undefined ? '__o' + a.out : a.handle ? '__unh(' + a.name + ')' : a.name))];
   const call = raw + '(' + callArgs.join(', ') + ')';
   const dtorOf = h => '__raw_' + opts.handleMap.get(h);
   let body = '';
@@ -146,7 +231,7 @@ export function wrapperCode(fn, plan, raw, opts) {
   } else if(plan.owned) {
     const free = plan.owned === 'free' ? '__libc_free' : '__raw_' + plan.owned;
 
-    body = 'const p = ' + raw + '(' + callArgs.join(', ') + ');\n    if(p === null) return null;\n    try { return __cstr(p); } finally { ' + free + '(p); }';
+    body = 'const p = ' + call + ';\n    if(p === null) return null;\n    try { return __cstr(p); } finally { ' + free + '(p); }';
   } else if(plan.outs.length) {
     const values = plan.outs.map((o, k) => {
       const v = readCell(o.cf, k);
@@ -156,7 +241,7 @@ export function wrapperCode(fn, plan, raw, opts) {
     const result = values.length === 1 ? values[0] : '[' + values.join(', ') + ']';
 
     body = plan.outs.map((_, k) => 'const __o' + k + ' = new ArrayBuffer(8);\n    ').join('') + 'const rc = ' + call + ';\n    const out = ' + result + ';\n';
-    if(plan.status) body += '    if(rc != 0) {\n      for(const v of [].concat(out)) if(v instanceof __Handle) v.close();\n      throw __failed(' + JSON.stringify(fn.name) + ', rc);\n    }\n';
+    if(plan.status) body += '    if(rc != 0) {\n' + (opts.handleMap.size ? '      for(const v of [].concat(out)) if(v instanceof __Handle) v.close();\n' : '') + '      throw __failed(' + JSON.stringify(plan.label || fn.name) + ', rc);\n    }\n';
     body += '    return out;';
   } else if(plan.handleReturn) {
     body = 'return __handle(' + call + ', ' + dtorOf(plan.handleReturn) + ');';

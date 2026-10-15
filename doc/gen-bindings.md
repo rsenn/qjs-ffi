@@ -67,6 +67,7 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--handle=<type>:<dtor>` | a `type *` is an object closed by `dtor`; repeatable. |
 | `--out=<function>:<arg>` | `arg` is an out-parameter the wrapper fills and returns; repeatable. |
 | `--owned-return=<function>[:<dtor>]` | the `char *` function returns is copied, then freed with `dtor` (default libc `free`); repeatable. |
+| `--out-auto` | also treat as `--out` every `T **` of a `--handle` type and every pointer parameter named `out*` or `pp<Name>`, of functions returning `void` or an integer. |
 | `--finalize` | destroy a C++ object made with `new` when it is garbage collected, too. |
 | `--ffitype` | write types as `FFIType.i32` instead of `'i32'`. |
 | `--describe` | give each function its parameter names, and describe its C types for `describeObject()`. |
@@ -323,8 +324,9 @@ Everything else the IR holds:
 *   **`fields`**: variables, and constants with a known value:
     `{ "name": "geom_count", "type": "i32", "cType": "int" }`. A `const` variable
     with a literal initializer carries its `value` and becomes an `export const`.
-    Preprocessor macros such as `GEOM_VERSION` are not in the AST and are not
-    bound.
+*   **`defines`**: object-like `#define` constants scanned from the header text
+    (`GEOM_VERSION`), as `{ "name": "GEOM_VERSION", "value": 3 }`; see the
+    [limitations](#limitations).
 *   **`structs`** and **`classes`**: each struct, union and class with its size,
     alignment, and its fields, and each field with its type, byte `offset`, byte
     `size` and `ffi` type. A bitfield also has `bits` and `bitOffset` and the
@@ -373,6 +375,13 @@ method and the destructor its `vtableSlot`:
     { name: 'count', mangledName: '_ZN3geo5Shape5countEv', static: true, args: [], returns: 'i32', ... } ],
   destructor: { mangledName: '_ZN3geo5ShapeD1Ev', virtual: true, vtableSlot: 0 } }
 ```
+
+A parameter with a literal default (`int b = 3`, `-1.5`, `true`, `"hi"`,
+`nullptr`, an enum constant, integer arithmetic of these) is recorded as
+`defaults`, the values of the trailing run of such parameters
+(`mix(int a, int b = 3, int c = -1)` has `defaults: [3, -1]`), and the call may
+leave those arguments out: `mix(1)`, `mix(1, 5)`. `--describe` puts them in the signature as `defaults`, `--jsdoc` writes `[b=3]`. A default that is a call or a
+name (`Size()`, `kDefault`) ends the run, so that parameter stays required.
 
 Overloads are separate entries. A constructor carries the mangled name of the
 complete-object constructor (`C1`); an abstract class has none, because the
@@ -434,8 +443,23 @@ holds two of them stays 76 bytes, not 80. A union whose alternatives differ
 (`union { int i; float f; }`) or a member whose layout is not known is covered
 by integers of the right size. That is sound only for a struct of more than 16
 bytes, which is passed in memory whatever it holds; a smaller one, whose members
-decide which registers it travels in, is skipped. Named unions and C++ classes
-by value are never bound.
+decide which registers it travels in, is skipped. Named unions are never bound.
+
+C++ types by value are bound when they pass like a C struct:
+
+*   a class that clang says can be passed in registers (`canPassInRegisters`:
+    trivial copy and destructor, not polymorphic) with no base class, such as
+    `ImVec2` with its constructors, is laid out like a struct. A class with a
+    copy constructor or destructor of its own is passed by hidden reference and
+    stays unbound;
+*   an instantiation of a class template that the header names, `Size_<int>` or
+    `cv::Size_<float>`, is a struct of its data members with the parameters
+    replaced (`T width` is `int width`), no methods; the sizes come from clang.
+    A nested instantiation (`W<Size_<int>>`) is not handled;
+*   a template with non-type parameters works the same (`Vec<float, 3>` is a
+    struct with `float v[3]`);
+*   a name clang spells unqualified inside its namespace (`Size_<float>` for
+    `cv::Size_<float>`) is the record when that short name is unique.
 
 ### 7. Names
 
@@ -487,8 +511,10 @@ function __sym(name) {
 
 A function whose symbol the library lacks (declared under an `#ifdef`, or for
 another platform) does not stop the import: `__bind()` makes it a stub that
-throws `gen-bindings: symbol not found: NAME` when called. That holds for
-`--target=qjs`; bun, deno and node resolve the symbols in one `dlopen()` call.
+throws `gen-bindings: symbol not found: NAME` when called. That holds for every
+target: bun and deno look each symbol up on its own, node's `dlsym` throws, and
+each tags the error as a missing symbol (a library that does not open still
+fails the import). Not tested for node here: it needs `node:ffi`.
 
 An enum constant used by a function signature is exported, with the
 enum's name (or `(anonymous)`) as a comment:
@@ -751,8 +777,8 @@ returns. See [TODO.md](../TODO.md) and the
 A C signature does not say that `unsigned char *` is text, that a `sqlite3 **`
 is where the new handle goes, or that the string a function returns must be
 freed. Four options say it, by function name; the generator then wraps those
-functions (qjs target, free C functions; not C++ methods). They apply to the
-named functions only, nothing is guessed.
+functions (qjs target). They apply to the named functions only, nothing is
+guessed, unless `--out-auto` is given.
 
 | Option | Effect |
 | ------ | ------ |
@@ -799,6 +825,19 @@ sqlite3_close(db);
     `--out` parameter that is not a pointer or points to a struct, or a name
     that has no parameter, stop the run with nothing written. `--describe` and
     `--jsdoc` describe the wrapper's parameters, without the out-parameters.
+*   **`--out-auto`** saves listing the out-parameters: a `T **` of a `--handle`
+    type, and a pointer to a scalar or pointer named `out…` or `pp<Name>` (`ppDb`,
+    `outValue`), count as `--out`. A buffer named `out` (`uint8_t *out`) is taken
+    for an out-parameter too, so name those functions in `--exclude` or leave the
+    option off. A name like `lo`/`hi` is not guessed.
+*   **C++ functions and methods** take `--out`, `--out-auto` and `--owned-return`
+    under their qualified names: `--out=ns::fn:arg`, `--out=ns::Class::method:arg`.
+    The wrapper keeps `this`; an overload without the named parameter is left
+    alone, and the overloads are told apart by what is left after the
+    out-parameters go (`count(int)` and `count(int, int, int *out)` become
+    `count(a)` and `count(a, b)`; two with the same remaining arguments are not
+    told apart). `--handle` does not reach C++ entries, and a destructor named
+    for `--owned-return` must be a C function (`extern "C"`).
 *   Not with `--target=bun|deno|node`; `--cstring` works everywhere.
 *   `tests/test-gen-bindings-wrappers.js` runs all four against
     `tests/cxx/wrappers.{h,c}`.
@@ -1011,18 +1050,24 @@ Enums, typedefs and structs are not part of the specs.
 
 ## Limitations
 
-*   Operators and arrays by value are skipped, as are unions and (for C++)
-    classes by value.
+*   Operators and arrays by value are skipped, as are unions and C++ classes by
+    value that are not trivially copyable.
 *   A struct by value needs a layout libffi can reproduce: not a packed struct.
-*   Preprocessor macros are not bound (they are not in the AST), only enums and
-    `const` variables with a literal value.
+*   Preprocessor macros are not in the AST. An object-like `#define` whose value is
+    a number, a string, a character or integer arithmetic over other such defines
+    (`#define B (A << 2)`) is bound as a constant, scanned from the header text.
+    Function-like macros, casts, `sizeof` and anything else are not bound.
 *   The tests: `tests/test-gen-bindings-cxx.js` checks every IR `mangledName`
     against `nm -D` of a compiled fixture and runs the module,
     `test-gen-bindings-virtual.js` and `-finalize.js` the vtable and finalizer
     paths, `test-gen-structs.js` and `test-struct-by-value.js` the structs,
     `test-gen-bindings-wrappers.js` the [wrappers](#wrappers-for-c-conventions),
     `test-gen-bindings-names.js` the class/function name clash, missing symbols
-    and unions by value (`tests/cxx/anonunion.{h,c}`).
+    (also under bun and deno) and unions by value (`tests/cxx/anonunion.{h,c}`),
+    `test-gen-bindings-defaults.js` default arguments (`tests/cxx/defaults.*`),
+    `test-gen-bindings-cxxvalue.js` classes and template instances by value
+    (`tests/cxx/cxxvalue.*`), `test-gen-bindings-cxxwrap.js` the wrappers of C++
+    functions and methods (`tests/cxx/cxxwrap.*`).
 
 ## Bun
 

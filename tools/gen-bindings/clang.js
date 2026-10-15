@@ -2,7 +2,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync, realpathSync, sta
 import { execSync } from 'child_process';
 import { JsonParser } from 'json';
 import { AstCondenser } from './condense.js';
-import { walkDecls, collectRecordTypedefs } from './ir.js';
+import { walkDecls, collectRecordTypedefs, lowerSpecializations } from './ir.js';
 import { header } from './emit/common.js';
 import { parseVtableIndices, parseVtableBlocks } from './vtable.js';
 
@@ -65,7 +65,7 @@ function rm(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 8;
+const AST_CACHE_VERSION = 12;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
@@ -389,6 +389,7 @@ function runClangOnce(opts, source) {
 
   if(diagnostics) ast.clangErrors = diagnostics;
 
+  lowerSpecializations(ast);
   ast.layouts = runLayoutDump(opts, source, ast);
 
   if(opts.cache) {

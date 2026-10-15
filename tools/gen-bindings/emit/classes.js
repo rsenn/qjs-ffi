@@ -1,5 +1,6 @@
 import { safeIdent, flattenName, paramTypes, paramNames, widest, jsLiteral, memberAccess, cfType, wrapReturn, hidesSize } from './common.js';
 import { sigCode } from './describe.js';
+import { wrapperCode } from './wrappers.js';
 import { jsDoc } from './jsdoc.js';
 import { classesCode as structClasses, mergeIRs } from './structs.js';
 
@@ -34,9 +35,10 @@ function __accepts(t, v) {
 function __invoke(list, self, args) {
   if(__deleted.has(self)) throw new Error("object was deleted");
 
-  const same = list.filter(e => (e.v ? args.length >= e.n : e.n === args.length));
-  const m = same.length === 1 ? same[0] : same.find(e => e.t.every((t, i) => __accepts(t, args[i])));
+  const same = list.filter(e => (e.v ? args.length >= e.n : e.n === args.length || (e.d && args.length < e.n && args.length >= e.n - e.d.length)));
+  const m = same.length === 1 ? same[0] : same.find(e => e.t.every((t, i) => i >= args.length || __accepts(t, args[i])));
   if(!m) throw new TypeError("no overload takes " + args.length + " argument(s) like these");
+  if(m.d && args.length < m.n) args = [...args, ...m.d.slice(args.length - (m.n - m.d.length))];
 
   return self === undefined ? m.f()(...args) : m.f()(self, ...args);
 }
@@ -170,6 +172,14 @@ const CLASS_RESERVED_MEMBERS = new Set(['constructor', 'ptr', 'from', 'at', 'del
  *                     vtable, to what its real class overrides
  */
 function classFn(symbol, entry, thisType, opts, slot) {
+  if(entry.wrap) {
+    // a wrapper (see applyCxxWrappers) around the CFunction of the raw signature
+    const { wrap, ...rest } = entry;
+    const raw = classFn(symbol, { ...rest, args: wrap.rawArgs, returns: wrap.rawReturns }, thisType, opts, slot);
+
+    return '((__r) => ' + wrapperCode(entry, wrap.plan, '__r', opts) + ')(' + raw + ')';
+  }
+
   const cf = [...(thisType ? [thisType] : []), ...paramTypes(entry)];
   const virtual = slot !== undefined;
 
@@ -180,7 +190,7 @@ function classFn(symbol, entry, thisType, opts, slot) {
 
 /* `const NAME = [ { n, t, f }, ... ];`, one element per overload. */
 function overloadList(name, entries, thisType, opts) {
-  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.args.length + (e.variadic ? ',v:true' : '') + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts, e.vtableSlot) + ')},\n').join('') + '];\n';
+  return 'const ' + name + ' = [\n' + entries.map(e => '  {n:' + e.args.length + (e.variadic ? ',v:true' : '') + (e.defaults ? ',d:' + jsLiteral(e.defaults) : '') + ',t:' + jsLiteral(paramTypes(e)) + ',f:__lazy(()=>' + classFn(e.mangledName, e, thisType, opts, e.vtableSlot) + ')},\n').join('') + '];\n';
 }
 
 /* With every class listed after the class it extends. A class extends its
