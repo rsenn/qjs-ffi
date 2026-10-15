@@ -310,11 +310,24 @@ function bitfield(f, scalar, at) {
 
 const RESERVED_WORDS = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'export', 'extends', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'return', 'super', 'switch', 'this', 'throw', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'enum', 'await', 'implements', 'package', 'protected', 'interface', 'private', 'public', 'null', 'true', 'false', 'ArrayBuffer', 'DataView']);
 
-/* The class name of a struct: "ns::Name" -> "ns_Name" (see --namespace). */
-export function identOf(name) {
-  const id = flattenName(name).replace(/[^A-Za-z0-9_$]/g, '_');
+let taken = new Set();
 
-  return RESERVED_WORDS.has(id) || /^[0-9]/.test(id) ? '_' + id : id;
+/* The names the module exports besides classes (functions, variables,
+ * constants, enum constants); a class that would share one gets "_t". */
+export function setTakenIdents(idents) {
+  taken = idents;
+}
+
+/* The class name of a struct: "ns::Name" -> "ns_Name" (see --namespace).
+ * `struct lws_xos` and `lws_xos()` share a name in C, not in JS: the class
+ * is then `lws_xos_t`. */
+export function identOf(name) {
+  let id = flattenName(name).replace(/[^A-Za-z0-9_$]/g, '_');
+
+  if(RESERVED_WORDS.has(id) || /^[0-9]/.test(id)) id = '_' + id;
+  while(taken.has(id)) id += taken.has(id + '_t') ? '_' : '_t';
+
+  return id;
 }
 
 /* `cxx`, for a C++ class bound with methods (see emit/classes.js), is

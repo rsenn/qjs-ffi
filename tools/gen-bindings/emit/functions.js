@@ -60,6 +60,19 @@ function definesCode(defines, taken) {
 
 /* bun:ffi has no dlsym(): the address of a symbol is the `.ptr` of the
  * function a one-symbol dlopen() makes of it. */
+/* a function whose symbol the library lacks (an #ifdef'd or other-platform
+ * declaration) is a stub that throws when called, so the import still works. */
+const BIND = `
+function __bind(name, make) {
+  try {
+    return make();
+  } catch(e) {
+    if(e.missing !== name) throw e;
+    return function() { throw new Error("gen-bindings: symbol not found: " + name); };
+  }
+}
+`;
+
 const BUN_SYM = library => `const __syms = new Map();
 
 function __sym(name) {
@@ -102,6 +115,7 @@ export function generateCFunction(ir, opts) {
   const bun = opts.target === 'bun';
   const deno = opts.target === 'deno';
   const node = opts.target === 'node';
+  const bind = !bun && !deno && !node;
   const imports = bun
     ? ['CFunction', 'dlopen', opts.ffiType ? 'FFIType' : null, views ? 'toArrayBuffer' : null, views ? 'ptr as __ptr' : null, views ? 'CString' : null].filter(Boolean)
     : [
@@ -127,7 +141,7 @@ export function generateCFunction(ir, opts) {
   if(bun) out += BUN_SYM(opts.library);
   else if(!deno && !node && opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 
-  if(!bun && !deno && !node) out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw new Error("gen-bindings: symbol not found: " + name);\n' + '  return p;\n' + '}\n';
+  if(!bun && !deno && !node) out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw Object.assign(new Error("gen-bindings: symbol not found: " + name), { missing: name });\n' + '  return p;\n' + '}\n' + BIND;
   if(opts.describe) out += DESCRIBE_HELPERS;
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
@@ -140,7 +154,8 @@ export function generateCFunction(ir, opts) {
   for(const fn of functions) {
     const args = paramTypes(fn).map(t => cfType(t, opts));
     const ident = safeIdent(fn.name);
-    const impl = wrapReturn(fn.returns, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(fn.returns, opts) + (fn.variadic ? ',variadic:true' : '') + '})', opts);
+    let impl = wrapReturn(fn.returns, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(fn.returns, opts) + (fn.variadic ? ',variadic:true' : '') + '})', opts);
+    if(bind) impl = '__bind(' + jsLiteral(fn.name) + ', () => ' + impl + ')';
 
     const doc = opts.jsdoc ? jsDoc([fn.name], [fn], new Set(classes.map(c => c.name)), '') : '';
 

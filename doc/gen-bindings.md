@@ -409,18 +409,28 @@ int takes_array(int a[4]);
 ```
 
 ```js
-export const takes_array = CFunction({ptr:__sym('takes_array'),args:['int *'],returns:'i32'});
+export const takes_array = __bind('takes_array', () => CFunction({ptr:__sym('takes_array'),args:['int *'],returns:'i32'}));
 
 // Skipped (unsupported):
 //   - takes_union: parameter v (union u): union passed by value is not supported
 //   - takes_packed: parameter p: struct pk passed by value: libffi would put i at 4, not 1
 ```
 
-Members the IR cannot describe (an anonymous struct or union) are covered by
-integers of the right size. That is sound only for a struct of more than 16
+An anonymous struct or union member is described in the IR (`members` of the
+field), so its layout is known: a struct is laid out like any other, a union
+when all its alternatives give the same element list. nanovg's colour
+
+```c
+typedef struct NVGcolor { union { float rgba[4]; struct { float r, g, b, a; }; }; } NVGcolor;
+```
+
+is `[['f32','f32','f32','f32']]` and travels in SSE registers, and a struct that
+holds two of them stays 76 bytes, not 80. A union whose alternatives differ
+(`union { int i; float f; }`) or a member whose layout is not known is covered
+by integers of the right size. That is sound only for a struct of more than 16
 bytes, which is passed in memory whatever it holds; a smaller one, whose members
-decide which registers it travels in, is skipped. Unions and C++ classes by
-value are never bound.
+decide which registers it travels in, is skipped. Named unions and C++ classes
+by value are never bound.
 
 ### 7. Names
 
@@ -437,7 +447,10 @@ gen-bindings.js: after dropping a::, b::, "size" would be exported by: function 
 gen-bindings.js: name collision, nothing written; drop fewer --namespace values
 ```
 
-Only a clash that the stripping caused is reported. A function whose name is a JavaScript
+Only a clash that the stripping caused is reported. A struct and a function
+share a name in C (`struct lws_xos` and `lws_xos()`) but not in JavaScript, where
+both are exports; the class then gets `_t` (`lws_xos_t`, and `_` is added
+while that is taken too). A function whose name is a JavaScript
 reserved word is exported with an underscore in front (`delete` as `_delete`),
 with a comment beside the export.
 
@@ -462,10 +475,15 @@ if (__lib == null) throw new Error('gen-bindings: dlopen(libgeom.so) failed');
 
 function __sym(name) {
   const p = dlsym(__lib, name);
-  if(p == null) throw new Error('gen-bindings: symbol not found: ' + name);
+  if(p == null) throw Object.assign(new Error('gen-bindings: symbol not found: ' + name), { missing: name });
   return p;
 }
 ```
+
+A function whose symbol the library lacks (declared under an `#ifdef`, or for
+another platform) does not stop the import: `__bind()` makes it a stub that
+throws `gen-bindings: symbol not found: NAME` when called. That holds for
+`--target=qjs`; bun, deno and node resolve the symbols in one `dlopen()` call.
 
 An enum constant used by a function signature is exported, with the
 enum's name (or `(anonymous)`) as a comment:
@@ -482,14 +500,14 @@ A function is a `CFunction`. The result for `geom.h` (without `--structs`):
 ```js
 const __s_vec2 = ['f32','f32'];
 
-export const geom_abs = CFunction({ptr:__sym('geom_abs'),args:['i32'],returns:'i32'});
-export const geom_length = CFunction({ptr:__sym('geom_length'),args:[__s_vec2],returns:'f64'});
-export const geom_add = CFunction({ptr:__sym('geom_add'),args:[__s_vec2,__s_vec2],returns:__s_vec2});
-export const geom_version = CFunction({ptr:__sym('geom_version'),args:[],returns:'cstring'});
-export const geom_move = CFunction({ptr:__sym('geom_move'),args:['shape *','f64','f64'],returns:'i32'});
-export const geom_find = CFunction({ptr:__sym('geom_find'),args:['cstring'],returns:'shape *'});
-export const geom_each = CFunction({ptr:__sym('geom_each'),args:['function','void *'],returns:'void'});
-export const geom_log = CFunction({ptr:__sym('geom_log'),args:['cstring'],returns:'i32',variadic:true});
+export const geom_abs = __bind('geom_abs', () => CFunction({ptr:__sym('geom_abs'),args:['i32'],returns:'i32'}));
+export const geom_length = __bind('geom_length', () => CFunction({ptr:__sym('geom_length'),args:[__s_vec2],returns:'f64'}));
+export const geom_add = __bind('geom_add', () => CFunction({ptr:__sym('geom_add'),args:[__s_vec2,__s_vec2],returns:__s_vec2}));
+export const geom_version = __bind('geom_version', () => CFunction({ptr:__sym('geom_version'),args:[],returns:'cstring'}));
+export const geom_move = __bind('geom_move', () => CFunction({ptr:__sym('geom_move'),args:['shape *','f64','f64'],returns:'i32'}));
+export const geom_find = __bind('geom_find', () => CFunction({ptr:__sym('geom_find'),args:['cstring'],returns:'shape *'}));
+export const geom_each = __bind('geom_each', () => CFunction({ptr:__sym('geom_each'),args:['function','void *'],returns:'void'}));
+export const geom_log = __bind('geom_log', () => CFunction({ptr:__sym('geom_log'),args:['cstring'],returns:'i32',variadic:true}));
 ```
 
 A variadic C function such as `geom_log` is bound with `variadic: true` and its
@@ -728,7 +746,7 @@ returns. See [TODO.md](../TODO.md) and the
 `--ffitype` writes the types as members of `FFIType`:
 
 ```js
-export const geom_abs = CFunction({ptr:__sym('geom_abs'),args:[FFIType.i32],returns:FFIType.i32});
+export const geom_abs = __bind('geom_abs', () => CFunction({ptr:__sym('geom_abs'),args:[FFIType.i32],returns:FFIType.i32}));
 ```
 
 `--describe` gives every function, method and constructor its parameter names
@@ -737,7 +755,7 @@ in its signature and attaches its C types and overloads as
 (qjs-modules) report. A plain function becomes a named wrapper:
 
 ```js
-const __f_geom_abs = CFunction({ptr:__sym('geom_abs'),args:['i32'],returns:'i32'});
+const __f_geom_abs = __bind('geom_abs', () => CFunction({ptr:__sym('geom_abs'),args:['i32'],returns:'i32'}));
 export function geom_abs(v) { return __f_geom_abs(v); }
 __sig(geom_abs, [{params:['v: i32'],returnType:'i32',arity:1}]);
 ```
@@ -755,7 +773,7 @@ the class when it points to a bound one.
  * @param {number} dy - f64
  * @returns {number} - i32
  */
-export const geom_move = CFunction({ptr:__sym('geom_move'),args:['shape *','f64','f64'],returns:'i32'});
+export const geom_move = __bind('geom_move', () => CFunction({ptr:__sym('geom_move'),args:['shape *','f64','f64'],returns:'i32'}));
 ```
 
 ## The IR on its own
@@ -939,7 +957,9 @@ Enums, typedefs and structs are not part of the specs.
 *   The tests: `tests/test-gen-bindings-cxx.js` checks every IR `mangledName`
     against `nm -D` of a compiled fixture and runs the module,
     `test-gen-bindings-virtual.js` and `-finalize.js` the vtable and finalizer
-    paths, `test-gen-structs.js` and `test-struct-by-value.js` the structs.
+    paths, `test-gen-structs.js` and `test-struct-by-value.js` the structs,
+    `test-gen-bindings-names.js` the class/function name clash, missing symbols
+    and unions by value (`tests/cxx/anonunion.{h,c}`).
 
 ## Bun
 

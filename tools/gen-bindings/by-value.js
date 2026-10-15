@@ -52,6 +52,29 @@ function pieces(from, to) {
   return out;
 }
 
+let anonCount = 0;
+
+/* The element list of the anonymous struct or union of field `f` (its
+ * `members`, see ir.js), or undefined: a struct is laid out like any other, a
+ * union only when every alternative gives the same list (`float rgba[4]` and
+ * `struct { float r, g, b, a; }`), which is then the list of the whole. */
+function anonElements(f, index, memo, depth) {
+  const { type, fields } = f.members;
+  const of = list => elementsOf({ name: '(anonymous ' + anonCount++ + ')', type: 'struct', size: f.size, fields: list }, index, memo, depth);
+
+  if(type === 'struct') return of(fields);
+
+  const lists = fields.filter(m => !m.static).map(m => of([m]));
+
+  if(lists.length === 0 || lists.some(r => r.reason || r.opaque)) return;
+
+  const flat = r => JSON.stringify(r.elements.flat(MAX_DEPTH));
+
+  if(lists.some(r => flat(r) !== flat(lists[0]))) return;
+
+  return { elements: lists[0].elements.flat(MAX_DEPTH) };
+}
+
 /* The element list of struct entry `rec`, or { reason }; `opaque` says some
  * member (an anonymous struct or a union, which the IR does not describe) is
  * only covered by integer pieces, so the list is good for a struct of
@@ -89,7 +112,11 @@ function elementsOf(rec, index, memo, depth = 0) {
       const nestedRec = nested && index.structs.get(nested);
       let el;
 
-      if(nestedRec && nestedRec.type === 'struct') {
+      const anon = !arr && f.members && anonElements(f, index, memo, depth + 1);
+
+      if(anon && !anon.reason) {
+        el = anon.elements;
+      } else if(nestedRec && nestedRec.type === 'struct') {
         const r = elementsOf(nestedRec, index, memo, depth + 1);
 
         if(r.reason) return fail('member ' + f.name + ': ' + r.reason);

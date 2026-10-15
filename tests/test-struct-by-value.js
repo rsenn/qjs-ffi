@@ -155,12 +155,13 @@ await tests({
     eq('i32,f64', ir.byValue.mix.join());
     eq('f32,f32,f32|f32,f32,f32', ir.byValue.seg.map(e => e.join()).join('|'));
     eq('i8,u8,i16', ir.byValue.packed.join());
-    eq('u64,u64,i64', ir.byValue.wide.join());
+    eq('i64,i64,i64', ir.byValue.wide.join());
+    eq('i32', ir.byValue.wrapped.join());
     assert(ir.methods.some(m => m.name === 'vec3_add' && m.returns === 'struct vec3'), 'vec3_add is bound');
 
     assert(/libffi would put b at 8, not 1/.test(reason('pk_make')), reason('pk_make'));
     assert(/union is not supported/.test(reason('un_make')), reason('un_make'));
-    assert(/anonymous struct or union/.test(reason('wrapped_make')), reason('wrapped_make'));
+    assert(ir.methods.some(m => m.name === 'wrapped_make' && m.returns === 'struct wrapped'), 'wrapped_make is bound, its anonymous member is described');
   },
 
   'gen-bindings: a generated module returns the struct classes and takes them as arguments'() {

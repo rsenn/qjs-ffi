@@ -4,7 +4,8 @@ import { sourceFilter, runClangAstDump } from './clang.js';
 import { collectIR, newIR, mergeIR } from './ir.js';
 import { resolveByValue } from './by-value.js';
 import { nameCollisions } from './names.js';
-import { bindable, setNamespaces } from './emit/common.js';
+import { bindable, setNamespaces, flattenName, safeIdent } from './emit/common.js';
+import { setTakenIdents } from './emit/structs.js';
 import { generateCFunction } from './emit/functions.js';
 import { irToSpecs } from './specs.js';
 import { toSource } from './source.js';
@@ -24,6 +25,19 @@ function definesOf(file, opts, known, visited = new Set()) {
     for(const inc of localIncludes(text)) out.push(...definesOf(dir + inc, opts, known, visited));
 
   return out.concat(scanDefines(text, known));
+}
+
+/* the identifiers the output exports that are not classes. */
+function nonClassIdents(ir, opts) {
+  const { functions, cxxFunctions, enums } = bindable(ir, opts);
+  const idents = new Set();
+
+  for(const f of functions) idents.add(safeIdent(f.name));
+  for(const f of cxxFunctions) idents.add(safeIdent(flattenName(f.name)));
+  for(const e of enums) for(const c of e.fields) idents.add(safeIdent(c.name));
+  for(const f of ir.fields) if((f.const && f.value !== undefined) || opts.structs) idents.add(safeIdent(f.name));
+
+  return idents;
 }
 
 export function main() {
@@ -92,6 +106,7 @@ export function main() {
   }
 
   setNamespaces(opts.namespaces);
+  setTakenIdents(nonClassIdents(ir, opts));
 
   const clashes = opts.emitIr || opts.emitSpecs ? [] : nameCollisions(ir, opts);
 

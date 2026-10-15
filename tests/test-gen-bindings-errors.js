@@ -26,7 +26,7 @@ await tests({
     const out = gen('-I' + root + 'tests/cxx/inc');
 
     assert(!out.includes('warning'), out);
-    assert(out.includes("export const gb_add = CFunction({ptr:__sym('gb_add')"), out);
+    assert(out.includes("export const gb_add = __bind('gb_add', () => CFunction({ptr:__sym('gb_add')"), out);
   },
 
   'an include found in a parent directory of the source is added as -I by itself'() {
@@ -34,7 +34,7 @@ await tests({
 
     assert(/note: .*auto\.h needs gb_nowhere\/macros\.h, adding -I.*tests\/cxx\/inc\n/.test(out), out);
     assert(!out.includes('warning'), out);
-    assert(out.includes("export const gb_auto = CFunction({ptr:__sym('gb_auto')"), out);
+    assert(out.includes("export const gb_auto = __bind('gb_auto', () => CFunction({ptr:__sym('gb_auto')"), out);
   },
 
   '--no-auto-include leaves the include alone: a warning and no bindings'() {

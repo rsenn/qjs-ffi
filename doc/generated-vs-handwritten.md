@@ -216,18 +216,18 @@ wrap no external library and are out of scope.
 These are what stood between the generator and the hand-written modules. They are
 facts from the runs above; the project `TODO.md` is the place for the work.
 
-1.  **Struct tag and function with the same name break `--structs`.** libwebsockets
+1.  **Fixed 2026-10-15: the class is renamed `_t`.** **Struct tag and function with the same name break `--structs`.** libwebsockets
     has `struct lws_xos` and `lws_xos()`; the module declares `export class
     lws_xos` and `export const lws_xos` and fails with `invalid redefinition of
     global identifier`. The two live in different C namespaces, so this is
     common (`stat`, `timeval`-style names). The generator needs a rule (suffix the
     class, e.g. `lws_xos_t`/`struct_lws_xos`), and `--namespace` already refuses
     to write anything when stripping a prefix collides (`cv::EMD`).
-2.  **A struct by value with an anonymous union, or a layout libffi computes
+2.  **Fixed 2026-10-15 for unions with one layout (all 17 nanovg functions bind).** **A struct by value with an anonymous union, or a layout libffi computes
     differently, makes the function unbindable.** nanovg: `NVGcolor` (an anonymous
     union of `float rgba[4]` and `struct{r,g,b,a}`) and `NVGpaint` (76 bytes against
     80). These are exactly the argument and return types of the common calls.
-3.  **Missing symbols abort the import.** One absent symbol (an `#ifdef`ed or
+3.  **Fixed 2026-10-15 for the qjs target: a missing symbol is a throwing stub.** **Missing symbols abort the import.** One absent symbol (an `#ifdef`ed or
     other-platform declaration) makes the whole module unusable. Resolving lazily
     (on first call, or `sym ? CFunction : throwing stub`) or taking a
     `--check-symbols` list from the library would remove the manual `--exclude`
@@ -284,6 +284,14 @@ facts from the runs above; the project `TODO.md` is the place for the work.
 5.  **Re-run this assessment** after generator changes. The counts here are the
     baseline: sqlite 13 exclusions, nanovg 17 skipped, OpenCV `GaussianBlur` and
     `resize` skipped, libwebsockets not loading.
+
+    After the first three fixes (2026-10-15): sqlite imports with no exclusion
+    (781 exports); nanovg binds all 87 functions (the by-value layout is checked
+    against a compiled fixture, `tests/cxx/anonunion.c`, not the nanovg library);
+    libwebsockets generates with `--structs` and has no duplicate export
+    (`lws_xos_t`; the shared library is not installed here, so it was not
+    loaded). The verdicts are unchanged until the generated modules are run
+    against the real libraries.
 
 To repeat a run:
 

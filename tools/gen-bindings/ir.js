@@ -298,6 +298,53 @@ export function collectIR(root, isSourceFile, idPrefix) {
     return field;
   }
 
+  /* The members of the anonymous struct/union types of `node`'s fields, which
+   * the field only names by position ("union S::(anonymous at f.h:3:2)"):
+   * `members` on each such field, { type, fields } with offsets relative to
+   * the anonymous record. by-value.js reads them to lay out a union. */
+  function isAnon(n) {
+    return (n.kind === 'RecordDecl' || n.kind === 'CXXRecordDecl') && !n.name && !n.isImplicit && n.completeDefinition;
+  }
+
+  function anonType(qualType) {
+    return /\((anonymous|unnamed)\b/.test(qualType) && !/\]$/.test(qualType);
+  }
+
+  function anonMembers(node) {
+    const queue = (node.inner || []).filter(isAnon);
+    const union = node.tagUsed === 'union';
+    const up = (n, a) => Math.ceil(n / a) * a;
+    const fields = [];
+    let size = 0;
+    let align = 1;
+    let cursor = 0;
+    let known = true;
+
+    for(const child of (node.inner || []).filter(c => c.kind === 'FieldDecl')) {
+      const rec = anonType(child.type.qualType) && queue.shift();
+      const inner = rec && anonMembers(rec);
+      const info = inner ? inner.layout : typeInfo(child.type.qualType, child.type.desugaredQualType);
+      const f = structField(child, undefined, info ? info.size : null);
+
+      if(inner) f.members = inner.members;
+
+      if(!info || child.isBitfield) known = false;
+      else {
+        const at = union ? 0 : up(cursor, info.align);
+
+        f.offset = at;
+        f.size = info.size;
+        cursor = at + info.size;
+        size = Math.max(size, cursor);
+        align = Math.max(align, info.align);
+      }
+
+      fields.push(f);
+    }
+
+    return { members: { type: node.tagUsed || 'struct', fields }, layout: known ? { size: up(size, align), align } : null };
+  }
+
   /* typedef / using: `type` is the FFIType name when the aliased type maps to
    * one (else the C type), `record` the struct it names, if any. */
   function collectTypedef(node, scope) {
@@ -332,6 +379,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     const offsets = layout ? layout.offsets : fallbackOffsets(node);
     let packed = false;
     let access = node.kind === 'CXXRecordDecl' && node.tagUsed === 'class' ? 'private' : 'public';
+    const anon = (node.inner || []).filter(isAnon);
     let fieldIndex = 0;
 
     for(const child of node.inner || []) {
@@ -342,7 +390,20 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
       // Every field takes a layout slot, but only public ones are listed.
       const index = fieldIndex++;
-      if(access === 'public') fields.push(structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
+      const rec = anonType(child.type.qualType) && anon.shift();
+
+      if(access === 'public') {
+        const f = structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]);
+
+        if(rec) {
+          const a = anonMembers(rec);
+
+          f.members = a.members;
+          if(f.size === null && a.layout) f.size = a.layout.size;
+        }
+
+        fields.push(f);
+      }
     }
 
     const s = { name, type: node.tagUsed || 'struct', size: layout ? layout.size : null, align: layout ? layout.align : null, line: node.line === undefined ? null : node.line, methods: [], fields };
