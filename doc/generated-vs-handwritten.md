@@ -239,16 +239,16 @@ facts from the runs above; the project `TODO.md` is the place for the work.
 5.  **Default arguments are lost.** A C++ default argument has no symbol; the
     generated call needs every parameter. The AST has the default; the wrapper
     could be emitted with a `JS` default (`size = [0, 0]`).
-6.  **Return type `unsigned char *`/`const unsigned char *` is a number.** Text APIs
+6.  **Fixed 2026-10-15: `--cstring=<fn>`.** **Return type `unsigned char *`/`const unsigned char *` is a number.** Text APIs
     that use it (`sqlite3_column_text`, many `libxml2`/`libpq` functions) need a
     per-function `cstring` override (`--cstring=sqlite3_column_text`).
-7.  **No handle finalization for C `open`/`close` pairs.** A `--handle=sqlite3:sqlite3_close`
+7.  **Fixed 2026-10-15: `--handle=<type>:<dtor>`.** **No handle finalization for C `open`/`close` pairs.** A `--handle=sqlite3:sqlite3_close`
     mapping (type, destructor) would let the generator attach a finalizer to
     handle-typed returns and out-parameters.
-8.  **Ownership annotation.** A `--owned-return=<function>` / `--free=<function>` option
+8.  **Fixed 2026-10-15: `--owned-return=<fn>[:<dtor>]`.** **Ownership annotation.** A `--owned-return=<function>` / `--free=<function>` option
     (returned memory freed with `free`, or by a named destructor) would remove most of
     the leak risk in the C APIs that return heap strings.
-9.  **Out-parameters.** `T **` and `int *` arguments are the general convention; an
+9.  **Fixed 2026-10-15: `--out=<fn>:<arg>`.** **Out-parameters.** `T **` and `int *` arguments are the general convention; an
     `--out=<function>:<arg>` option, or a heuristic by name (`out`, `pp`, `p*`), could
     have the wrapper allocate the cell and return the value, and `rc != 0` become an
     exception for functions marked as such.
@@ -292,6 +292,12 @@ facts from the runs above; the project `TODO.md` is the place for the work.
     (`lws_xos_t`; the shared library is not installed here, so it was not
     loaded). The verdicts are unchanged until the generated modules are run
     against the real libraries.
+
+    With `--cstring`, `--handle`, `--out` and `--owned-return` (same day) a
+    generated sqlite module opens a database, prepares, steps and reads text
+    columns from JS with closable handles, without any hand-written code; what
+    is still missing against the hand-written `sqlite` is the class shape,
+    iteration and the shared API of the three database modules.
 
 To repeat a run:
 

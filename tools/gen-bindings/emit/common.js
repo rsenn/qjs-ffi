@@ -100,6 +100,10 @@ export function header(opts) {
     (opts.std ? ' --std=' + opts.std : '') +
     (opts.followIncludes ? ' --follow-includes' : '') +
     opts.excludes.map(n => ' --exclude=' + n).join('') +
+    opts.cstrings.map(n => ' --cstring=' + n).join('') +
+    opts.handles.map(n => ' --handle=' + n).join('') +
+    opts.outs.map(n => ' --out=' + n).join('') +
+    opts.owned.map(n => ' --owned-return=' + n).join('') +
     ' ' +
     opts.includes.map(i => '-I' + i).join(' ') +
     ' ' +

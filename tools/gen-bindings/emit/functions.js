@@ -5,6 +5,7 @@ import { jsDoc } from './jsdoc.js';
 import { runtimeCode, variablesCode, needsRuntime, denoHelpers, nodeHelpers } from './runtime.js';
 import { bunLike } from '../ffi-types.js';
 import { classesCode } from './classes.js';
+import { wrapperPlans, publicFunction, wrapperCode, wrapperHelpers } from './wrappers.js';
 
 /* Emits `export const NAME = value;` for every constant variable whose value
  * is known at generation time (an `extern` one has none, only a symbol). */
@@ -106,7 +107,12 @@ function __sym(name) {
 export function generateCFunction(ir, opts) {
   if(bunLike(opts)) dropForBun(ir, opts.target);
 
+  for(const m of ir.methods) if(opts.cstrings.includes(m.name)) m.returns = 'cstring';
+
   const { functions, cxxFunctions, classes, enums } = bindable(ir, opts);
+  const { plans } = wrapperPlans(ir, opts);
+  const rawNeeded = new Set([...opts.destructors, ...[...opts.ownedMap.values()].filter(Boolean)]);
+  const freeUsed = [...plans.values()].some(p => p.owned === 'free');
 
   prepareByValue(ir, opts);
   prepareClassTypes(ir, opts, classes);
@@ -125,12 +131,12 @@ export function generateCFunction(ir, opts) {
     views ? 'read as __rd' : null,
     views ? 'write as __wr' : null,
     views ? 'ptr as __ptr' : null,
-    views ? 'toString as __cstr' : null,
+    views || plans.size ? 'toString as __cstr' : null,
     'dlsym',
     opts.library ? 'dlopen' : null,
     opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
     // calloc() and free() are not in the bound library.
-    opts.library && opts.finalize && classes.length > 0 ? 'RTLD_DEFAULT' : null,
+    (opts.library && opts.finalize && classes.length > 0) || (opts.library && freeUsed) ? 'RTLD_DEFAULT' : null,
   ].filter(Boolean);
 
   let out = header(opts);
@@ -148,18 +154,28 @@ export function generateCFunction(ir, opts) {
   out += definesCode(ir.defines, new Set([...functions, ...cxxFunctions, ...ir.fields, ...classes].map(x => safeIdent(x.name)).concat(enums.flatMap(e => e.fields.map(c => safeIdent(c.name))))));
   if(needsRuntime(ir, opts, classes)) out += runtimeCode(opts);
   out += variablesCode(ir, opts) + classesCode(ir, classes, opts, cxxFunctions);
+  if(plans.size) out += wrapperHelpers(opts, plans);
   out += structTypesCode(ir, usedStructs([...functions, ...cxxFunctions, ...classes.flatMap(c => [...c.methods, ...c.constructors])]), opts);
   out += '\n';
 
   for(const fn of functions) {
-    const args = paramTypes(fn).map(t => cfType(t, opts));
+    const plan = plans.get(fn.name);
+    // a pointer given back to its destructor is not a string
+    const owned = new Set(opts.ownedMap.values());
+    const raw = { ...fn, returns: plan && plan.owned ? 'void *' : fn.returns, args: owned.has(fn.name) ? fn.args.map(a => a.replace(/: cstring$/, ': void *')) : fn.args };
+    const args = paramTypes(raw).map(t => cfType(t, opts));
     const ident = safeIdent(fn.name);
-    let impl = wrapReturn(fn.returns, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(fn.returns, opts) + (fn.variadic ? ',variadic:true' : '') + '})', opts);
+    let impl = wrapReturn(raw.returns, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(raw.returns, opts) + (fn.variadic ? ',variadic:true' : '') + '})', opts);
     if(bind) impl = '__bind(' + jsLiteral(fn.name) + ', () => ' + impl + ')';
 
-    const doc = opts.jsdoc ? jsDoc([fn.name], [fn], new Set(classes.map(c => c.name)), '') : '';
+    const doc = opts.jsdoc ? jsDoc([fn.name], [publicFunction(fn, plan)], new Set(classes.map(c => c.name)), '') : '';
 
-    out += opts.describe ? describedFunction(ident, fn, impl, doc) : doc + 'export const ' + ident + ' = ' + impl + ';\n';
+    if(plan || rawNeeded.has(fn.name)) {
+      out += 'const __raw_' + ident + ' = ' + impl + ';\n';
+      impl = plan ? wrapperCode(fn, plan, '__raw_' + ident, opts) : '__raw_' + ident;
+    }
+
+    out += opts.describe ? describedFunction(ident, publicFunction(fn, plan), impl, doc) : doc + 'export const ' + ident + ' = ' + impl + ';\n';
     if(ident !== fn.name) out += '// note: "' + fn.name + '" is a reserved word, exported above as "' + ident + '"\n';
   }
 

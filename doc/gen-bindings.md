@@ -25,6 +25,7 @@ the built libraries.
     8. [Emitting JavaScript](#8-emitting-javascript)
 *   [Structs and variables (`--structs`)](#structs-and-variables---structs)
 *   [C++ classes](#c-classes)
+*   [Wrappers for C conventions](#wrappers-for-c-conventions)
 *   [Output options](#output-options)
 *   [The IR on its own](#the-ir-on-its-own)
 *   [Using the result](#using-the-result)
@@ -62,6 +63,10 @@ The generated module needs only `ffi`, and one with `read` (see
 | `--structs` | also wrap every struct and union as an `ArrayBuffer` class, and every extern variable. |
 | `--target=<runtime>` | `qjs` (default), `bun`, `deno` or `node`: the module runs under that runtime, see [Bun](#bun), [Deno](#deno) and [Node](#node). |
 | `--class-types` | with the classes of `--structs` or `--c++`: write the class itself as the type of a `T *` argument or return (`args: [Point]`, `returns: Point`) instead of `"Point *"`, and give each such class a static `size`. Needs a qjs-ffi that takes a constructor as a type ([classes as types](struct.md)); off by default. |
+| `--cstring=<function>` | the `unsigned char *` function returns is a string, see [wrappers](#wrappers-for-c-conventions); repeatable. |
+| `--handle=<type>:<dtor>` | a `type *` is an object closed by `dtor`; repeatable. |
+| `--out=<function>:<arg>` | `arg` is an out-parameter the wrapper fills and returns; repeatable. |
+| `--owned-return=<function>[:<dtor>]` | the `char *` function returns is copied, then freed with `dtor` (default libc `free`); repeatable. |
 | `--finalize` | destroy a C++ object made with `new` when it is garbage collected, too. |
 | `--ffitype` | write types as `FFIType.i32` instead of `'i32'`. |
 | `--describe` | give each function its parameter names, and describe its C types for `describeObject()`. |
@@ -741,6 +746,63 @@ exceptions across the boundary, operators, and by-value class parameters and
 returns. See [TODO.md](../TODO.md) and the
 [design note on virtual dispatch](internals/cxx-virtual-dispatch.md).
 
+## Wrappers for C conventions
+
+A C signature does not say that `unsigned char *` is text, that a `sqlite3 **`
+is where the new handle goes, or that the string a function returns must be
+freed. Four options say it, by function name; the generator then wraps those
+functions (qjs target, free C functions; not C++ methods). They apply to the
+named functions only, nothing is guessed.
+
+| Option | Effect |
+| ------ | ------ |
+| `--cstring=sqlite3_column_text` | the return is a string, as for `char *` |
+| `--handle=sqlite3:sqlite3_close` | a `sqlite3 *` returned, or stored in a `sqlite3 **` out-parameter, is a closable object; one `--handle` per type |
+| `--out=sqlite3_open:ppDb` | `ppDb` leaves the parameter list; the wrapper makes the cell and returns what C stored in it. Repeat for several: the result is then an array in parameter order |
+| `--owned-return=sqlite3_mprintf:sqlite3_free` | the returned `char *` is copied to a string, then passed to the destructor; without `:dtor` libc `free` |
+
+```sh
+qjs-ffi-genbindings --library=libsqlite3.so.0 --cstring=sqlite3_column_text \
+  --handle=sqlite3:sqlite3_close --handle=sqlite3_stmt:sqlite3_finalize \
+  --out=sqlite3_open:ppDb --out=sqlite3_prepare_v2:ppStmt --out=sqlite3_prepare_v2:pzTail \
+  /usr/include/sqlite3.h -o sqlite3.js
+```
+
+```js
+const db = sqlite3_open(':memory:');                       // a handle, not a number
+const [stmt, tail] = sqlite3_prepare_v2(db, 'select 1', -1);
+while(sqlite3_step(stmt) === SQLITE_ROW) console.log(sqlite3_column_text(stmt, 0));
+sqlite3_finalize(stmt);                                    // closes the object
+sqlite3_close(db);
+```
+
+*   **Status returns.** A function with `--out` and an integer return treats
+    `0` as success; any other value throws an `Error` with `code` set to it,
+    after closing the handles the call made (`sqlite3_open` hands back a handle
+    even when it fails). A `void` return gives the out values only. Any other
+    return type is refused.
+*   **Out cells.** A `T *` out-parameter is read as the scalar `T` (`int *` gives
+    a number, `double *` a number, `long long *` a BigInt); `T **` gives a
+    pointer number or `null`, a `char **` a string (copied, not freed: use a
+    destructor yourself if C allocated it), a handle type its object.
+*   **Handles.** The object has `ptr`, `closed`, `valueOf()` (the pointer) and
+    `close()`, which runs the destructor once and returns its result. Passing
+    it where the C function takes the `type *` unwraps it; a number is still
+    accepted. Calling the destructor function on it (`sqlite3_close(db)`)
+    closes it. A handle nobody closed is closed by the garbage collector, on a
+    later turn of the event loop and in no particular order: a destructor that
+    needs the others first (`sqlite3_close` fails with `SQLITE_BUSY` while
+    statements are open) must be closed by hand.
+*   **Owned returns.** The memory is freed even if copying throws. The
+    destructor may take the string type: it is called with the raw pointer.
+*   **Errors.** An unknown function, a destructor that is not bound, an
+    `--out` parameter that is not a pointer or points to a struct, or a name
+    that has no parameter, stop the run with nothing written. `--describe` and
+    `--jsdoc` describe the wrapper's parameters, without the out-parameters.
+*   Not with `--target=bun|deno|node`; `--cstring` works everywhere.
+*   `tests/test-gen-bindings-wrappers.js` runs all four against
+    `tests/cxx/wrappers.{h,c}`.
+
 ## Output options
 
 `--ffitype` writes the types as members of `FFIType`:
@@ -958,6 +1020,7 @@ Enums, typedefs and structs are not part of the specs.
     against `nm -D` of a compiled fixture and runs the module,
     `test-gen-bindings-virtual.js` and `-finalize.js` the vtable and finalizer
     paths, `test-gen-structs.js` and `test-struct-by-value.js` the structs,
+    `test-gen-bindings-wrappers.js` the [wrappers](#wrappers-for-c-conventions),
     `test-gen-bindings-names.js` the class/function name clash, missing symbols
     and unions by value (`tests/cxx/anonunion.{h,c}`).
 

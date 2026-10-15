@@ -33,6 +33,10 @@ const OPTIONS = [
   { names: ['--finalize'], key: 'finalize', help: 'also destroy C++ objects made with new when they are garbage collected' },
   { names: ['--jsdoc'], key: 'jsdoc', help: 'JSDoc comments with parameter and return types on functions, methods, classes' },
   { names: ['--exclude'], arg: '<name>', key: 'excludes', list: true, help: 'do not bind this function (repeatable)' },
+  { names: ['--cstring'], arg: '<function>', key: 'cstrings', list: true, help: 'the return of this function (unsigned char *) is a string (repeatable)' },
+  { names: ['--handle'], arg: '<type>:<dtor>', key: 'handles', list: true, help: 'a `type *` is an object closed by dtor() on close() or garbage collection (repeatable)' },
+  { names: ['--out'], arg: '<function>:<arg>', key: 'outs', list: true, help: 'arg of function is an out-parameter: the wrapper returns what C stored there (repeatable)' },
+  { names: ['--owned-return'], arg: '<function>[:<dtor>]', key: 'owned', list: true, help: 'the char * function returns is copied to a string, then freed with dtor (default free) (repeatable)' },
   { names: ['--c++'], key: 'cxx', help: 'parse every source as C++ (implied by .cc/.cpp/.cxx/.hh/.hpp/.hxx)' },
   { names: ['--std'], arg: '<std>', key: 'std', help: 'C++ standard for clang, e.g. c++17 (C++ sources only)' },
   { names: ['--namespace'], arg: '<name>', key: 'namespaces', list: true, help: 'drop the C++ namespace prefix from names (stk::Foo -> Foo, not stk_Foo), repeatable' },
@@ -123,6 +127,34 @@ export function parseArgs(argv) {
     if(opts.finalize) throw new Error('--finalize needs calloc() and free() from libc, which ' + rt + ' cannot look up');
     if(opts.classTypes) throw new Error('--class-types needs a constructor as a type, which ' + rt + ' does not take');
   }
+  opts.handleMap = new Map();
+  opts.outMap = new Map();
+  opts.ownedMap = new Map();
+
+  for(const h of opts.handles) {
+    const [type, dtor] = h.split(':');
+
+    if(!type || !dtor) throw new Error('--handle needs <type>:<destructor>, not "' + h + '"');
+    opts.handleMap.set(type, dtor);
+  }
+
+  for(const o of opts.outs) {
+    const [fn, arg] = o.split(':');
+
+    if(!fn || !arg) throw new Error('--out needs <function>:<arg>, not "' + o + '"');
+    opts.outMap.set(fn, [...(opts.outMap.get(fn) || []), arg]);
+  }
+
+  for(const o of opts.owned) {
+    const [fn, dtor] = o.split(':');
+
+    if(!fn) throw new Error('--owned-return needs <function>[:<destructor>], not "' + o + '"');
+    opts.ownedMap.set(fn, dtor || null);
+  }
+
+  opts.destructors = new Set(opts.handleMap.values());
+
+  if((opts.handleMap.size || opts.outMap.size || opts.ownedMap.size) && opts.target !== 'qjs') throw new Error('--handle, --out and --owned-return need --target=qjs');
   if(!opts.fromIr && !opts.sources.length) throw new Error('missing <source.c> argument');
 
   return opts;

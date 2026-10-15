@@ -103,19 +103,16 @@ by-value structs and variadics are skipped, as noted in `doc/gen-bindings.md`.
 Found by [`doc/generated-vs-handwritten.md`](doc/generated-vs-handwritten.md)
 (problem numbers refer to its "Problems found in the generator"). Most valuable first.
 
-1. **`unsigned char *` return as string**: `--cstring=<function>` override
-   (`sqlite3_column_text`). (#6)
-2. **Handle finalizers**: `--handle=<type>:<destructor>` attaches a finalizer to
-   handle-typed returns and out-parameters. (#7)
-3. **Out-parameters** (`T **`, `int *`): `--out=<function>:<arg>` allocates the cell
-   and returns the value; error return codes as exceptions. (#9)
-4. **Ownership**: `--owned-return=<function>` / `--free=<function>`. (#8)
-5. **C++ types the generator cannot name** (`cv::Size_<int>`, `ImVec2`, `std::string`,
+1. **C++ types the generator cannot name** (`cv::Size_<int>`, `ImVec2`, `std::string`,
    typedef'd template instantiations): each drops the whole function. (#4)
-6. **Default arguments** of C++ functions become JS defaults. (#5)
-7. **Static / no-`dlopen` targets**: emit a symbol table for a statically linked
+2. **Default arguments** of C++ functions become JS defaults. (#5)
+3. **Static / no-`dlopen` targets**: emit a symbol table for a statically linked
     qjsm. (#10)
-8. Missing symbols for `--target=bun|deno|node`: they resolve all symbols in one
+4. Missing symbols for `--target=bun|deno|node`: they resolve all symbols in one
    `dlopen()`, so one absent symbol still fails the import (qjs targets stub it). (#3)
-9. `doc/gen-bindings.md` Limitations: literal `#define` constants *are* bound,
+5. `doc/gen-bindings.md` Limitations: literal `#define` constants *are* bound,
     expression macros are not. (#11)
+6. **Wrappers for C++ methods and for `--target=bun|deno|node`**: `--handle`, `--out` and
+   `--owned-return` apply to free C functions on the qjs target only.
+7. **Wrapper defaults by name**: a heuristic (`out`, `pp*`) or a `--out-all` mode would
+   save listing every out-parameter.

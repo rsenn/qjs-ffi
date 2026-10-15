@@ -7,6 +7,7 @@ import { nameCollisions } from './names.js';
 import { bindable, setNamespaces, flattenName, safeIdent } from './emit/common.js';
 import { setTakenIdents } from './emit/structs.js';
 import { generateCFunction } from './emit/functions.js';
+import { wrapperPlans } from './emit/wrappers.js';
 import { irToSpecs } from './specs.js';
 import { toSource } from './source.js';
 import { scanDefines, localIncludes } from './defines.js';
@@ -114,6 +115,16 @@ export function main() {
     for(const c of clashes) console.error('gen-bindings.js: after dropping ' + opts.namespaces.map(n => n + '::').join(', ') + ', "' + c.ident + '" would be exported by: ' + c.entities.join('; '));
     console.error('gen-bindings.js: name collision, nothing written; drop fewer --namespace values');
     process.exit(1);
+  }
+
+  if(!opts.emitIr && !opts.emitSpecs) {
+    const { errors } = wrapperPlans(ir, opts);
+
+    if(errors.length) {
+      for(const e of errors) console.error('gen-bindings.js: ' + e);
+      console.error('gen-bindings.js: nothing written');
+      process.exit(1);
+    }
   }
 
   const specs = opts.emitSpecs ? irToSpecs(ir, { library: opts.library }) : null;
