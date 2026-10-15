@@ -97,3 +97,32 @@ by-value structs and variadics are skipped, as noted in `doc/gen-bindings.md`.
    plain symbol names) but was never probed.
 4. The scripts under `tools/gen-bindings/` still import the native `json`
    module (`JsonParser`), so they do not run under node or bun yet.
+
+## 6. gen-bindings gaps vs hand-written modules
+
+Found by [`doc/generated-vs-handwritten.md`](doc/generated-vs-handwritten.md)
+(problem numbers refer to its "Problems found in the generator"). Most valuable first.
+
+1. **Struct tag and function with the same name** break `--structs`
+   (`lws_xos` in libwebsockets: "invalid redefinition of global identifier");
+   suffix the class. `--namespace` collisions (`cv::EMD`) should rename, not refuse. (#1)
+2. **Lazy symbol resolution**: a missing symbol must not abort the import
+   (stub that throws on call, or a `--check-symbols` pass). sqlite needs 13
+   `--exclude`s, the MariaDB header against the MySQL library never loads. (#3)
+3. **Struct by value with an anonymous union or a layout libffi computes
+   differently** (nanovg `NVGcolor`, `NVGpaint` 76 vs 80 bytes) leaves the common
+   calls unbound. (#2)
+4. **`unsigned char *` return as string**: `--cstring=<function>` override
+   (`sqlite3_column_text`). (#6)
+5. **Handle finalizers**: `--handle=<type>:<destructor>` attaches a finalizer to
+   handle-typed returns and out-parameters. (#7)
+6. **Out-parameters** (`T **`, `int *`): `--out=<function>:<arg>` allocates the cell
+   and returns the value; error return codes as exceptions. (#9)
+7. **Ownership**: `--owned-return=<function>` / `--free=<function>`. (#8)
+8. **C++ types the generator cannot name** (`cv::Size_<int>`, `ImVec2`, `std::string`,
+   typedef'd template instantiations): each drops the whole function. (#4)
+9. **Default arguments** of C++ functions become JS defaults. (#5)
+10. **Static / no-`dlopen` targets**: emit a symbol table for a statically linked
+    qjsm. (#10)
+11. `doc/gen-bindings.md` Limitations: literal `#define` constants *are* bound,
+    expression macros are not. (#11)

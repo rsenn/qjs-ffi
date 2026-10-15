@@ -29,6 +29,7 @@ Start with the [overview](ffi.md).
 
 | Page | Covers |
 | ---- | ------ |
+| [Generated against hand-written bindings](generated-vs-handwritten.md) | assessment, library by library, of whether a generated binding could replace the hand-written one in the qjs-* projects, and the generator problems found |
 | [Generating bindings](gen-bindings.md) | `tools/gen-bindings.js` and `tools/gen-structs.js`: bindings for C and C++ headers, as a module for this one or (`--target=bun`) for bun:ffi |
 
 ## Legacy
