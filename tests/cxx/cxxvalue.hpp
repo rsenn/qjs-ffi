@@ -23,6 +23,12 @@ template<typename T, int N> struct Vec {
   T v[N];
 };
 
+template<typename T> struct Box { Size_<T> size; T depth; };
+
+/* a trivially copyable class with a base is laid out base first */
+struct Base2 { int a; };
+struct Derived2 : Base2 { int b; };
+
 typedef Size_<int> Size;
 
 namespace gx {
@@ -33,4 +39,6 @@ Size_<float> half(Size_<float> s);
 Size grow(Size s, int by);
 int owner_id(Owner o);
 Vec<float, 3> scale3(Vec<float, 3> a, float k);
+int volume(Box<int> b);
+int dsum(Derived2 d);
 }

@@ -65,7 +65,7 @@ function rm(path) {
 }
 
 /* Bump when AstCondenser's output changes, so stale caches are not reused. */
-const AST_CACHE_VERSION = 12;
+const AST_CACHE_VERSION = 13;
 
 function cachePath(opts, source, cmd) {
   return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
@@ -245,7 +245,10 @@ export function runLayoutDump(opts, source, ast) {
     const align = /^\s*Alignment:(\d+)/m.exec(block);
     const offsets = /FieldOffsets: \[([^\]]*)\]/.exec(block);
 
-    if(type && size && align) layouts[type[1]] = { size: size[1] / 8, align: align[1] / 8, offsets: offsets && offsets[1].trim() ? offsets[1].split(',').map(Number) : [] };
+    // clang spells a nested instance `W<struct Size_<int> >`: written as in the source
+    const key = type && type[1].replace(/^(\w+) (.*)$/, (m, tag, rest) => tag + ' ' + rest.replace(/\b(?:struct|class|union|enum) /g, '').replace(/ >/g, '>'));
+
+    if(type && size && align) layouts[key] = { size: size[1] / 8, align: align[1] / 8, offsets: offsets && offsets[1].trim() ? offsets[1].split(',').map(Number) : [] };
   }
 
   fieldProbes.forEach((p, i) => {

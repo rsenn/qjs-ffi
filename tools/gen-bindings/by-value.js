@@ -259,7 +259,16 @@ export function prepareClassTypes(ir, opts, classes) {
  * reason it would have had without by-value support.
  */
 export function resolveByValue(ir, opts) {
-  const index = mergeIRs([{ structs: [...ir.structs, ...(ir.classes || []).filter(c => c.byValue && c.type !== 'union').map(c => ({ ...c, type: 'struct' }))], classes: [], typedefs: ir.typedefs || [], enums: [] }]);
+  const records = new Map([...ir.structs, ...(ir.classes || [])].map(c => [c.name, c]));
+
+  // a class with a base: the base's members come first, at the same offsets
+  const flat = c => {
+    const base = c.bases && c.bases[0] && records.get(c.bases[0].name);
+
+    return base && base.byValue !== false ? [...flat(base), ...c.fields] : c.fields;
+  };
+
+  const index = mergeIRs([{ structs: [...ir.structs, ...(ir.classes || []).filter(c => c.byValue && c.type !== 'union').map(c => ({ ...c, type: 'struct', fields: flat(c), bases: [] }))], classes: [], typedefs: ir.typedefs || [], enums: [] }]);
   const memo = new Map();
 
   ir.byValue = ir.byValue || {};

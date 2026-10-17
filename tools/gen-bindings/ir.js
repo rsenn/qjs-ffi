@@ -145,6 +145,56 @@ function specializationName(node) {
  * an argument of another kind, is left out. Runs before the layout probe,
  * which gets the sizes and offsets from clang. */
 export function lowerSpecializations(ast) {
+  const templates = new Map();
+  const made = new Set();
+
+  /* splits `int, Size_<int>, 3` at the commas outside <> */
+  const splitArgs = text => {
+    const list = [];
+    let depth = 0;
+    let from = 0;
+
+    for(let i = 0; i < text.length; i++) {
+      if(text[i] === '<') depth++;
+      else if(text[i] === '>') depth--;
+      else if(text[i] === ',' && depth === 0) (list.push(text.slice(from, i).trim()), (from = i + 1));
+    }
+
+    list.push(text.slice(from).trim());
+    return list;
+  };
+
+  /* one struct for the instantiation `name` with the argument spellings
+   * `args`; an instance a field names that clang did not list is made too */
+  const instantiate = (template, args, extra) => {
+    const name = template.name + '<' + args.join(', ') + '>';
+
+    if(made.has(name) || args.length !== template.params.length) return;
+    made.add(name);
+
+    const subst = t => t && template.params.reduce((s, p, i) => s.replace(new RegExp('\\b' + p + '\\b', 'g'), args[i]), t);
+    const fields = template.pattern.inner.filter(c => c.kind === 'FieldDecl').map(f => ({ ...f, type: { ...f.type, qualType: subst(f.type.qualType), ...(f.type.desugaredQualType ? { desugaredQualType: subst(f.type.desugaredQualType) } : {}) } }));
+
+    extra.push({ kind: 'CXXRecordDecl', name, tagUsed: template.pattern.tagUsed, completeDefinition: true, inner: fields });
+
+    for(const f of fields) {
+      const m = /^(?:const )?(\w+)<(.*)>(?: \[\d+\])*$/.exec(f.type.qualType.trim());
+
+      if(m && templates.has(m[1])) instantiate(templates.get(m[1]), splitArgs(m[2]), extra);
+    }
+  };
+
+  const collect = nodes => {
+    for(const node of nodes) {
+      if(node.kind === 'NamespaceDecl' || node.kind === 'LinkageSpecDecl') collect(node.inner || []);
+      else if(node.kind === 'ClassTemplateDecl') {
+        const pattern = (node.inner || []).find(c => c.kind === 'CXXRecordDecl');
+
+        if(pattern && pattern.completeDefinition && !(pattern.bases || []).length) templates.set(node.name, { name: node.name, pattern, params: (node.inner || []).filter(c => c.kind === 'TemplateTypeParmDecl' || c.kind === 'NonTypeTemplateParmDecl').map(c => c.name) });
+      }
+    }
+  };
+
   const lower = nodes => {
     const out = [];
 
@@ -153,24 +203,18 @@ export function lowerSpecializations(ast) {
         if(node.inner) node.inner = lower(node.inner);
         out.push(node);
       } else if(node.kind === 'ClassTemplateDecl') {
-        const params = (node.inner || []).filter(c => c.kind === 'TemplateTypeParmDecl' || c.kind === 'NonTypeTemplateParmDecl').map(c => c.name);
-        const pattern = (node.inner || []).find(c => c.kind === 'CXXRecordDecl');
-        const specs = (node.inner || []).filter(c => c.kind === 'ClassTemplateSpecializationDecl');
-        let first = true;
+        const template = templates.get(node.name);
+        const extra = [];
 
-        if(pattern && pattern.completeDefinition && !(pattern.bases || []).length)
-          for(const spec of specs) {
-            const name = specializationName(spec);
+        if(template)
+          for(const spec of (node.inner || []).filter(c => c.kind === 'ClassTemplateSpecializationDecl')) {
             const args = (spec.inner || []).filter(c => c.kind === 'TemplateArgument');
 
-            if(!name || args.length !== params.length) continue;
-
-            const subst = t => (t && params.reduce((s, p, i) => s.replace(new RegExp('\\b' + p + '\\b', 'g'), args[i].type ? args[i].type.qualType : String(args[i].value)), t));
-            const fields = (pattern.inner || []).filter(c => c.kind === 'FieldDecl').map(f => ({ ...f, type: { ...f.type, qualType: subst(f.type.qualType), ...(f.type.desugaredQualType ? { desugaredQualType: subst(f.type.desugaredQualType) } : {}) } }));
-
-            out.push({ id: spec.id, kind: 'CXXRecordDecl', name, tagUsed: pattern.tagUsed, completeDefinition: true, ...(first ? { loc: node.loc, line: node.line } : {}), inner: fields });
-            first = false;
+            if(args.some(a => !(a.type || typeof a.value === 'number'))) continue;
+            instantiate(template, args.map(a => (a.type ? a.type.qualType : String(a.value))), extra);
           }
+
+        extra.forEach((e, i) => out.push(i === 0 ? { ...e, loc: node.loc, line: node.line } : e));
       } else {
         out.push(node);
       }
@@ -179,6 +223,7 @@ export function lowerSpecializations(ast) {
     return out;
   };
 
+  collect(ast.inner || []);
   ast.inner = lower(ast.inner || []);
 }
 
@@ -645,7 +690,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     if(layout) ((cls.size = layout.size), (cls.align = layout.align));
     if(info.isAbstract) cls.abstract = true;
     if(info.isPolymorphic) cls.polymorphic = true;
-    if(info.canPassInRegisters && !(node.bases || []).length) cls.byValue = true;
+    if(info.canPassInRegisters && (node.bases || []).length <= 1 && !(node.bases || []).some(b => b.isVirtual)) cls.byValue = true;
     if((node.inner || []).some(c => c.kind === 'FinalAttr')) cls.final = true;
 
     for(const base of node.bases || []) {

@@ -67,10 +67,12 @@ await tests({
     assert(m.mixed_make === undefined, 'mixed_make is not exported');
   },
 
-  'bun and deno stub a missing symbol too'() {
+  'bun, deno and node stub a missing symbol too'() {
     const full = realpath(tmp)[0];
+    // a node with node:ffi (Node 26): the one on PATH, else the newest under nvm
+    const node = ['node', ...sh('ls -d $HOME/.nvm/versions/node/v2[6-9]*/bin/node').split('\n').filter(Boolean).reverse()].find(n => /^OK/.test(sh(n + ' --no-warnings -e "import(\'node:ffi\').then(() => console.log(\'OK\'), () => {})"')));
 
-    for(const [target, have, cmd] of [['bun', 'bun', 'bun'], ['deno', 'deno', 'deno run --allow-ffi --allow-read']]) {
+    for(const [target, have, cmd] of [['bun', 'bun', 'bun'], ['deno', 'deno', 'deno run --allow-ffi --allow-read'], ['node', node ? 'true' : 'false', (node || 'node') + ' --no-warnings']]) {
       const file = full + '/test-gen-bindings-names.' + target + '.mjs';
 
       sh(['qjsm', root + 'tools/gen-bindings.js', '--no-cache', '--target=' + target, '--library=' + library, '-o', file, header].join(' '));

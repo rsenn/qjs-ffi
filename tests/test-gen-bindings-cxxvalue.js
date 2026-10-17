@@ -55,4 +55,12 @@ await tests({
   'a template instance with a non-type argument (Vec<float, 3>) is bound by value'() {
     eq('2,4,6', [...new Float32Array(m.gx_scale3(Float32Array.of(1, 2, 3).buffer, 2))].join());
   },
+
+  'a template instance holding another instance (Box<int> has Size_<int>) is bound by value'() {
+    eq(2 * 3 * 4, m.gx_volume(Int32Array.of(2, 3, 4).buffer));
+  },
+
+  'a trivially copyable class with a base is passed by value'() {
+    eq(12, m.gx_dsum(Int32Array.of(1, 2).buffer));
+  },
 });

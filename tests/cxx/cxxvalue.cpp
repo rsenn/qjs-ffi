@@ -13,4 +13,6 @@ Size_<float> half(Size_<float> s) { return Size_<float>{s.width / 2, s.height / 
 Size grow(Size s, int by) { return Size{s.width + by, s.height + by}; }
 int owner_id(Owner o) { return o.id; }
 Vec<float, 3> scale3(Vec<float, 3> a, float k) { return Vec<float, 3>{{a.v[0] * k, a.v[1] * k, a.v[2] * k}}; }
+int volume(Box<int> b) { return b.size.width * b.size.height * b.depth; }
+int dsum(Derived2 d) { return d.a * 10 + d.b; }
 }

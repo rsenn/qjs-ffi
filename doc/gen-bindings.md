@@ -455,7 +455,10 @@ C++ types by value are bound when they pass like a C struct:
 *   an instantiation of a class template that the header names, `Size_<int>` or
     `cv::Size_<float>`, is a struct of its data members with the parameters
     replaced (`T width` is `int width`), no methods; the sizes come from clang.
-    A nested instantiation (`W<Size_<int>>`) is not handled;
+    A nested instantiation (`W<Size_<int>>`, which needs `Size_<Size_<int>>`)
+    is made too, even when clang never listed it;
+*   a trivially copyable class with one non-virtual base is by value as well:
+    the base's members come first;
 *   a template with non-type parameters works the same (`Vec<float, 3>` is a
     struct with `float v[3]`);
 *   a name clang spells unqualified inside its namespace (`Size_<float>` for
@@ -514,7 +517,7 @@ another platform) does not stop the import: `__bind()` makes it a stub that
 throws `gen-bindings: symbol not found: NAME` when called. That holds for every
 target: bun and deno look each symbol up on its own, node's `dlsym` throws, and
 each tags the error as a missing symbol (a library that does not open still
-fails the import). Not tested for node here: it needs `node:ffi`.
+fails the import). `tests/test-gen-bindings-names.js` checks bun, deno and node.
 
 An enum constant used by a function signature is exported, with the
 enum's name (or `(anonymous)`) as a comment:
