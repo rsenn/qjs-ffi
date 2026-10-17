@@ -103,9 +103,11 @@ by-value structs and variadics are skipped, as noted in `doc/gen-bindings.md`.
 Found by [`doc/generated-vs-handwritten.md`](doc/generated-vs-handwritten.md)
 (problem numbers refer to its "Problems found in the generator"). Most valuable first.
 
-1. **C++ types still not named**: `std::string` and other standard-library types,
-   nested instances (`W<Size_<int>>`), members and constructors of template
-   instances, a class with a base by value. (#4)
+1. **C++ types still not named**: other standard-library types than `std::string` and
+   `std::string_view` (those have a proof of concept, `lib/ffi/cxx.js`, not yet used by
+   the generator; `std::vector`, `std::optional` next),
+   members and constructors of template instances, a class with several or
+   virtual bases by value. (#4)
 2. **Default arguments that are not literals** (`Size()`, a named constant):
    the parameter stays required. (#5)
 3. **Static / no-`dlopen` targets**: emit a symbol table for a statically linked
@@ -113,5 +115,3 @@ Found by [`doc/generated-vs-handwritten.md`](doc/generated-vs-handwritten.md)
 4. **Wrappers for `--target=bun|deno|node`**: `--handle`, `--out` and `--owned-return`
    are qjs-only (cells are ArrayBuffers read with DataView, strings come from `__cstr`).
    `--handle` and a C++ destructor are not available for C++ functions and methods.
-5. **Check `--target=node` with a node that has `node:ffi`**: the missing-symbol stub
-   is written but was not run.

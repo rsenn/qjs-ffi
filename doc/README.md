@@ -22,6 +22,7 @@ Start with the [overview](ffi.md).
 | [JSCallback](js-callback.md) | a JavaScript function as a native function pointer |
 | [Pointers and memory](pointers.md) | `ptr()`, `toPointer()`, `toArrayBuffer()`, `toBuffer()`, `read`, `write`, `CString`, `toString()`, `pointerSize` |
 | [Classes as types](struct.md) | a buffer class (usually extending `ArrayBuffer`) as the type of an argument, return or variable, and the `types` object that names classes in a spec |
+| [CXXFunction](cxx.md) | `CFunction` for C++ signatures with `std::string` and `std::string_view` (proof of concept) |
 | [C compiler](c-compiler.md) | `cc()`: compile and run C from JavaScript |
 | [Miscellaneous](misc.md) | `JSContext()`, `debug()` |
 
