@@ -10,6 +10,7 @@
 #                  the runtime imports: node:fs, bun:ffi, ffi
 #   export         a name or dotted path (read.u8); every export by default
 #   --global       describe properties of globalThis (Bun, process.versions)
+#   --eval         describe a value obtained by eval()
 #   --class        describe a function as a class unless its prototype is plain
 #                  (native constructors)
 #   --json         print the raw describeClass()/describeObject() results

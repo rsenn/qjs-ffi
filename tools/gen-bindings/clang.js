@@ -1,10 +1,10 @@
-import { closeSync, existsSync, mkdirSync, openSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync, readFileSync } from 'fs';
-import { execSync } from 'child_process';
-import { JsonParser } from 'json';
-import { AstCondenser } from './condense.js';
-import { walkDecls, collectRecordTypedefs, lowerSpecializations } from './ir.js';
-import { header } from './emit/common.js';
-import { parseVtableIndices, parseVtableBlocks } from './vtable.js';
+import { closeSync, existsSync, mkdirSync, openSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync, readFileSync } from "fs";
+import { execSync } from "child_process";
+import { JsonParser } from "json";
+import { AstCondenser } from "./condense.js";
+import { walkDecls, collectRecordTypedefs, lowerSpecializations } from "./ir.js";
+import { header } from "./emit/common.js";
+import { parseVtableIndices, parseVtableBlocks } from "./vtable.js";
 
 function shquote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
@@ -13,9 +13,9 @@ function shquote(s) {
 /* Whether a declaration from file `f` is one to collect for `source`: the
  * source itself, or with --follow-includes any file under its directory. */
 export function sourceFilter(opts, source) {
-  const dir = source.replace(/[^/]*$/, '');
+  const dir = source.replace(/[^/]*$/, "");
 
-  return f => f === source || (opts.followIncludes && dir !== '' && f !== null && f.startsWith(dir));
+  return f => f === source || (opts.followIncludes && dir !== "" && f !== null && f.startsWith(dir));
 }
 
 /* A .h header is ambiguous, so it needs --c++ to be parsed as C++. */
@@ -25,7 +25,7 @@ export function isCxx(opts, source) {
 
 /* clang's language selection for `source`; empty for plain C. */
 export function langArgs(opts, source) {
-  return isCxx(opts, source) ? ['-x', 'c++', ...(opts.std ? ['-std=' + opts.std] : [])] : [];
+  return isCxx(opts, source) ? ["-x", "c++", ...(opts.std ? ["-std=" + opts.std] : [])] : [];
 }
 
 /* --- streaming AST condenser ---------------------------------------------- */
@@ -33,14 +33,14 @@ export function langArgs(opts, source) {
 /* Every distinct file a top-level node came from, for cache invalidation. */
 function astFiles(root) {
   const files = new Set();
-  for(const node of root.inner || []) if(node.loc && node.loc.file !== undefined && !node.loc.file.startsWith('<')) files.add(node.loc.file);
+  for(const node of root.inner || []) if(node.loc && node.loc.file !== undefined && !node.loc.file.startsWith("<")) files.add(node.loc.file);
   return [...files];
 }
 
 function fnv1a(s) {
   let h = 0x811c9dc5;
   for(let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
-  return h.toString(16).padStart(8, '0');
+  return h.toString(16).padStart(8, "0");
 }
 
 function mtime(path) {
@@ -54,7 +54,7 @@ function mtime(path) {
 /* runs the shell command `cmd`; its output goes where `cmd` redirects it, and a failing exit status is not an error here. */
 function shell(cmd) {
   try {
-    execSync(cmd, { stdio: 'ignore' });
+    execSync(cmd, { stdio: "ignore" });
   } catch(e) {}
 }
 
@@ -68,7 +68,7 @@ function rm(path) {
 const AST_CACHE_VERSION = 13;
 
 function cachePath(opts, source, cmd) {
-  return opts.cacheDir.replace(/\/*$/, '/') + source.replace(/.*\//, '') + '.' + fnv1a(AST_CACHE_VERSION + '\0' + cmd + '\0' + source + '\0' + opts.followIncludes) + '.ast.json';
+  return opts.cacheDir.replace(/\/*$/, "/") + source.replace(/.*\//, "") + "." + fnv1a(AST_CACHE_VERSION + "\0" + cmd + "\0" + source + "\0" + opts.followIncludes) + ".ast.json";
 }
 
 function mkdirs(dir) {
@@ -80,7 +80,7 @@ function mkdirs(dir) {
 /* Loads the condensed AST from the cache if no file it was built from is
  * newer than it, else null. */
 function readAstCache(file) {
-  const cached = readFileSync(file, 'utf-8');
+  const cached = readFileSync(file, "utf-8");
   if(cached === null) return null;
 
   const stamp = mtime(file);
@@ -122,14 +122,14 @@ export function runLayoutDump(opts, source, ast) {
     types.push(t);
     if(!probeFields) return;
 
-    let access = node.kind === 'CXXRecordDecl' && node.tagUsed === 'class' ? 'private' : 'public';
+    let access = node.kind === "CXXRecordDecl" && node.tagUsed === "class" ? "private" : "public";
 
     for(const child of node.inner || []) {
-      if(child.kind === 'AccessSpecDecl') access = child.access;
-      else if(child.kind === 'FieldDecl' && child.name && !child.isBitfield && access === 'public') fieldProbes.push({ type: t, field: child.name });
+      if(child.kind === "AccessSpecDecl") access = child.access;
+      else if(child.kind === "FieldDecl" && child.name && !child.isBitfield && access === "public") fieldProbes.push({ type: t, field: child.name });
     }
 
-    if(node.kind === 'CXXRecordDecl' && node.definitionData && node.definitionData.isPolymorphic) addVtableProbe(node, t);
+    if(node.kind === "CXXRecordDecl" && node.definitionData && node.definitionData.isPolymorphic) addVtableProbe(node, t);
   };
 
   /* clang lays a class's vtable out, and with -fdump-vtable-layouts prints
@@ -146,30 +146,36 @@ export function runLayoutDump(opts, source, ast) {
     const i = vtableProbes.length;
     const counts = {};
     const virtuals = [];
-    let access = node.tagUsed === 'class' ? 'private' : 'public';
+    let access = node.tagUsed === "class" ? "private" : "public";
     let destructorOk = true;
     let destructorVirtual = false;
 
     for(const child of node.inner || []) {
-      if(child.kind === 'AccessSpecDecl') access = child.access;
-      else if(child.kind === 'CXXDestructorDecl') {
-        if(access !== 'public') destructorOk = false;
+      if(child.kind === "AccessSpecDecl") access = child.access;
+      else if(child.kind === "CXXDestructorDecl") {
+        if(access !== "public") destructorOk = false;
         if(child.virtual) destructorVirtual = true;
-      }
-      else if(child.kind === 'CXXMethodDecl' && child.name && access === 'public' && child.storageClass !== 'static' && !child.name.startsWith('operator')) {
+      } else if(child.kind === "CXXMethodDecl" && child.name && access === "public" && child.storageClass !== "static" && !child.name.startsWith("operator")) {
         counts[child.name] = (counts[child.name] || 0) + 1;
         if(child.virtual || child.pure) virtuals.push(child.name);
       }
     }
 
     const unique = virtuals.find(n => counts[n] === 1);
-    const final = (node.inner || []).some(child => child.kind === 'FinalAttr');
+    const final = (node.inner || []).some(child => child.kind === "FinalAttr");
     const key = !final && !unique && !(destructorOk && destructorVirtual);
 
     if(key) keyProbes[i] = t;
 
     vtableProbes.push(
-      'typedef ' + t + ' __gbc' + i + ';\n' + (destructorOk ? 'void __gbd' + i + '(__gbc' + i + '* p) { p->~__gbc' + i + '(); }\n' : '') + (unique ? 'auto __gbm' + i + ' = &__gbc' + i + '::' + unique + ';\n' : '') + (key ? 'struct __gbk' + i + ' : __gbc' + i + ' { virtual void __gb_key(); };\nvoid __gbk' + i + '::__gb_key() {}\n' : ''),
+      "typedef " +
+        t +
+        " __gbc" +
+        i +
+        ";\n" +
+        (destructorOk ? "void __gbd" + i + "(__gbc" + i + "* p) { p->~__gbc" + i + "(); }\n" : "") +
+        (unique ? "auto __gbm" + i + " = &__gbc" + i + "::" + unique + ";\n" : "") +
+        (key ? "struct __gbk" + i + " : __gbc" + i + " { virtual void __gb_key(); };\nvoid __gbk" + i + "::__gb_key() {}\n" : ""),
     );
   };
 
@@ -184,22 +190,22 @@ export function runLayoutDump(opts, source, ast) {
     const wanted = isSourceFile(currentFile);
 
     walkDecls([top], (node, scope) => {
-      if(node.kind === 'TypedefDecl' || node.kind === 'TypeAliasDecl') {
+      if(node.kind === "TypedefDecl" || node.kind === "TypeAliasDecl") {
         if(wanted && node.name) typedefNames.push(scope + node.name);
         return;
       }
 
-      if(node.kind === 'RecordDecl' && scope === '' && node === top) {
+      if(node.kind === "RecordDecl" && scope === "" && node === top) {
         if(!node.completeDefinition) return;
 
-        const t = node.name ? (node.tagUsed || 'struct') + ' ' + node.name : (aliases[node.id] || [])[0];
+        const t = node.name ? (node.tagUsed || "struct") + " " + node.name : (aliases[node.id] || [])[0];
         if(t) addRecord(node, t, wanted);
         return;
       }
 
-      if(node.kind !== 'CXXRecordDecl' || node.isImplicit || !node.completeDefinition) return;
+      if(node.kind !== "CXXRecordDecl" || node.isImplicit || !node.completeDefinition) return;
 
-      const t = node.name ? (node.tagUsed || 'class') + ' ' + scope + node.name : (aliases[node.id] || [])[0];
+      const t = node.name ? (node.tagUsed || "class") + " " + scope + node.name : (aliases[node.id] || [])[0];
       if(t) addRecord(node, t, wanted);
     });
   }
@@ -215,58 +221,58 @@ export function runLayoutDump(opts, source, ast) {
   if(!real) return layouts;
 
   mkdirs(opts.cacheDir);
-  const probe = opts.cacheDir.replace(/\/*$/, '/') + 'probe-' + fnv1a(real + Date.now()) + (isCxx(opts, source) ? '.cpp' : '.c');
+  const probe = opts.cacheDir.replace(/\/*$/, "/") + "probe-" + fnv1a(real + Date.now()) + (isCxx(opts, source) ? ".cpp" : ".c");
   writeFileSync(
     probe,
     '#include "' +
       real +
       '"\n' +
-      types.map((t, i) => 'enum { __probe' + i + ' = sizeof(' + t + ') };\n').join('') +
-      fieldProbes.map((p, i) => 'struct __gb_f' + i + ' { char b[sizeof(((' + p.type + ' *)0)->' + p.field + ')]; };\nenum { __gb_fu' + i + ' = sizeof(struct __gb_f' + i + ') };\n').join('') +
-      typedefNames.map((n, i) => 'struct __gb_t' + i + ' { char b[sizeof(' + n + ')]; };\nenum { __gb_tu' + i + ' = sizeof(struct __gb_t' + i + ') };\n').join('') +
-      vtableProbes.join(''),
+      types.map((t, i) => "enum { __probe" + i + " = sizeof(" + t + ") };\n").join("") +
+      fieldProbes.map((p, i) => "struct __gb_f" + i + " { char b[sizeof(((" + p.type + " *)0)->" + p.field + ")]; };\nenum { __gb_fu" + i + " = sizeof(struct __gb_f" + i + ") };\n").join("") +
+      typedefNames.map((n, i) => "struct __gb_t" + i + " { char b[sizeof(" + n + ")]; };\nenum { __gb_tu" + i + " = sizeof(struct __gb_t" + i + ") };\n").join("") +
+      vtableProbes.join(""),
   );
 
   // Only code generation lays a vtable out, which costs more than parsing.
-  const compile = vtableProbes.length ? ['-Xclang', '-fdump-vtable-layouts', '-S', '-emit-llvm', '-o', '/dev/null'] : ['-fsyntax-only'];
-  const parts = [opts.clang, '-Xclang', '-fdump-record-layouts-simple', ...compile, ...langArgs(opts, source), ...opts.includes.map(i => '-I' + i), ...opts.defines.map(d => '-D' + d), probe];
-  const dump = probe + '.out';
+  const compile = vtableProbes.length ? ["-Xclang", "-fdump-vtable-layouts", "-S", "-emit-llvm", "-o", "/dev/null"] : ["-fsyntax-only"];
+  const parts = [opts.clang, "-Xclang", "-fdump-record-layouts-simple", ...compile, ...langArgs(opts, source), ...opts.includes.map(i => "-I" + i), ...opts.defines.map(d => "-D" + d), probe];
+  const dump = probe + ".out";
 
-  shell(parts.map(shquote).join(' ') + ' 2>/dev/null >' + shquote(dump));
+  shell(parts.map(shquote).join(" ") + " 2>/dev/null >" + shquote(dump));
 
-  const out = readFileSync(dump, 'utf-8') || '';
+  const out = readFileSync(dump, "utf-8") || "";
 
   rm(dump);
   rm(probe);
 
-  for(const block of out.split('*** Dumping AST Record Layout').slice(1)) {
+  for(const block of out.split("*** Dumping AST Record Layout").slice(1)) {
     const type = /^Type: (.*)$/m.exec(block);
     const size = /^\s*Size:(\d+)/m.exec(block);
     const align = /^\s*Alignment:(\d+)/m.exec(block);
     const offsets = /FieldOffsets: \[([^\]]*)\]/.exec(block);
 
     // clang spells a nested instance `W<struct Size_<int> >`: written as in the source
-    const key = type && type[1].replace(/^(\w+) (.*)$/, (m, tag, rest) => tag + ' ' + rest.replace(/\b(?:struct|class|union|enum) /g, '').replace(/ >/g, '>'));
+    const key = type && type[1].replace(/^(\w+) (.*)$/, (m, tag, rest) => tag + " " + rest.replace(/\b(?:struct|class|union|enum) /g, "").replace(/ >/g, ">"));
 
-    if(type && size && align) layouts[key] = { size: size[1] / 8, align: align[1] / 8, offsets: offsets && offsets[1].trim() ? offsets[1].split(',').map(Number) : [] };
+    if(type && size && align) layouts[key] = { size: size[1] / 8, align: align[1] / 8, offsets: offsets && offsets[1].trim() ? offsets[1].split(",").map(Number) : [] };
   }
 
   fieldProbes.forEach((p, i) => {
-    const probe = layouts['struct __gb_f' + i];
+    const probe = layouts["struct __gb_f" + i];
 
     if(probe && layouts[p.type]) (layouts[p.type].fieldSizes = layouts[p.type].fieldSizes || {})[p.field] = probe.size;
-    delete layouts['struct __gb_f' + i];
+    delete layouts["struct __gb_f" + i];
   });
 
   typedefNames.forEach((n, i) => {
-    const probe = layouts['struct __gb_t' + i];
+    const probe = layouts["struct __gb_t" + i];
 
-    if(probe) layouts['typedef ' + n] = { size: probe.size };
-    delete layouts['struct __gb_t' + i];
+    if(probe) layouts["typedef " + n] = { size: probe.size };
+    delete layouts["struct __gb_t" + i];
   });
 
   for(const [name, entries] of parseVtableIndices(out)) {
-    const key = Object.keys(layouts).find(k => k.endsWith(' ' + name) && /^(class|struct) /.test(k));
+    const key = Object.keys(layouts).find(k => k.endsWith(" " + name) && /^(class|struct) /.test(k));
 
     if(key) layouts[key].vtableIndices = entries;
   }
@@ -295,7 +301,7 @@ function parseDiagnostics(text) {
   const errors = [];
   const missing = [];
 
-  for(const line of text.split('\n')) {
+  for(const line of text.split("\n")) {
     if(!/\berror: /.test(line)) continue;
 
     const m = /'([^']+)' file not found/.exec(line);
@@ -315,10 +321,10 @@ function includeDirsFor(opts, source, missing) {
   const dirs = [];
 
   for(const inc of missing) {
-    for(let dir = source.replace(/\/?[^/]*$/, ''); dir !== ''; dir = dir.replace(/\/?[^/]*$/, '')) {
+    for(let dir = source.replace(/\/?[^/]*$/, ""); dir !== ""; dir = dir.replace(/\/?[^/]*$/, "")) {
       if(opts.includes.includes(dir)) continue;
 
-      if(existsSync(dir + '/' + inc)) {
+      if(existsSync(dir + "/" + inc)) {
         if(!dirs.includes(dir)) dirs.push(dir);
         break;
       }
@@ -340,20 +346,20 @@ export function runClangAstDump(opts, source) {
     if(!dirs.length) return ast;
 
     for(const dir of dirs) {
-      console.error('gen-bindings.js: note: ' + source + ' needs ' + ast.clangErrors.missing.join(', ') + ', adding -I' + dir);
+      console.error("gen-bindings.js: note: " + source + " needs " + ast.clangErrors.missing.join(", ") + ", adding -I" + dir);
       opts.includes.push(dir);
     }
   }
 }
 
 function runClangOnce(opts, source) {
-  const parts = [opts.clang, '-Xclang', '-ast-dump=json', '-fsyntax-only', ...langArgs(opts, source)];
+  const parts = [opts.clang, "-Xclang", "-ast-dump=json", "-fsyntax-only", ...langArgs(opts, source)];
 
-  for(const inc of opts.includes) parts.push('-I' + inc);
-  for(const def of opts.defines) parts.push('-D' + def);
+  for(const inc of opts.includes) parts.push("-I" + inc);
+  for(const def of opts.defines) parts.push("-D" + def);
   parts.push(source);
 
-  const cmd = parts.map(shquote).join(' ');
+  const cmd = parts.map(shquote).join(" ");
   const cache = cachePath(opts, source, cmd);
 
   if(opts.cache) {
@@ -364,14 +370,14 @@ function runClangOnce(opts, source) {
   // clang's stdout and stderr go to files next to the cache; stdout is parsed from its file
   mkdirs(opts.cacheDir);
 
-  const errFile = opts.cacheDir.replace(/\/*$/, '/') + 'clang-' + fnv1a(source + Date.now()) + '.err';
-  const astFile = errFile.replace(/\.err$/, '.ast');
+  const errFile = opts.cacheDir.replace(/\/*$/, "/") + "clang-" + fnv1a(source + Date.now()) + ".err";
+  const astFile = errFile.replace(/\.err$/, ".ast");
 
-  shell(cmd + ' >' + shquote(astFile) + ' 2>' + shquote(errFile));
+  shell(cmd + " >" + shquote(astFile) + " 2>" + shquote(errFile));
 
   let ast = null,
     error = null;
-  const fd = openSync(astFile, 'r');
+  const fd = openSync(astFile, "r");
 
   try {
     ast = new AstCondenser(new JsonParser((buf, len) => readSync(fd, new Uint8Array(buf), 0, len, null), source)).root();
@@ -382,11 +388,11 @@ function runClangOnce(opts, source) {
   closeSync(fd);
   rm(astFile);
 
-  const errText = readFileSync(errFile, 'utf-8') || '';
+  const errText = readFileSync(errFile, "utf-8") || "";
 
   rm(errFile);
 
-  if(!ast || !ast.inner) throw new Error((error ? 'failed to parse clang AST JSON output: ' + error.message + '; ' : 'clang produced no output; ') + 'stderr was:\n' + errText);
+  if(!ast || !ast.inner) throw new Error((error ? "failed to parse clang AST JSON output: " + error.message + "; " : "clang produced no output; ") + "stderr was:\n" + errText);
 
   const diagnostics = parseDiagnostics(errText);
 

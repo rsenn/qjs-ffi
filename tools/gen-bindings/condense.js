@@ -1,5 +1,5 @@
-import { JsonParser } from 'json';
-import { header } from './emit/common.js';
+import { JsonParser } from "json";
+import { header } from "./emit/common.js";
 
 /* clang's JSON AST is megabytes per header (cairo.h: ~3.7MB), nearly all of
  * it source ranges, function bodies and attributes irrelevant here. It is
@@ -8,21 +8,21 @@ import { header } from './emit/common.js';
  * dropped. Which children a node keeps is decided the moment its "kind" key
  * arrives (clang always writes "id", then "kind", before anything else).
  */
-const TOP_KINDS = new Set(['ClassTemplateDecl', 'FunctionDecl', 'VarDecl', 'EnumDecl', 'RecordDecl', 'TypedefDecl', 'TypeAliasDecl', 'CXXRecordDecl', 'NamespaceDecl', 'LinkageSpecDecl']);
+const TOP_KINDS = new Set(["ClassTemplateDecl", "FunctionDecl", "VarDecl", "EnumDecl", "RecordDecl", "TypedefDecl", "TypeAliasDecl", "CXXRecordDecl", "NamespaceDecl", "LinkageSpecDecl"]);
 
-const CLASS_KINDS = new Set(['FieldDecl', 'VarDecl', 'EnumDecl', 'TypedefDecl', 'TypeAliasDecl', 'CXXRecordDecl', 'CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
+const CLASS_KINDS = new Set(["FieldDecl", "VarDecl", "EnumDecl", "TypedefDecl", "TypeAliasDecl", "CXXRecordDecl", "CXXMethodDecl", "CXXConstructorDecl", "CXXDestructorDecl"]);
 
-const DROP_KEYS = new Set(['range', 'referencedDecl', 'previousDecl', 'parentDeclContext', 'valueCategory', 'isUsed', 'isReferenced']);
+const DROP_KEYS = new Set(["range", "referencedDecl", "previousDecl", "parentDeclContext", "valueCategory", "isUsed", "isReferenced"]);
 
-const RECORD_INFO_KEYS = new Set(['isAbstract', 'isPolymorphic', 'canPassInRegisters']);
+const RECORD_INFO_KEYS = new Set(["isAbstract", "isPolymorphic", "canPassInRegisters"]);
 
 /* System-library namespaces (std, __gnu_cxx, ...) hold megabytes of
  * declarations nobody binds. */
 const SYSTEM_NAMESPACE = /^(std|__\w*)$/;
 
-const LOC_KEYS = new Set(['file', 'line', 'spellingLoc', 'expansionLoc']);
+const LOC_KEYS = new Set(["file", "line", "spellingLoc", "expansionLoc"]);
 
-const EXPR_KEYS = new Set(['kind', 'value', 'opcode', 'inner', 'referencedDecl']);
+const EXPR_KEYS = new Set(["kind", "value", "opcode", "inner", "referencedDecl"]);
 
 const EXPR_KIND = /(Expr|Literal|Operator)$/;
 
@@ -33,38 +33,38 @@ const EXPR_KIND = /(Expr|Literal|Operator)$/;
  */
 function nodePolicy(parent, kind) {
   switch (parent) {
-    case 'TranslationUnitDecl':
-      return TOP_KINDS.has(kind) ? 'full' : 'shallow';
-    case 'NamespaceDecl':
-    case 'LinkageSpecDecl':
-      return TOP_KINDS.has(kind) ? 'full' : 'skip';
-    case 'FunctionDecl':
-    case 'CXXMethodDecl':
-    case 'CXXConstructorDecl':
-    case 'CXXDestructorDecl':
-      return kind === 'ParmVarDecl' ? 'full' : 'skip';
-    case 'ParmVarDecl':
-      return EXPR_KIND.test(kind) ? 'expr' : 'skip';
-    case 'EnumDecl':
-      return kind === 'EnumConstantDecl' ? 'full' : 'skip';
-    case 'RecordDecl':
-      return kind === 'FieldDecl' || kind === 'RecordDecl' || kind === 'EnumDecl' || kind === 'AlignedAttr' ? 'full' : kind === 'PackedAttr' ? 'leaf' : 'skip';
-    case 'ClassTemplateDecl':
-      return kind === 'CXXRecordDecl' || kind === 'ClassTemplateSpecializationDecl' ? 'full' : kind === 'TemplateTypeParmDecl' || kind === 'NonTypeTemplateParmDecl' ? 'leaf' : 'skip';
-    case 'ClassTemplateSpecializationDecl':
-      return kind === 'TemplateArgument' ? 'leaf' : CLASS_KINDS.has(kind) ? 'full' : 'skip';
-    case 'CXXRecordDecl':
-      return CLASS_KINDS.has(kind) || kind === 'AlignedAttr' ? 'full' : kind === 'AccessSpecDecl' || kind === 'PackedAttr' || kind === 'FinalAttr' ? 'leaf' : 'skip';
-    case 'TypedefDecl':
-    case 'TypeAliasDecl':
-      return kind === 'ElaboratedType' ? 'leaf' : 'skip';
-    case 'VarDecl':
-    case 'EnumConstantDecl':
-    case 'FieldDecl':
-    case 'AlignedAttr':
-      return EXPR_KIND.test(kind) ? 'expr' : 'skip';
+    case "TranslationUnitDecl":
+      return TOP_KINDS.has(kind) ? "full" : "shallow";
+    case "NamespaceDecl":
+    case "LinkageSpecDecl":
+      return TOP_KINDS.has(kind) ? "full" : "skip";
+    case "FunctionDecl":
+    case "CXXMethodDecl":
+    case "CXXConstructorDecl":
+    case "CXXDestructorDecl":
+      return kind === "ParmVarDecl" ? "full" : "skip";
+    case "ParmVarDecl":
+      return EXPR_KIND.test(kind) ? "expr" : "skip";
+    case "EnumDecl":
+      return kind === "EnumConstantDecl" ? "full" : "skip";
+    case "RecordDecl":
+      return kind === "FieldDecl" || kind === "RecordDecl" || kind === "EnumDecl" || kind === "AlignedAttr" ? "full" : kind === "PackedAttr" ? "leaf" : "skip";
+    case "ClassTemplateDecl":
+      return kind === "CXXRecordDecl" || kind === "ClassTemplateSpecializationDecl" ? "full" : kind === "TemplateTypeParmDecl" || kind === "NonTypeTemplateParmDecl" ? "leaf" : "skip";
+    case "ClassTemplateSpecializationDecl":
+      return kind === "TemplateArgument" ? "leaf" : CLASS_KINDS.has(kind) ? "full" : "skip";
+    case "CXXRecordDecl":
+      return CLASS_KINDS.has(kind) || kind === "AlignedAttr" ? "full" : kind === "AccessSpecDecl" || kind === "PackedAttr" || kind === "FinalAttr" ? "leaf" : "skip";
+    case "TypedefDecl":
+    case "TypeAliasDecl":
+      return kind === "ElaboratedType" ? "leaf" : "skip";
+    case "VarDecl":
+    case "EnumConstantDecl":
+    case "FieldDecl":
+    case "AlignedAttr":
+      return EXPR_KIND.test(kind) ? "expr" : "skip";
   }
-  return EXPR_KIND.test(parent) && EXPR_KIND.test(kind) ? 'expr' : 'skip';
+  return EXPR_KIND.test(parent) && EXPR_KIND.test(kind) ? "expr" : "skip";
 }
 
 const { NEED_DATA, NONE, OBJECT, OBJECT_END, ARRAY, ARRAY_END, KEY, STRING, TRUE, FALSE, NULL, NUMBER } = JsonParser;
@@ -81,7 +81,7 @@ export class AstCondenser {
 
   next() {
     const t = this.p.parse();
-    if(t === NEED_DATA) throw new Error('unexpected end of clang AST JSON');
+    if(t === NEED_DATA) throw new Error("unexpected end of clang AST JSON");
     return t;
   }
 
@@ -98,14 +98,14 @@ export class AstCondenser {
       case NULL:
         return null;
     }
-    throw new Error('unexpected clang AST JSON token ' + t);
+    throw new Error("unexpected clang AST JSON token " + t);
   }
 
   /* Consumes the rest of a value whose first token `t` was already read. */
   skip(t) {
     if(t !== OBJECT && t !== ARRAY) return;
 
-    for(let depth = 1, key = null; depth > 0; ) {
+    for(let depth = 1, key = null; depth > 0;) {
       const u = this.next();
 
       if(u === KEY) {
@@ -113,7 +113,7 @@ export class AstCondenser {
         continue;
       }
 
-      if(u === NUMBER && key === 'line') this.line = Number(this.p.token);
+      if(u === NUMBER && key === "line") this.line = Number(this.p.token);
       key = null;
 
       if(u === OBJECT || u === ARRAY) depth++;
@@ -126,15 +126,15 @@ export class AstCondenser {
   plain(t, keys) {
     if(t === OBJECT) {
       const o = {};
-    
-      for(let u; (u = this.next()) !== OBJECT_END; ) {
+
+      for(let u; (u = this.next()) !== OBJECT_END;) {
         const key = this.p.token;
         const v = this.next();
-    
+
         if(keys && !keys.has(key)) this.skip(v);
         else o[key] = this.plain(v, keys);
 
-        if(key === 'line' && typeof o[key] === 'number') this.line = o[key];
+        if(key === "line" && typeof o[key] === "number") this.line = o[key];
       }
 
       return o;
@@ -142,9 +142,9 @@ export class AstCondenser {
 
     if(t === ARRAY) {
       const a = [];
-      
-      for(let u; (u = this.next()) !== ARRAY_END; ) a.push(this.plain(u, keys));
-      
+
+      for(let u; (u = this.next()) !== ARRAY_END;) a.push(this.plain(u, keys));
+
       return a;
     }
 
@@ -156,42 +156,42 @@ export class AstCondenser {
   node(parent) {
     const o = {};
     let kind,
-      policy = 'full';
+      policy = "full";
 
-    for(let u; (u = this.next()) !== OBJECT_END; ) {
+    for(let u; (u = this.next()) !== OBJECT_END;) {
       const key = this.p.token;
       const v = this.next();
 
       if(kind === undefined) {
         o[key] = this.scalar(v);
 
-        if(key === 'kind') {
+        if(key === "kind") {
           kind = o.kind;
-          policy = parent === null ? 'full' : nodePolicy(parent, kind);
-        
-          if(policy === 'skip') {
+          policy = parent === null ? "full" : nodePolicy(parent, kind);
+
+          if(policy === "skip") {
             this.skip(OBJECT);
             return null;
           }
         }
-      } else if(policy === 'expr') {
-        if(EXPR_KEYS.has(key) && key !== 'inner') o[key] = this.plain(v, null);
-        else if(key === 'inner') o.inner = this.inner(kind, v);
+      } else if(policy === "expr") {
+        if(EXPR_KEYS.has(key) && key !== "inner") o[key] = this.plain(v, null);
+        else if(key === "inner") o.inner = this.inner(kind, v);
         else this.skip(v);
-      } else if(key === 'loc') {
-        if(parent === 'TranslationUnitDecl' || parent === null) o.loc = this.plain(v, LOC_KEYS);
+      } else if(key === "loc") {
+        if(parent === "TranslationUnitDecl" || parent === null) o.loc = this.plain(v, LOC_KEYS);
         else this.skip(v);
 
-        if(policy !== 'shallow') o.line = this.line;
-      } else if(key === 'inner') {
-        if(policy === 'full') o.inner = this.inner(kind, v);
+        if(policy !== "shallow") o.line = this.line;
+      } else if(key === "inner") {
+        if(policy === "full") o.inner = this.inner(kind, v);
         else this.skip(v);
-      } else if(DROP_KEYS.has(key) || (policy === 'shallow' && key !== 'name')) {
+      } else if(DROP_KEYS.has(key) || (policy === "shallow" && key !== "name")) {
         this.skip(v);
       } else {
-        o[key] = this.plain(v, key === 'definitionData' ? RECORD_INFO_KEYS : null);
+        o[key] = this.plain(v, key === "definitionData" ? RECORD_INFO_KEYS : null);
 
-        if(kind === 'NamespaceDecl' && key === 'name' && SYSTEM_NAMESPACE.test(o.name)) policy = 'shallow';
+        if(kind === "NamespaceDecl" && key === "name" && SYSTEM_NAMESPACE.test(o.name)) policy = "shallow";
       }
     }
 
@@ -202,16 +202,16 @@ export class AstCondenser {
     if(t !== ARRAY) throw new Error('clang AST: "inner" is not an array');
     const a = [];
 
-    for(let u; (u = this.next()) !== ARRAY_END; ) {
+    for(let u; (u = this.next()) !== ARRAY_END;) {
       const n = this.node(parent);
       if(n) a.push(n);
     }
-    
+
     return a;
   }
 
   root() {
-    if(this.next() !== OBJECT) throw new Error('clang AST: root is not an object');
+    if(this.next() !== OBJECT) throw new Error("clang AST: root is not an object");
     return this.node(null);
   }
 }

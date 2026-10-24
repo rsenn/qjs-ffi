@@ -1,6 +1,6 @@
-import { SIZES, arrayOf, bunLike } from './ffi-types.js';
-import { scalarOf, recordOf, mergeIRs, identOf } from './emit/structs.js';
-import { hidesSize } from './emit/common.js';
+import { SIZES, arrayOf, bunLike } from "./ffi-types.js";
+import { scalarOf, recordOf, mergeIRs, identOf } from "./emit/structs.js";
+import { hidesSize } from "./emit/common.js";
 
 /* Structs passed or returned by value. CFunction takes such a type as an array
  * of the struct's members' types in memory order (a nested struct a nested
@@ -16,7 +16,7 @@ const alignUp = (n, a) => Math.ceil(n / a) * a;
 
 /* The libffi size and alignment of an element: a type name or a nested list. */
 function infoOf(el) {
-  if(typeof el === 'string') return { size: SIZES[el], align: SIZES[el] };
+  if(typeof el === "string") return { size: SIZES[el], align: SIZES[el] };
 
   let at = 0;
   let align = 1;
@@ -42,10 +42,10 @@ const MEMORY_CLASS = 16;
 function pieces(from, to) {
   const out = [];
 
-  for(let b = from; b < to; ) {
+  for(let b = from; b < to;) {
     const n = [8, 4, 2, 1].find(n => b % n === 0 && b + n <= to);
 
-    out.push({ off: b, size: n, elems: ['u' + 8 * n] });
+    out.push({ off: b, size: n, elems: ["u" + 8 * n] });
     b += n;
   }
 
@@ -60,9 +60,9 @@ let anonCount = 0;
  * `struct { float r, g, b, a; }`), which is then the list of the whole. */
 function anonElements(f, index, memo, depth) {
   const { type, fields } = f.members;
-  const of = list => elementsOf({ name: '(anonymous ' + anonCount++ + ')', type: 'struct', size: f.size, fields: list }, index, memo, depth);
+  const of = list => elementsOf({ name: "(anonymous " + anonCount++ + ")", type: "struct", size: f.size, fields: list }, index, memo, depth);
 
-  if(type === 'struct') return of(fields);
+  if(type === "struct") return of(fields);
 
   const lists = fields.filter(m => !m.static).map(m => of([m]));
 
@@ -84,9 +84,9 @@ function elementsOf(rec, index, memo, depth = 0) {
 
   const fail = reason => ({ reason });
   const result = (() => {
-    if(depth >= MAX_DEPTH) return fail('nested more than ' + MAX_DEPTH + ' deep');
-    if(rec.type !== 'struct') return fail(rec.type + ' is not supported');
-    if(rec.size === null || rec.size === undefined) return fail('size unknown');
+    if(depth >= MAX_DEPTH) return fail("nested more than " + MAX_DEPTH + " deep");
+    if(rec.type !== "struct") return fail(rec.type + " is not supported");
+    if(rec.size === null || rec.size === undefined) return fail("size unknown");
 
     const spans = [];
     const bitBytes = new Set();
@@ -94,7 +94,7 @@ function elementsOf(rec, index, memo, depth = 0) {
 
     for(const f of rec.fields) {
       if(f.static) continue;
-      if(f.offset === null || f.offset === undefined) return fail('member ' + f.name + ': offset unknown');
+      if(f.offset === null || f.offset === undefined) return fail("member " + f.name + ": offset unknown");
 
       if(f.bits !== undefined) {
         const start = f.offset * 8 + f.bitOffset;
@@ -103,7 +103,7 @@ function elementsOf(rec, index, memo, depth = 0) {
         continue;
       }
 
-      if(f.size === null || f.size === undefined) return fail('member ' + f.name + ': size unknown');
+      if(f.size === null || f.size === undefined) return fail("member " + f.name + ": size unknown");
 
       const arr = arrayOf(f.type);
       const elemType = arr ? arr.elem : f.type;
@@ -116,34 +116,34 @@ function elementsOf(rec, index, memo, depth = 0) {
 
       if(anon && !anon.reason) {
         el = anon.elements;
-      } else if(nestedRec && nestedRec.type === 'struct') {
+      } else if(nestedRec && nestedRec.type === "struct") {
         const r = elementsOf(nestedRec, index, memo, depth + 1);
 
-        if(r.reason) return fail('member ' + f.name + ': ' + r.reason);
+        if(r.reason) return fail("member " + f.name + ": " + r.reason);
         if(r.opaque) opaque = true;
         el = r.elements;
-      } else if((nestedRec && nestedRec.type === 'union') || /^(struct|union)\b/.test(elemType.trim())) {
+      } else if((nestedRec && nestedRec.type === "union") || /^(struct|union)\b/.test(elemType.trim())) {
         opaque = true;
         spans.push(...pieces(f.offset, f.offset + f.size).map(p => ({ ...p, name: f.name })));
         continue;
       } else {
         el = scalarOf(arr ? null : f.ffi, elemType, index.typedefs);
-        if(!(el in SIZES)) return fail('member ' + f.name + ' has type ' + f.type);
+        if(!(el in SIZES)) return fail("member " + f.name + " has type " + f.type);
       }
 
-      if(infoOf(el).size * count !== f.size) return fail('member ' + f.name + ': size ' + f.size + ' is not ' + count + ' of its element');
+      if(infoOf(el).size * count !== f.size) return fail("member " + f.name + ": size " + f.size + " is not " + count + " of its element");
 
       spans.push({ off: f.offset, size: f.size, name: f.name, elems: Array.from({ length: count }, () => el) });
     }
 
     spans.sort((a, b) => a.off - b.off);
 
-    for(let i = 1; i < spans.length; i++) if(spans[i].off < spans[i - 1].off + spans[i - 1].size) return fail('members overlap');
-    for(const s of spans) for(let b = s.off; b < s.off + s.size; b++) if(bitBytes.has(b)) return fail('a bitfield shares bytes with member ' + s.name);
+    for(let i = 1; i < spans.length; i++) if(spans[i].off < spans[i - 1].off + spans[i - 1].size) return fail("members overlap");
+    for(const s of spans) for (let b = s.off; b < s.off + s.size; b++) if(bitBytes.has(b)) return fail("a bitfield shares bytes with member " + s.name);
 
     const items = [...spans];
 
-    for(let b = 0; b < rec.size; ) {
+    for(let b = 0; b < rec.size;) {
       if(!bitBytes.has(b)) {
         b++;
         continue;
@@ -153,7 +153,7 @@ function elementsOf(rec, index, memo, depth = 0) {
 
       while(bitBytes.has(end)) end++;
 
-      items.push(...pieces(b, end).map(p => ({ ...p, name: 'a bitfield' })));
+      items.push(...pieces(b, end).map(p => ({ ...p, name: "a bitfield" })));
       b = end;
     }
 
@@ -168,7 +168,7 @@ function elementsOf(rec, index, memo, depth = 0) {
         const info = infoOf(el);
         const placed = alignUp(at, info.align);
 
-        if(placed !== (i === 0 ? it.off : at)) return fail('libffi would put ' + it.name + ' at ' + placed + ', not ' + it.off);
+        if(placed !== (i === 0 ? it.off : at)) return fail("libffi would put " + it.name + " at " + placed + ", not " + it.off);
 
         elements.push(el);
         at = placed + info.size;
@@ -176,7 +176,7 @@ function elementsOf(rec, index, memo, depth = 0) {
       }
     }
 
-    if(alignUp(at, align) !== rec.size) return fail('size ' + rec.size + ' where libffi computes ' + alignUp(at, align));
+    if(alignUp(at, align) !== rec.size) return fail("size " + rec.size + " where libffi computes " + alignUp(at, align));
 
     return { elements, opaque };
   })();
@@ -189,18 +189,18 @@ function elementsOf(rec, index, memo, depth = 0) {
  * with a class in the output (--structs): a function returning one of them by
  * value then returns that class, otherwise the bare ArrayBuffer. */
 export function prepareByValue(ir, opts) {
-  opts.structClasses = new Map(opts.structs ? ir.structs.filter(s => s.type === 'struct' && s.size != null).map(s => [s.name, identOf(s.name)]) : []);
+  opts.structClasses = new Map(opts.structs ? ir.structs.filter(s => s.type === "struct" && s.size != null).map(s => [s.name, identOf(s.name)]) : []);
 }
 
 /* For bun:ffi, which passes no struct by value and has no varargs: moves
  * every function and method that takes or returns a struct, or is
  * variadic, to ir.skipped. For target `deno` only the variadic ones move. */
 export function dropForBun(ir, target) {
-  const byValue = e => [e.returns, ...e.args.map(a => a.slice(a.indexOf(': ') + 2))].some(t => t && t.startsWith('struct ') && !t.endsWith('*'));
+  const byValue = e => [e.returns, ...e.args.map(a => a.slice(a.indexOf(": ") + 2))].some(t => t && t.startsWith("struct ") && !t.endsWith("*"));
   const keep = (list, label) =>
     list.filter(e => {
-      const rt = target === 'deno' ? 'deno' : target === 'node' ? 'node:ffi' : 'bun:ffi';
-      const reason = target !== 'deno' && byValue(e) ? 'a struct passed or returned by value is not supported by ' + rt : e.variadic ? 'a variadic function is not supported by ' + rt : null;
+      const rt = target === "deno" ? "deno" : target === "node" ? "node:ffi" : "bun:ffi";
+      const reason = target !== "deno" && byValue(e) ? "a struct passed or returned by value is not supported by " + rt : e.variadic ? "a variadic function is not supported by " + rt : null;
 
       if(reason) ir.skipped.push({ name: label(e), reason });
       return !reason;
@@ -209,8 +209,8 @@ export function dropForBun(ir, target) {
   ir.methods = keep(ir.methods, e => e.name);
 
   for(const c of ir.classes || []) {
-    c.methods = keep(c.methods, e => c.name + '::' + e.name);
-    c.constructors = keep(c.constructors, e => c.name + '::' + e.name);
+    c.methods = keep(c.methods, e => c.name + "::" + e.name);
+    c.constructors = keep(c.constructors, e => c.name + "::" + e.name);
   }
 }
 
@@ -242,7 +242,7 @@ export function prepareClassTypes(ir, opts, classes) {
   const shorts = new Map();
 
   for(const name of idents.keys()) {
-    const short = name.slice(name.lastIndexOf('::') + 2);
+    const short = name.slice(name.lastIndexOf("::") + 2);
 
     shorts.set(short, shorts.has(short) ? null : name);
   }
@@ -268,7 +268,14 @@ export function resolveByValue(ir, opts) {
     return base && base.byValue !== false ? [...flat(base), ...c.fields] : c.fields;
   };
 
-  const index = mergeIRs([{ structs: [...ir.structs, ...(ir.classes || []).filter(c => c.byValue && c.type !== 'union').map(c => ({ ...c, type: 'struct', fields: flat(c), bases: [] }))], classes: [], typedefs: ir.typedefs || [], enums: [] }]);
+  const index = mergeIRs([
+    {
+      structs: [...ir.structs, ...(ir.classes || []).filter(c => c.byValue && c.type !== "union").map(c => ({ ...c, type: "struct", fields: flat(c), bases: [] }))],
+      classes: [],
+      typedefs: ir.typedefs || [],
+      enums: [],
+    },
+  ]);
   const memo = new Map();
 
   ir.byValue = ir.byValue || {};
@@ -278,7 +285,7 @@ export function resolveByValue(ir, opts) {
   const shorts = new Map();
 
   for(const name of index.structs.keys()) {
-    const short = name.replace(/^(?:\w+::)+/, '');
+    const short = name.replace(/^(?:\w+::)+/, "");
 
     shorts.set(short, shorts.has(short) ? null : name);
   }
@@ -288,21 +295,21 @@ export function resolveByValue(ir, opts) {
     if(!entry.byValue) return null;
 
     for(const b of entry.byValue) {
-      const where = b.at < 0 ? 'return type' : 'parameter ' + entry.args[b.at].slice(0, entry.args[b.at].indexOf(': '));
+      const where = b.at < 0 ? "return type" : "parameter " + entry.args[b.at].slice(0, entry.args[b.at].indexOf(": "));
       const name = recordOf(b.name, index) || (shorts.get(b.name.trim()) ? recordOf(shorts.get(b.name.trim()), index) : undefined);
       const rec = name && index.structs.get(name);
 
-      if(!rec) return where + ': ' + b.reason;
+      if(!rec) return where + ": " + b.reason;
 
       const r = elementsOf(rec, index, memo);
 
-      if(r.reason) return where + ': struct ' + name + ' passed by value: ' + r.reason;
-      if(r.opaque && rec.size <= MEMORY_CLASS) return where + ': struct ' + name + ' passed by value: a member is an anonymous struct or union, whose layout matters up to ' + MEMORY_CLASS + ' bytes';
+      if(r.reason) return where + ": struct " + name + " passed by value: " + r.reason;
+      if(r.opaque && rec.size <= MEMORY_CLASS) return where + ": struct " + name + " passed by value: a member is an anonymous struct or union, whose layout matters up to " + MEMORY_CLASS + " bytes";
 
       ir.byValue[name] = r.elements;
 
-      if(b.at < 0) entry.returns = 'struct ' + name;
-      else entry.args[b.at] = entry.args[b.at].slice(0, entry.args[b.at].indexOf(': ') + 2) + 'struct ' + name;
+      if(b.at < 0) entry.returns = "struct " + name;
+      else entry.args[b.at] = entry.args[b.at].slice(0, entry.args[b.at].indexOf(": ") + 2) + "struct " + name;
     }
 
     delete entry.byValue;
@@ -320,7 +327,7 @@ export function resolveByValue(ir, opts) {
   ir.methods = keep(ir.methods, e => e.name);
 
   for(const c of ir.classes || []) {
-    c.methods = keep(c.methods, e => c.name + '::' + e.name);
-    c.constructors = keep(c.constructors, e => c.name + '::' + e.name);
+    c.methods = keep(c.methods, e => c.name + "::" + e.name);
+    c.constructors = keep(c.constructors, e => c.name + "::" + e.name);
   }
 }

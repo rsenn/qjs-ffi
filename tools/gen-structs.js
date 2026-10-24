@@ -51,7 +51,7 @@
  *   -o, --output=<path>   write the module here instead of stdout
  *   -h, --help        show this help
  */
-import { writeFileSync } from 'fs';
+import { writeFileSync } from "fs";
 import { loadIR, generate, generateC } from "./gen-bindings/emit/structs.js";
 
 function usage() {

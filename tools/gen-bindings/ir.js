@@ -1,7 +1,7 @@
-import { runLayoutDump } from './clang.js';
-import { normalizeType, splitFunctionType, sizeOfC, mapCType } from './types.js';
-import { header } from './emit/common.js';
-import { assignVtableSlots, unslottedVirtuals } from './vtable.js';
+import { runLayoutDump } from "./clang.js";
+import { normalizeType, splitFunctionType, sizeOfC, mapCType } from "./types.js";
+import { header } from "./emit/common.js";
+import { assignVtableSlots, unslottedVirtuals } from "./vtable.js";
 
 /* Builds a name -> underlying-type-string map from every top-level
  * TypedefDecl, for resolving a return type's typedef name in mapCType().
@@ -20,7 +20,7 @@ export function collectTypedefs(root) {
   // and by the bare one, which is how clang spells it where it is in scope:
   // `typedef double StkFloat;` in namespace stk is "StkFloat" in stk's methods
   walkDecls(root.inner, (node, scope) => {
-    if((node.kind === 'TypedefDecl' || node.kind === 'TypeAliasDecl') && node.name && node.type) {
+    if((node.kind === "TypedefDecl" || node.kind === "TypeAliasDecl") && node.name && node.type) {
       add(scope + node.name, node);
       add(node.name, node);
     }
@@ -37,7 +37,7 @@ export function collectTypedefs(root) {
  */
 function firstValue(node) {
   for(const x of node.inner || []) {
-    const v = 'value' in x ? x.value : firstValue(x);
+    const v = "value" in x ? x.value : firstValue(x);
 
     if(v !== undefined) return v;
   }
@@ -50,7 +50,7 @@ function enumConstants(enumDecl) {
   let next = 0;
 
   for(const c of enumDecl.inner || []) {
-    if(c.kind !== 'EnumConstantDecl') continue;
+    if(c.kind !== "EnumConstantDecl") continue;
 
     const init = firstValue(c);
     const value = init !== undefined ? Number(init) : next;
@@ -82,14 +82,14 @@ export function collectEnumIndex(root) {
   const typedefToEnumId = {};
 
   walkDecls(root.inner, (node, scope) => {
-    if(node.kind === 'EnumDecl' && node.inner) {
+    if(node.kind === "EnumDecl" && node.inner) {
       enumsById[node.id] = { name: node.name || null, constants: enumConstants(node) };
       if(node.name) tagToId[scope + node.name] = node.id;
-    } else if(node.kind === 'TypedefDecl' && node.inner) {
-      const elaborated = node.inner.find(c => c.kind === 'ElaboratedType');
+    } else if(node.kind === "TypedefDecl" && node.inner) {
+      const elaborated = node.inner.find(c => c.kind === "ElaboratedType");
       const owned = elaborated && elaborated.ownedTagDecl;
 
-      if(owned && owned.kind === 'EnumDecl') typedefToEnumId[scope + node.name] = owned.id;
+      if(owned && owned.kind === "EnumDecl") typedefToEnumId[scope + node.name] = owned.id;
     }
   });
 
@@ -102,26 +102,26 @@ export function collectEnumIndex(root) {
  * level in force at the start of `nodes` (undefined: public, as in a
  * namespace).
  */
-export function walkDecls(nodes, fn, scope = '', access) {
+export function walkDecls(nodes, fn, scope = "", access) {
   for(const node of nodes || []) {
-    if(node.kind === 'AccessSpecDecl') {
+    if(node.kind === "AccessSpecDecl") {
       access = node.access;
       continue;
     }
-    if(access && access !== 'public') continue;
+    if(access && access !== "public") continue;
 
     fn(node, scope);
 
-    if(node.kind === 'LinkageSpecDecl') walkDecls(node.inner, fn, scope);
-    else if(node.kind === 'NamespaceDecl' && node.name) walkDecls(node.inner, fn, scope + node.name + '::');
-    else if(node.kind === 'CXXRecordDecl' && node.name && !node.isImplicit) walkDecls(node.inner, fn, scope + node.name + '::', node.tagUsed === 'class' ? 'private' : 'public');
+    if(node.kind === "LinkageSpecDecl") walkDecls(node.inner, fn, scope);
+    else if(node.kind === "NamespaceDecl" && node.name) walkDecls(node.inner, fn, scope + node.name + "::");
+    else if(node.kind === "CXXRecordDecl" && node.name && !node.isImplicit) walkDecls(node.inner, fn, scope + node.name + "::", node.tagUsed === "class" ? "private" : "public");
   }
 }
 
 /* C++ declarations that live inside a class and are collected on their own. */
-const NESTED_KINDS = new Set(['CXXRecordDecl', 'EnumDecl', 'TypedefDecl', 'TypeAliasDecl']);
+const NESTED_KINDS = new Set(["CXXRecordDecl", "EnumDecl", "TypedefDecl", "TypeAliasDecl"]);
 
-const CLASS_MEMBER_KINDS = new Set(['CXXMethodDecl', 'CXXConstructorDecl', 'CXXDestructorDecl']);
+const CLASS_MEMBER_KINDS = new Set(["CXXMethodDecl", "CXXConstructorDecl", "CXXDestructorDecl"]);
 
 /* In C++ mode every struct is a CXXRecordDecl; one that declares no
  * methods and has no bases is still just data, i.e. an IR `structs` entry. */
@@ -132,10 +132,10 @@ function isPlainRecord(node) {
 /* The spelling clang gives an instantiation, `Size_<int>` or `Vec<float, 3>`,
  * or null when an argument is neither a type nor an integer. */
 function specializationName(node) {
-  const args = (node.inner || []).filter(c => c.kind === 'TemplateArgument');
+  const args = (node.inner || []).filter(c => c.kind === "TemplateArgument");
 
-  if(!args.length || args.some(a => !(a.type || typeof a.value === 'number'))) return null;
-  return node.name + '<' + args.map(a => (a.type ? a.type.qualType : a.value)).join(', ') + '>';
+  if(!args.length || args.some(a => !(a.type || typeof a.value === "number"))) return null;
+  return node.name + "<" + args.map(a => (a.type ? a.type.qualType : a.value)).join(", ") + ">";
 }
 
 /* Replaces every class template of the AST by one plain struct per
@@ -155,9 +155,9 @@ export function lowerSpecializations(ast) {
     let from = 0;
 
     for(let i = 0; i < text.length; i++) {
-      if(text[i] === '<') depth++;
-      else if(text[i] === '>') depth--;
-      else if(text[i] === ',' && depth === 0) (list.push(text.slice(from, i).trim()), (from = i + 1));
+      if(text[i] === "<") depth++;
+      else if(text[i] === ">") depth--;
+      else if(text[i] === "," && depth === 0) (list.push(text.slice(from, i).trim()), (from = i + 1));
     }
 
     list.push(text.slice(from).trim());
@@ -167,15 +167,17 @@ export function lowerSpecializations(ast) {
   /* one struct for the instantiation `name` with the argument spellings
    * `args`; an instance a field names that clang did not list is made too */
   const instantiate = (template, args, extra) => {
-    const name = template.name + '<' + args.join(', ') + '>';
+    const name = template.name + "<" + args.join(", ") + ">";
 
     if(made.has(name) || args.length !== template.params.length) return;
     made.add(name);
 
-    const subst = t => t && template.params.reduce((s, p, i) => s.replace(new RegExp('\\b' + p + '\\b', 'g'), args[i]), t);
-    const fields = template.pattern.inner.filter(c => c.kind === 'FieldDecl').map(f => ({ ...f, type: { ...f.type, qualType: subst(f.type.qualType), ...(f.type.desugaredQualType ? { desugaredQualType: subst(f.type.desugaredQualType) } : {}) } }));
+    const subst = t => t && template.params.reduce((s, p, i) => s.replace(new RegExp("\\b" + p + "\\b", "g"), args[i]), t);
+    const fields = template.pattern.inner
+      .filter(c => c.kind === "FieldDecl")
+      .map(f => ({ ...f, type: { ...f.type, qualType: subst(f.type.qualType), ...(f.type.desugaredQualType ? { desugaredQualType: subst(f.type.desugaredQualType) } : {}) } }));
 
-    extra.push({ kind: 'CXXRecordDecl', name, tagUsed: template.pattern.tagUsed, completeDefinition: true, inner: fields });
+    extra.push({ kind: "CXXRecordDecl", name, tagUsed: template.pattern.tagUsed, completeDefinition: true, inner: fields });
 
     for(const f of fields) {
       const m = /^(?:const )?(\w+)<(.*)>(?: \[\d+\])*$/.exec(f.type.qualType.trim());
@@ -186,11 +188,12 @@ export function lowerSpecializations(ast) {
 
   const collect = nodes => {
     for(const node of nodes) {
-      if(node.kind === 'NamespaceDecl' || node.kind === 'LinkageSpecDecl') collect(node.inner || []);
-      else if(node.kind === 'ClassTemplateDecl') {
-        const pattern = (node.inner || []).find(c => c.kind === 'CXXRecordDecl');
+      if(node.kind === "NamespaceDecl" || node.kind === "LinkageSpecDecl") collect(node.inner || []);
+      else if(node.kind === "ClassTemplateDecl") {
+        const pattern = (node.inner || []).find(c => c.kind === "CXXRecordDecl");
 
-        if(pattern && pattern.completeDefinition && !(pattern.bases || []).length) templates.set(node.name, { name: node.name, pattern, params: (node.inner || []).filter(c => c.kind === 'TemplateTypeParmDecl' || c.kind === 'NonTypeTemplateParmDecl').map(c => c.name) });
+        if(pattern && pattern.completeDefinition && !(pattern.bases || []).length)
+          templates.set(node.name, { name: node.name, pattern, params: (node.inner || []).filter(c => c.kind === "TemplateTypeParmDecl" || c.kind === "NonTypeTemplateParmDecl").map(c => c.name) });
       }
     }
   };
@@ -199,19 +202,23 @@ export function lowerSpecializations(ast) {
     const out = [];
 
     for(const node of nodes) {
-      if(node.kind === 'NamespaceDecl' || node.kind === 'LinkageSpecDecl') {
+      if(node.kind === "NamespaceDecl" || node.kind === "LinkageSpecDecl") {
         if(node.inner) node.inner = lower(node.inner);
         out.push(node);
-      } else if(node.kind === 'ClassTemplateDecl') {
+      } else if(node.kind === "ClassTemplateDecl") {
         const template = templates.get(node.name);
         const extra = [];
 
         if(template)
-          for(const spec of (node.inner || []).filter(c => c.kind === 'ClassTemplateSpecializationDecl')) {
-            const args = (spec.inner || []).filter(c => c.kind === 'TemplateArgument');
+          for(const spec of (node.inner || []).filter(c => c.kind === "ClassTemplateSpecializationDecl")) {
+            const args = (spec.inner || []).filter(c => c.kind === "TemplateArgument");
 
-            if(args.some(a => !(a.type || typeof a.value === 'number'))) continue;
-            instantiate(template, args.map(a => (a.type ? a.type.qualType : String(a.value))), extra);
+            if(args.some(a => !(a.type || typeof a.value === "number"))) continue;
+            instantiate(
+              template,
+              args.map(a => (a.type ? a.type.qualType : String(a.value))),
+              extra,
+            );
           }
 
         extra.forEach((e, i) => out.push(i === 0 ? { ...e, loc: node.loc, line: node.line } : e));
@@ -248,7 +255,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     const e = id !== undefined && enumIndex.enumsById[id];
     if(!e || enumIds.has(id)) return;
     enumIds.add(id);
-    ir.enums.push({ id: idPrefix + id, name: e.name, kind: 'enum', fields: e.constants.map(c => ({ name: c.name, type: 'number', value: c.value })) });
+    ir.enums.push({ id: idPrefix + id, name: e.name, kind: "enum", fields: e.constants.map(c => ({ name: c.name, type: "number", value: c.value })) });
   }
 
   function typeName(m, qualType) {
@@ -260,7 +267,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
     if(!isSourceFile(currentFile)) continue;
 
-    collectDecl(node, '');
+    collectDecl(node, "");
   }
 
   /* `scope` is the qualified-name prefix of the namespace/class `node` is in. */
@@ -268,31 +275,31 @@ export function collectIR(root, isSourceFile, idPrefix) {
     if(node.isImplicit) return;
 
     switch (node.kind) {
-      case 'EnumDecl':
+      case "EnumDecl":
         if(node.inner) addEnum(node.id);
         break;
-      case 'RecordDecl':
+      case "RecordDecl":
         collectStruct(node, scope);
         break;
-      case 'CXXRecordDecl':
+      case "CXXRecordDecl":
         if(isPlainRecord(node)) collectStruct(node, scope);
         else collectClass(node, scope);
         break;
-      case 'VarDecl':
+      case "VarDecl":
         collectVariable(node);
         break;
-      case 'FunctionDecl':
+      case "FunctionDecl":
         collectFunction(node, scope);
         break;
-      case 'TypedefDecl':
-      case 'TypeAliasDecl':
+      case "TypedefDecl":
+      case "TypeAliasDecl":
         collectTypedef(node, scope);
         break;
-      case 'LinkageSpecDecl':
+      case "LinkageSpecDecl":
         for(const child of node.inner || []) collectDecl(child, scope);
         break;
-      case 'NamespaceDecl':
-        if(node.name) for(const child of node.inner || []) collectDecl(child, scope + node.name + '::');
+      case "NamespaceDecl":
+        if(node.name) for(const child of node.inner || []) collectDecl(child, scope + node.name + "::");
         break;
     }
   }
@@ -337,12 +344,12 @@ export function collectIR(root, isSourceFile, idPrefix) {
    * declared type like the x86-64 ABI does, up to the first field whose size
    * is unknown; the rest stay undefined. A packed record is not attempted. */
   function fallbackOffsets(node) {
-    const fields = (node.inner || []).filter(c => c.kind === 'FieldDecl');
+    const fields = (node.inner || []).filter(c => c.kind === "FieldDecl");
     const offsets = [];
     const up = (n, a) => Math.ceil(n / a) * a;
     let cursor = 0;
 
-    if((node.inner || []).some(c => c.kind === 'PackedAttr')) return offsets;
+    if((node.inner || []).some(c => c.kind === "PackedAttr")) return offsets;
 
     for(const f of fields) {
       const info = typeInfo(f.type.qualType, f.type.desugaredQualType);
@@ -350,16 +357,16 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
       if(f.isBitfield) {
         const unit = 8 * info.size;
-        const width = Number(((f.inner || []).find(x => 'value' in x) || {}).value);
+        const width = Number(((f.inner || []).find(x => "value" in x) || {}).value);
 
-        if(node.tagUsed === 'union') offsets.push(0);
+        if(node.tagUsed === "union") offsets.push(0);
         else if(width === 0) offsets.push((cursor = up(cursor, unit)));
         else {
           if((cursor % unit) + width > unit) cursor = up(cursor, unit);
           offsets.push(cursor);
           cursor += width;
         }
-      } else if(node.tagUsed === 'union') {
+      } else if(node.tagUsed === "union") {
         offsets.push(0);
       } else {
         cursor = up(cursor, 8 * info.align);
@@ -379,8 +386,8 @@ export function collectIR(root, isSourceFile, idPrefix) {
    * reference member occupies a pointer. */
   function structField(node, bitOffset, size) {
     const cType = node.type.qualType;
-    const m = mapCType((node.type && (node.type.desugaredQualType || cType)) || '', typedefs, enumIndex);
-    const field = { name: node.name || '', type: cType, offset: null, size: null };
+    const m = mapCType((node.type && (node.type.desugaredQualType || cType)) || "", typedefs, enumIndex);
+    const field = { name: node.name || "", type: cType, offset: null, size: null };
     const info = typeInfo(cType, node.type.desugaredQualType);
 
     if(size === undefined || /&$/.test(cType)) size = /&$/.test(cType) ? 8 : info ? info.size : null;
@@ -389,7 +396,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
       const unit = info ? info.size : null;
 
       field.size = unit;
-      field.bits = Number(((node.inner || []).find(x => 'value' in x) || {}).value);
+      field.bits = Number(((node.inner || []).find(x => "value" in x) || {}).value);
       field.bitOffset = null;
 
       if(bitOffset !== undefined && unit) {
@@ -411,7 +418,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
    * `members` on each such field, { type, fields } with offsets relative to
    * the anonymous record. by-value.js reads them to lay out a union. */
   function isAnon(n) {
-    return (n.kind === 'RecordDecl' || n.kind === 'CXXRecordDecl') && !n.name && !n.isImplicit && n.completeDefinition;
+    return (n.kind === "RecordDecl" || n.kind === "CXXRecordDecl") && !n.name && !n.isImplicit && n.completeDefinition;
   }
 
   function anonType(qualType) {
@@ -420,7 +427,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
   function anonMembers(node) {
     const queue = (node.inner || []).filter(isAnon);
-    const union = node.tagUsed === 'union';
+    const union = node.tagUsed === "union";
     const up = (n, a) => Math.ceil(n / a) * a;
     const fields = [];
     let size = 0;
@@ -428,7 +435,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     let cursor = 0;
     let known = true;
 
-    for(const child of (node.inner || []).filter(c => c.kind === 'FieldDecl')) {
+    for(const child of (node.inner || []).filter(c => c.kind === "FieldDecl")) {
       const rec = anonType(child.type.qualType) && queue.shift();
       const inner = rec && anonMembers(rec);
       const info = inner ? inner.layout : typeInfo(child.type.qualType, child.type.desugaredQualType);
@@ -450,26 +457,26 @@ export function collectIR(root, isSourceFile, idPrefix) {
       fields.push(f);
     }
 
-    return { members: { type: node.tagUsed || 'struct', fields }, layout: known ? { size: up(size, align), align } : null };
+    return { members: { type: node.tagUsed || "struct", fields }, layout: known ? { size: up(size, align), align } : null };
   }
 
   /* typedef / using: `type` is the FFIType name when the aliased type maps to
    * one (else the C type), `record` the struct it names, if any. */
   function collectTypedef(node, scope) {
     const name = node.name && scope + node.name;
-    if(!name || seen.has('typedef ' + name)) return;
-    seen.add('typedef ' + name);
+    if(!name || seen.has("typedef " + name)) return;
+    seen.add("typedef " + name);
 
     const cType = node.type.qualType;
     const resolved = node.type.desugaredQualType;
     const m = mapCType(resolved || cType, typedefs, enumIndex);
-    const entry = { name, kind: node.kind === 'TypeAliasDecl' ? 'using' : 'typedef', type: typeName(m, cType), cType };
-    const elaborated = (node.inner || []).find(c => c.kind === 'ElaboratedType');
+    const entry = { name, kind: node.kind === "TypeAliasDecl" ? "using" : "typedef", type: typeName(m, cType), cType };
+    const elaborated = (node.inner || []).find(c => c.kind === "ElaboratedType");
     const owned = elaborated && elaborated.ownedTagDecl;
-    const layout = (root.layouts || {})['typedef ' + name];
+    const layout = (root.layouts || {})["typedef " + name];
 
     if(resolved && resolved !== cType) entry.resolved = resolved;
-    if(owned && (owned.kind === 'RecordDecl' || owned.kind === 'CXXRecordDecl')) entry.record = owned.name ? scope + owned.name : (recordTypedefs[owned.id] || [])[0];
+    if(owned && (owned.kind === "RecordDecl" || owned.kind === "CXXRecordDecl")) entry.record = owned.name ? scope + owned.name : (recordTypedefs[owned.id] || [])[0];
     if(layout) entry.size = layout.size;
     ir.typedefs.push(entry);
   }
@@ -479,28 +486,28 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
     const aliases = recordTypedefs[node.id] || [];
     const name = node.name ? scope + node.name : aliases[0];
-    if(!name || seen.has('struct ' + name)) return;
-    seen.add('struct ' + name);
+    if(!name || seen.has("struct " + name)) return;
+    seen.add("struct " + name);
 
     const fields = [];
-    const layout = (root.layouts || {})[node.name ? (node.tagUsed || 'struct') + ' ' + name : aliases[0]];
+    const layout = (root.layouts || {})[node.name ? (node.tagUsed || "struct") + " " + name : aliases[0]];
     const offsets = layout ? layout.offsets : fallbackOffsets(node);
     let packed = false;
-    let access = node.kind === 'CXXRecordDecl' && node.tagUsed === 'class' ? 'private' : 'public';
+    let access = node.kind === "CXXRecordDecl" && node.tagUsed === "class" ? "private" : "public";
     const anon = (node.inner || []).filter(isAnon);
     let fieldIndex = 0;
 
     for(const child of node.inner || []) {
-      if(child.kind === 'AccessSpecDecl') access = child.access;
-      if(child.kind === 'PackedAttr') packed = true;
-      if(NESTED_KINDS.has(child.kind) && access === 'public') collectDecl(child, name + '::');
-      if(child.kind !== 'FieldDecl') continue;
+      if(child.kind === "AccessSpecDecl") access = child.access;
+      if(child.kind === "PackedAttr") packed = true;
+      if(NESTED_KINDS.has(child.kind) && access === "public") collectDecl(child, name + "::");
+      if(child.kind !== "FieldDecl") continue;
 
       // Every field takes a layout slot, but only public ones are listed.
       const index = fieldIndex++;
       const rec = anonType(child.type.qualType) && anon.shift();
 
-      if(access === 'public') {
+      if(access === "public") {
         const f = structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]);
 
         if(rec) {
@@ -514,14 +521,14 @@ export function collectIR(root, isSourceFile, idPrefix) {
       }
     }
 
-    const s = { name, type: node.tagUsed || 'struct', size: layout ? layout.size : null, align: layout ? layout.align : null, line: node.line === undefined ? null : node.line, methods: [], fields };
+    const s = { name, type: node.tagUsed || "struct", size: layout ? layout.size : null, align: layout ? layout.align : null, line: node.line === undefined ? null : node.line, methods: [], fields };
     if(aliases.length) s.typedefs = aliases;
     if(packed) s.packed = true;
     ir.structs.push(s);
   }
 
   function variableField(node) {
-    const qualType = (node.type && (node.type.desugaredQualType || node.type.qualType)) || '';
+    const qualType = (node.type && (node.type.desugaredQualType || node.type.qualType)) || "";
     const isConst = isConstType(qualType);
     const value = node.inner && node.inner.length ? constValue(node.inner[0]) : undefined;
     const m = mapCType(qualType, typedefs, enumIndex);
@@ -533,14 +540,14 @@ export function collectIR(root, isSourceFile, idPrefix) {
   }
 
   function collectVariable(node) {
-    if(seen.has('var ' + node.name)) return;
+    if(seen.has("var " + node.name)) return;
 
     const { field, m, isConst, value } = variableField(node);
 
     // A static variable is only worth exporting as a compile-time constant.
-    if(node.storageClass === 'static' && (!isConst || value === undefined)) return;
+    if(node.storageClass === "static" && (!isConst || value === undefined)) return;
 
-    seen.add('var ' + node.name);
+    seen.add("var " + node.name);
     ir.fields.push(field);
     addEnum(m.enumId);
   }
@@ -552,30 +559,49 @@ export function collectIR(root, isSourceFile, idPrefix) {
     const inner = (e.inner || [])[0];
 
     switch (e.kind) {
-      case 'IntegerLiteral': return Number(e.value);
-      case 'FloatingLiteral': return Number(e.value);
-      case 'CharacterLiteral': return Number(e.value);
-      case 'CXXBoolLiteralExpr': return !!e.value;
-      case 'CXXNullPtrLiteralExpr': return null;
-      case 'StringLiteral': return /^"(?:[^"\\]|\\[^x0-7])*"$/.test(e.value) ? JSON.parse(e.value) : undefined;
-      case 'ImplicitCastExpr': case 'ParenExpr': case 'ExprWithCleanups': case 'CXXDefaultArgExpr': case 'CStyleCastExpr': case 'CXXStaticCastExpr': case 'ConstantExpr': return inner && defaultValue(inner);
-      case 'DeclRefExpr': {
+      case "IntegerLiteral":
+        return Number(e.value);
+      case "FloatingLiteral":
+        return Number(e.value);
+      case "CharacterLiteral":
+        return Number(e.value);
+      case "CXXBoolLiteralExpr":
+        return !!e.value;
+      case "CXXNullPtrLiteralExpr":
+        return null;
+      case "StringLiteral":
+        return /^"(?:[^"\\]|\\[^x0-7])*"$/.test(e.value) ? JSON.parse(e.value) : undefined;
+      case "ImplicitCastExpr":
+      case "ParenExpr":
+      case "ExprWithCleanups":
+      case "CXXDefaultArgExpr":
+      case "CStyleCastExpr":
+      case "CXXStaticCastExpr":
+      case "ConstantExpr":
+        return inner && defaultValue(inner);
+      case "DeclRefExpr": {
         const d = e.referencedDecl;
-        const values = d && d.kind === 'EnumConstantDecl' ? Object.values(enumIndex.enumsById).flatMap(x => x.constants).filter(c => c.name === d.name).map(c => c.value) : [];
+        const values =
+          d && d.kind === "EnumConstantDecl"
+            ? Object.values(enumIndex.enumsById)
+                .flatMap(x => x.constants)
+                .filter(c => c.name === d.name)
+                .map(c => c.value)
+            : [];
 
         return values.length && values.every(v => v === values[0]) ? values[0] : undefined;
       }
-      case 'UnaryOperator': {
+      case "UnaryOperator": {
         const v = inner && defaultValue(inner);
 
-        if(typeof v !== 'number' && typeof v !== 'boolean') return undefined;
-        return { '-': -v, '+': +v, '~': ~v, '!': !v }[e.opcode];
+        if(typeof v !== "number" && typeof v !== "boolean") return undefined;
+        return { "-": -v, "+": +v, "~": ~v, "!": !v }[e.opcode];
       }
-      case 'BinaryOperator': {
+      case "BinaryOperator": {
         const [a, b] = (e.inner || []).map(defaultValue);
 
-        if(typeof a !== 'number' || typeof b !== 'number') return undefined;
-        return { '+': a + b, '-': a - b, '*': a * b, '<<': a << b, '>>': a >> b, '|': a | b, '&': a & b }[e.opcode];
+        if(typeof a !== "number" || typeof b !== "number") return undefined;
+        return { "+": a + b, "-": a - b, "*": a * b, "<<": a << b, ">>": a >> b, "|": a | b, "&": a & b }[e.opcode];
       }
     }
 
@@ -595,24 +621,24 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
     const retMap = mapCType(split.returnType, typedefs, enumIndex, 0, true);
     if(!retMap.supported) {
-      ir.skipped.push({ name: label, reason: 'return type: ' + retMap.reason });
+      ir.skipped.push({ name: label, reason: "return type: " + retMap.reason });
       return null;
     }
 
     const params = [];
 
     for(const child of node.inner || []) {
-      if(child.kind !== 'ParmVarDecl') continue;
+      if(child.kind !== "ParmVarDecl") continue;
 
-      const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || '';
+      const qualType = (child.type && (child.type.desugaredQualType || child.type.qualType)) || "";
       const pm = mapCType(qualType, typedefs, enumIndex, 0, true);
 
       if(!pm.supported) {
-        ir.skipped.push({ name: label, reason: 'parameter ' + (child.name || '#' + params.length) + ' (' + qualType + '): ' + pm.reason });
+        ir.skipped.push({ name: label, reason: "parameter " + (child.name || "#" + params.length) + " (" + qualType + "): " + pm.reason });
         return null;
       }
 
-      params.push({ name: child.name || 'a' + params.length, type: pm, init: (child.inner || [])[0] });
+      params.push({ name: child.name || "a" + params.length, type: pm, init: (child.inner || [])[0] });
     }
 
     /* the values of the last arguments that have a literal default */
@@ -634,7 +660,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
     return {
       isConst: split.isConst,
-      args: params.map(p => p.name + ': ' + p.type.cf),
+      args: params.map(p => p.name + ": " + p.type.cf),
       returns: retMap.cf,
       ...(defaults.length ? { defaults } : {}),
       ...(node.variadic ? { variadic: true } : {}),
@@ -644,7 +670,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
   }
 
   function collectFunction(node, scope) {
-    if(node.storageClass === 'static') return;
+    if(node.storageClass === "static") return;
 
     const cxx = node.mangledName && node.mangledName !== node.name;
     const key = cxx ? node.mangledName : node.name;
@@ -652,8 +678,8 @@ export function collectIR(root, isSourceFile, idPrefix) {
 
     const name = cxx ? scope + node.name : node.name;
 
-    if(cxx && node.name.startsWith('operator')) {
-      ir.skipped.push({ name, reason: 'operators are not supported' });
+    if(cxx && node.name.startsWith("operator")) {
+      ir.skipped.push({ name, reason: "operators are not supported" });
       return;
     }
 
@@ -663,7 +689,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     seen.add(key);
 
     const { isConst, ...description } = call;
-    ir.methods.push({ name, kind: 'function', ...(cxx ? { mangledName: node.mangledName } : {}), ...description });
+    ir.methods.push({ name, kind: "function", ...(cxx ? { mangledName: node.mangledName } : {}), ...description });
   }
 
   /* A C++ class: its public fields, constructors, methods and (single)
@@ -675,15 +701,15 @@ export function collectIR(root, isSourceFile, idPrefix) {
     if(!node.completeDefinition || !node.name) return;
 
     const name = scope + node.name;
-    if(seen.has('class ' + name)) return;
-    seen.add('class ' + name);
+    if(seen.has("class " + name)) return;
+    seen.add("class " + name);
 
-    const tag = node.tagUsed || 'class';
-    const layout = (root.layouts || {})[tag + ' ' + name];
+    const tag = node.tagUsed || "class";
+    const layout = (root.layouts || {})[tag + " " + name];
     const info = node.definitionData || {};
     const offsets = layout ? layout.offsets : fallbackOffsets(node);
     const cls = { name, type: tag, size: null, align: null, line: node.line === undefined ? null : node.line, bases: [], methods: [], fields: [], constructors: [] };
-    let access = tag === 'class' ? 'private' : 'public';
+    let access = tag === "class" ? "private" : "public";
     let fieldIndex = 0;
     const sigs = new Map();
 
@@ -691,7 +717,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
     if(info.isAbstract) cls.abstract = true;
     if(info.isPolymorphic) cls.polymorphic = true;
     if(info.canPassInRegisters && (node.bases || []).length <= 1 && !(node.bases || []).some(b => b.isVirtual)) cls.byValue = true;
-    if((node.inner || []).some(c => c.kind === 'FinalAttr')) cls.final = true;
+    if((node.inner || []).some(c => c.kind === "FinalAttr")) cls.final = true;
 
     for(const base of node.bases || []) {
       const entry = { name: base.type.desugaredQualType || base.type.qualType, access: base.access };
@@ -701,58 +727,66 @@ export function collectIR(root, isSourceFile, idPrefix) {
     }
 
     for(const child of node.inner || []) {
-      if(child.kind === 'AccessSpecDecl') {
+      if(child.kind === "AccessSpecDecl") {
         access = child.access;
         continue;
       }
 
-      if(child.kind === 'FieldDecl') {
+      if(child.kind === "FieldDecl") {
         const index = fieldIndex++;
-        if(access === 'public') cls.fields.push(structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
+        if(access === "public") cls.fields.push(structField(child, offsets[index], layout && layout.fieldSizes && layout.fieldSizes[child.name]));
         continue;
       }
 
-      if(child.isImplicit || child.explicitlyDeleted || access !== 'public') continue;
+      if(child.isImplicit || child.explicitlyDeleted || access !== "public") continue;
 
-      const label = name + '::' + child.name;
+      const label = name + "::" + child.name;
 
       switch (child.kind) {
-        case 'CXXRecordDecl':
-        case 'EnumDecl':
-        case 'TypedefDecl':
-        case 'TypeAliasDecl':
-          collectDecl(child, name + '::');
+        case "CXXRecordDecl":
+        case "EnumDecl":
+        case "TypedefDecl":
+        case "TypeAliasDecl":
+          collectDecl(child, name + "::");
           break;
-        case 'VarDecl': {
+        case "VarDecl": {
           const { field, m } = variableField(child);
 
-          cls.fields.push({ name: field.name, type: field.cType, ffi: field.type, ...(field.const ? { const: true } : {}), ...(field.value === undefined ? {} : { value: field.value }), static: true, mangledName: child.mangledName });
+          cls.fields.push({
+            name: field.name,
+            type: field.cType,
+            ffi: field.type,
+            ...(field.const ? { const: true } : {}),
+            ...(field.value === undefined ? {} : { value: field.value }),
+            static: true,
+            mangledName: child.mangledName,
+          });
           addEnum(m.enumId);
           break;
         }
-        case 'CXXDestructorDecl':
+        case "CXXDestructorDecl":
           cls.destructor = { mangledName: child.mangledName };
           if(child.virtual) cls.destructor.virtual = true;
           break;
-        case 'CXXConstructorDecl':
-        case 'CXXMethodDecl': {
-          if(child.name.startsWith('operator')) {
-            ir.skipped.push({ name: label, reason: 'operators are not supported' });
+        case "CXXConstructorDecl":
+        case "CXXMethodDecl": {
+          if(child.name.startsWith("operator")) {
+            ir.skipped.push({ name: label, reason: "operators are not supported" });
             break;
           }
 
           // An abstract class is never a complete object: only the base-object
           // constructor (C2) is emitted, no C1 to dlsym().
-          if(child.kind === 'CXXConstructorDecl' && info.isAbstract) break;
+          if(child.kind === "CXXConstructorDecl" && info.isAbstract) break;
 
           const call = callable(child, label);
           if(!call) break;
 
           const { isConst, ...description } = call;
-          const entry = { name: child.name, kind: child.kind === 'CXXConstructorDecl' ? 'constructor' : 'function', mangledName: child.mangledName };
+          const entry = { name: child.name, kind: child.kind === "CXXConstructorDecl" ? "constructor" : "function", mangledName: child.mangledName };
 
-          if(entry.kind === 'function') {
-            entry.static = child.storageClass === 'static';
+          if(entry.kind === "function") {
+            entry.static = child.storageClass === "static";
             if(isConst) entry.const = true;
             if(child.virtual) entry.virtual = true;
             if(child.pure) entry.pure = true;
@@ -761,14 +795,14 @@ export function collectIR(root, isSourceFile, idPrefix) {
           }
 
           Object.assign(entry, description);
-          (entry.kind === 'constructor' ? cls.constructors : cls.methods).push(entry);
+          (entry.kind === "constructor" ? cls.constructors : cls.methods).push(entry);
 
           // The parameter types as the AST and, with typedefs resolved, as
           // clang's vtable dump spell them, to tell overloads apart.
-          if(entry.kind === 'function') {
-            const types = (child.inner || []).filter(p => p.kind === 'ParmVarDecl').map(p => p.type || {});
+          if(entry.kind === "function") {
+            const types = (child.inner || []).filter(p => p.kind === "ParmVarDecl").map(p => p.type || {});
 
-            sigs.set(entry, [types.map(t => t.qualType || ''), types.map(t => t.desugaredQualType || t.qualType || '')]);
+            sigs.set(entry, [types.map(t => t.qualType || ""), types.map(t => t.desugaredQualType || t.qualType || "")]);
           }
           break;
         }
@@ -810,7 +844,7 @@ export function collectIR(root, isSourceFile, idPrefix) {
  * { name: "geom_move", kind: "function",
  *   args: ["s: shape *", "dx: f64"],  // "name: type", an FFIType name
  *   returns: "i32",
- *   variadic: true,                   // only for a variadic function (C or C++)
+ *   variadic: true,                   // only for a variadic function(C or C++)
  *   enums: ["0:0x5e10..."] }          // ids of the enums it uses
  * ```
  *
@@ -892,7 +926,7 @@ export function newIR() {
  * variable declared without a value is upgraded by a later one with it). */
 export function mergeIR(into, from) {
   const add = (list, items, key) => {
-    const id = typeof key === 'function' ? key : x => x[key];
+    const id = typeof key === "function" ? key : x => x[key];
     const have = new Set(list.map(id));
     for(const item of items) if(!have.has(id(item))) (have.add(id(item)), list.push(item));
   };
@@ -903,47 +937,47 @@ export function mergeIR(into, from) {
   }
 
   add(into.methods, from.methods, m => m.mangledName || m.name);
-  add(into.fields, from.fields, 'name');
-  add(into.enums, from.enums, 'id');
-  add(into.structs, from.structs, 'name');
-  add(into.classes, from.classes, 'name');
-  add(into.typedefs, from.typedefs, 'name');
+  add(into.fields, from.fields, "name");
+  add(into.enums, from.enums, "id");
+  add(into.structs, from.structs, "name");
+  add(into.classes, from.classes, "name");
+  add(into.typedefs, from.typedefs, "name");
   into.defines = into.defines || [];
-  add(into.defines, from.defines || [], 'name');
-  add(into.skipped, from.skipped, 'name');
+  add(into.defines, from.defines || [], "name");
+  add(into.skipped, from.skipped, "name");
   into.warnings = into.warnings || [];
-  add(into.warnings, from.warnings || [], 'name');
+  add(into.warnings, from.warnings || [], "name");
   return into;
 }
 
 function isConstType(qualType) {
   const t = qualType.trim();
-  return /(^|[\s*])const$/.test(t) || (!t.includes('*') && /^const\b/.test(t));
+  return /(^|[\s*])const$/.test(t) || (!t.includes("*") && /^const\b/.test(t));
 }
 
 /* Evaluates the literal initializer of a constant variable, or undefined if
  * it is anything but a (possibly negated) number/character/string literal. */
 function constValue(node) {
   switch (node.kind) {
-    case 'IntegerLiteral':
-    case 'FloatingLiteral':
-    case 'CharacterLiteral':
-    case 'ConstantExpr': {
+    case "IntegerLiteral":
+    case "FloatingLiteral":
+    case "CharacterLiteral":
+    case "ConstantExpr": {
       const n = Number(node.value);
       return node.value !== undefined && Number.isFinite(n) ? n : node.inner ? constValue(node.inner[0]) : undefined;
     }
-    case 'StringLiteral':
+    case "StringLiteral":
       try {
         return JSON.parse(node.value);
       } catch(e) {
         return undefined;
       }
-    case 'ImplicitCastExpr':
-    case 'ParenExpr':
+    case "ImplicitCastExpr":
+    case "ParenExpr":
       return node.inner ? constValue(node.inner[0]) : undefined;
-    case 'UnaryOperator': {
+    case "UnaryOperator": {
       const v = node.inner ? constValue(node.inner[0]) : undefined;
-      return typeof v !== 'number' ? undefined : node.opcode === '-' ? -v : node.opcode === '+' ? v : undefined;
+      return typeof v !== "number" ? undefined : node.opcode === "-" ? -v : node.opcode === "+" ? v : undefined;
     }
   }
   return undefined;
@@ -955,12 +989,12 @@ export function collectRecordTypedefs(root) {
   const names = {};
 
   walkDecls(root.inner, (node, scope) => {
-    if(node.kind !== 'TypedefDecl') return;
+    if(node.kind !== "TypedefDecl") return;
 
-    const elaborated = (node.inner || []).find(c => c.kind === 'ElaboratedType');
+    const elaborated = (node.inner || []).find(c => c.kind === "ElaboratedType");
     const owned = elaborated && elaborated.ownedTagDecl;
 
-    if(owned && (owned.kind === 'RecordDecl' || owned.kind === 'CXXRecordDecl')) (names[owned.id] = names[owned.id] || []).push(scope + node.name);
+    if(owned && (owned.kind === "RecordDecl" || owned.kind === "CXXRecordDecl")) (names[owned.id] = names[owned.id] || []).push(scope + node.name);
   });
 
   return names;

@@ -1,19 +1,19 @@
-import { safeIdent, header, skippedComment, warningsComment, bindable, paramTypes, jsLiteral, cfType, structTypesCode, usedStructs, wrapReturn } from './common.js';
-import { prepareByValue, prepareClassTypes, dropForBun } from '../by-value.js';
-import { describedFunction, DESCRIBE_HELPERS } from './describe.js';
-import { jsDoc } from './jsdoc.js';
-import { runtimeCode, variablesCode, needsRuntime, denoHelpers, nodeHelpers } from './runtime.js';
-import { bunLike } from '../ffi-types.js';
-import { classesCode } from './classes.js';
-import { wrapperPlans, applyCxxWrappers, publicFunction, wrapperCode, wrapperHelpers } from './wrappers.js';
+import { safeIdent, header, skippedComment, warningsComment, bindable, paramTypes, jsLiteral, cfType, structTypesCode, usedStructs, wrapReturn } from "./common.js";
+import { prepareByValue, prepareClassTypes, dropForBun } from "../by-value.js";
+import { describedFunction, DESCRIBE_HELPERS } from "./describe.js";
+import { jsDoc } from "./jsdoc.js";
+import { runtimeCode, variablesCode, needsRuntime, denoHelpers, nodeHelpers } from "./runtime.js";
+import { bunLike } from "../ffi-types.js";
+import { classesCode } from "./classes.js";
+import { wrapperPlans, applyCxxWrappers, publicFunction, wrapperCode, wrapperHelpers } from "./wrappers.js";
 
 /* Emits `export const NAME = value;` for every constant variable whose value
  * is known at generation time (an `extern` one has none, only a symbol). */
 export function constantsCode(fields) {
   const known = fields.filter(f => f.const && f.value !== undefined);
-  if(!known.length) return '';
+  if(!known.length) return "";
 
-  return '\n// constants\n' + known.map(f => 'export const ' + safeIdent(f.name) + ' = ' + jsLiteral(f.value) + ';\n').join('');
+  return "\n// constants\n" + known.map(f => "export const " + safeIdent(f.name) + " = " + jsLiteral(f.value) + ";\n").join("");
 }
 
 /* Emits `export const NAME = value;` for every enum of the sources
@@ -23,19 +23,19 @@ export function constantsCode(fields) {
  * is only a defensive backstop, not expected to ever trigger.
  */
 function enumConstantsCode(enums) {
-  if(!enums.length) return '';
+  if(!enums.length) return "";
 
   const emitted = new Set();
-  let out = '';
+  let out = "";
 
   for(const e of enums) {
     const fresh = e.fields.filter(c => !emitted.has(c.name));
     if(!fresh.length) continue;
 
-    out += '\n// enum ' + (e.name || '(anonymous)') + '\n';
+    out += "\n// enum " + (e.name || "(anonymous)") + "\n";
     for(const c of fresh) {
       emitted.add(c.name);
-      out += 'export const ' + safeIdent(c.name) + ' = ' + c.value + ';\n';
+      out += "export const " + safeIdent(c.name) + " = " + c.value + ";\n";
     }
   }
 
@@ -53,10 +53,10 @@ function definesCode(defines, taken) {
 
     if(taken.has(id)) continue;
     taken.add(id);
-    lines.push('export const ' + id + ' = ' + (d.big ? d.value + 'n' : jsLiteral(d.value)) + ';\n');
+    lines.push("export const " + id + " = " + (d.big ? d.value + "n" : jsLiteral(d.value)) + ";\n");
   }
 
-  return lines.length ? '\n// defines\n' + lines.join('') : '';
+  return lines.length ? "\n// defines\n" + lines.join("") : "";
 }
 
 /* bun:ffi has no dlsym(): the address of a symbol is the `.ptr` of the
@@ -115,76 +115,96 @@ function __sym(name) {
 export function generateCFunction(ir, opts) {
   if(bunLike(opts)) dropForBun(ir, opts.target);
 
-  for(const m of ir.methods) if(opts.cstrings.includes(m.name)) m.returns = 'cstring';
+  for(const m of ir.methods) if(opts.cstrings.includes(m.name)) m.returns = "cstring";
 
   const { functions, cxxFunctions, classes, enums } = bindable(ir, opts);
   const { plans } = wrapperPlans(ir, opts);
   const cxxWrapped = applyCxxWrappers(ir, opts).plans;
   const rawNeeded = new Set([...opts.destructors, ...[...opts.ownedMap.values()].filter(Boolean)]);
-  const freeUsed = [...plans.values(), ...cxxWrapped].some(p => p.owned === 'free');
+  const freeUsed = [...plans.values(), ...cxxWrapped].some(p => p.owned === "free");
 
   prepareByValue(ir, opts);
   prepareClassTypes(ir, opts, classes);
-  const lib = opts.library ? '__lib' : 'RTLD_DEFAULT';
+  const lib = opts.library ? "__lib" : "RTLD_DEFAULT";
   const views = opts.structs || classes.length > 0 || cxxFunctions.length > 0;
-  const bun = opts.target === 'bun';
-  const deno = opts.target === 'deno';
-  const node = opts.target === 'node';
+  const bun = opts.target === "bun";
+  const deno = opts.target === "deno";
+  const node = opts.target === "node";
   const imports = bun
-    ? ['CFunction', 'dlopen', opts.ffiType ? 'FFIType' : null, views ? 'toArrayBuffer' : null, views ? 'ptr as __ptr' : null, views ? 'CString' : null].filter(Boolean)
+    ? ["CFunction", "dlopen", opts.ffiType ? "FFIType" : null, views ? "toArrayBuffer" : null, views ? "ptr as __ptr" : null, views ? "CString" : null].filter(Boolean)
     : [
-    'CFunction',
-    opts.ffiType ? 'FFIType' : null,
-    views ? 'toArrayBuffer' : null,
-    views ? 'read as __rd' : null,
-    views ? 'write as __wr' : null,
-    views ? 'ptr as __ptr' : null,
-    views || plans.size || cxxWrapped.length ? 'toString as __cstr' : null,
-    'dlsym',
-    opts.library ? 'dlopen' : null,
-    opts.library ? 'RTLD_NOW' : 'RTLD_DEFAULT',
-    // calloc() and free() are not in the bound library.
-    (opts.library && opts.finalize && classes.length > 0) || (opts.library && freeUsed) ? 'RTLD_DEFAULT' : null,
-  ].filter(Boolean);
+        "CFunction",
+        opts.ffiType ? "FFIType" : null,
+        views ? "toArrayBuffer" : null,
+        views ? "read as __rd" : null,
+        views ? "write as __wr" : null,
+        views ? "ptr as __ptr" : null,
+        views || plans.size || cxxWrapped.length ? "toString as __cstr" : null,
+        "dlsym",
+        opts.library ? "dlopen" : null,
+        opts.library ? "RTLD_NOW" : "RTLD_DEFAULT",
+        // calloc() and free() are not in the bound library.
+        (opts.library && opts.finalize && classes.length > 0) || (opts.library && freeUsed) ? "RTLD_DEFAULT" : null,
+      ].filter(Boolean);
 
   let out = header(opts);
   if(deno) out += denoHelpers(opts) + DENO_SYM(opts.library);
-  else if(node) out += nodeHelpers(opts, classes.flatMap(c => [...c.methods, ...c.constructors, c.destructor]).map(m => m && m.mangledName).filter(Boolean));
-  else out += 'import { ' + imports.join(', ') + (bun ? " } from 'bun:ffi';\n\n" : " } from 'ffi';\n\n");
+  else if(node)
+    out += nodeHelpers(
+      opts,
+      classes
+        .flatMap(c => [...c.methods, ...c.constructors, c.destructor])
+        .map(m => m && m.mangledName)
+        .filter(Boolean),
+    );
+  else out += "import { " + imports.join(", ") + (bun ? " } from 'bun:ffi';\n\n" : " } from 'ffi';\n\n");
 
   if(bun) out += BUN_SYM(opts.library);
-  else if(!deno && !node && opts.library) out += 'const __lib = dlopen(' + JSON.stringify(opts.library) + ', RTLD_NOW);\n' + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
+  else if(!deno && !node && opts.library)
+    out += "const __lib = dlopen(" + JSON.stringify(opts.library) + ", RTLD_NOW);\n" + 'if (__lib == null) throw new Error("gen-bindings: dlopen(' + opts.library + ') failed");\n\n';
 
   out += BIND;
-  if(!bun && !deno && !node) out += 'function __sym(name) {\n' + '  const p = dlsym(' + lib + ', name);\n' + '  if(p == null) throw Object.assign(new Error("gen-bindings: symbol not found: " + name), { missing: name });\n' + '  return p;\n' + '}\n';
+  if(!bun && !deno && !node)
+    out +=
+      "function __sym(name) {\n" +
+      "  const p = dlsym(" +
+      lib +
+      ", name);\n" +
+      '  if(p == null) throw Object.assign(new Error("gen-bindings: symbol not found: " + name), { missing: name });\n' +
+      "  return p;\n" +
+      "}\n";
   if(opts.describe) out += DESCRIBE_HELPERS;
   out += enumConstantsCode(enums);
   out += constantsCode(ir.fields);
   out += definesCode(ir.defines, new Set([...functions, ...cxxFunctions, ...ir.fields, ...classes].map(x => safeIdent(x.name)).concat(enums.flatMap(e => e.fields.map(c => safeIdent(c.name))))));
   if(needsRuntime(ir, opts, classes)) out += runtimeCode(opts);
   out += variablesCode(ir, opts) + classesCode(ir, classes, opts, cxxFunctions);
-  if(plans.size || cxxWrapped.length) out += wrapperHelpers(opts, new Map([...plans, ...cxxWrapped.map((p, i) => ['\0' + i, p])]));
+  if(plans.size || cxxWrapped.length) out += wrapperHelpers(opts, new Map([...plans, ...cxxWrapped.map((p, i) => ["\0" + i, p])]));
   out += structTypesCode(ir, usedStructs([...functions, ...cxxFunctions, ...classes.flatMap(c => [...c.methods, ...c.constructors])]), opts);
-  out += '\n';
+  out += "\n";
 
   for(const fn of functions) {
     const plan = plans.get(fn.name);
     // a pointer given back to its destructor is not a string
     const owned = new Set(opts.ownedMap.values());
-    const raw = { ...fn, returns: plan && plan.owned ? 'void *' : fn.returns, args: owned.has(fn.name) ? fn.args.map(a => a.replace(/: cstring$/, ': void *')) : fn.args };
+    const raw = { ...fn, returns: plan && plan.owned ? "void *" : fn.returns, args: owned.has(fn.name) ? fn.args.map(a => a.replace(/: cstring$/, ": void *")) : fn.args };
     const args = paramTypes(raw).map(t => cfType(t, opts));
     const ident = safeIdent(fn.name);
-    let impl = wrapReturn(raw.returns, 'CFunction({ptr:__sym(' + jsLiteral(fn.name) + '),args:[' + args.join(',') + '],returns:' + cfType(raw.returns, opts) + (fn.variadic ? ',variadic:true' : '') + '})', opts);
-    impl = '__bind(' + jsLiteral(fn.name) + ', () => ' + impl + ')';
+    let impl = wrapReturn(
+      raw.returns,
+      "CFunction({ptr:__sym(" + jsLiteral(fn.name) + "),args:[" + args.join(",") + "],returns:" + cfType(raw.returns, opts) + (fn.variadic ? ",variadic:true" : "") + "})",
+      opts,
+    );
+    impl = "__bind(" + jsLiteral(fn.name) + ", () => " + impl + ")";
 
-    const doc = opts.jsdoc ? jsDoc([fn.name], [publicFunction(fn, plan)], new Set(classes.map(c => c.name)), '') : '';
+    const doc = opts.jsdoc ? jsDoc([fn.name], [publicFunction(fn, plan)], new Set(classes.map(c => c.name)), "") : "";
 
     if(plan || rawNeeded.has(fn.name)) {
-      out += 'const __raw_' + ident + ' = ' + impl + ';\n';
-      impl = plan ? wrapperCode(fn, plan, '__raw_' + ident, opts) : '__raw_' + ident;
+      out += "const __raw_" + ident + " = " + impl + ";\n";
+      impl = plan ? wrapperCode(fn, plan, "__raw_" + ident, opts) : "__raw_" + ident;
     }
 
-    out += opts.describe ? describedFunction(ident, publicFunction(fn, plan), impl, doc) : doc + 'export const ' + ident + ' = ' + impl + ';\n';
+    out += opts.describe ? describedFunction(ident, publicFunction(fn, plan), impl, doc) : doc + "export const " + ident + " = " + impl + ";\n";
     if(ident !== fn.name) out += '// note: "' + fn.name + '" is a reserved word, exported above as "' + ident + '"\n';
   }
 

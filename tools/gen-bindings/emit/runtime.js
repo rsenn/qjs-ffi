@@ -1,6 +1,6 @@
-import { safeIdent, jsLiteral } from './common.js';
-import { preludeCode } from './structs.js';
-import { FFI_SIZES, bunLike } from '../ffi-types.js';
+import { safeIdent, jsLiteral } from "./common.js";
+import { preludeCode } from "./structs.js";
+import { FFI_SIZES, bunLike } from "../ffi-types.js";
 
 /* Support code for extern variables (and static class members), emitted
  * verbatim into the generated module after PRELUDE, whose __ptrOut() it uses.
@@ -53,7 +53,7 @@ function __variable(name, type) {
 export function runtimeCode(opts) {
   const bun = opts && bunLike(opts);
 
-  return (bun ? BUN_HELPERS : '') + preludeCode(bun ? 'bun' : 'qjs') + VARIABLE_HELPERS + RET_HELPER;
+  return (bun ? BUN_HELPERS : "") + preludeCode(bun ? "bun" : "qjs") + VARIABLE_HELPERS + RET_HELPER;
 }
 
 /* bun:ffi has no write(), and its read() takes an address only, so the
@@ -108,13 +108,13 @@ export function needsRuntime(ir, opts, classes) {
 /* With --structs: an accessor for every extern variable. The structs and
  * unions themselves are classes, see classesCode() in classes.js. */
 export function variablesCode(ir, opts) {
-  if(!opts.structs) return '';
+  if(!opts.structs) return "";
 
   const variables = externVariables(ir);
 
-  if(!variables.length) return '';
+  if(!variables.length) return "";
 
-  return '\n// extern variables\n' + variables.map(v => 'export const ' + safeIdent(v.name) + ' = __variable(' + jsLiteral(v.name) + ',' + jsLiteral(v.type) + ');\n').join('');
+  return "\n// extern variables\n" + variables.map(v => "export const " + safeIdent(v.name) + " = __variable(" + jsLiteral(v.name) + "," + jsLiteral(v.type) + ");\n").join("");
 }
 
 /* --target=deno: bun:ffi's CFunction, toArrayBuffer, ptr and CString on
@@ -123,7 +123,8 @@ export function variablesCode(ir, opts) {
  * "cstring" argument is a string or null, a struct by value is an
  * ArrayBuffer. */
 export function denoHelpers(opts) {
-  return `const __P = Deno.UnsafePointer;
+  return (
+    `const __P = Deno.UnsafePointer;
 const __V = Deno.UnsafePointerView;
 const __enc = new TextEncoder();
 
@@ -168,7 +169,10 @@ class CString {
   constructor(p) { this.s = __V.getCString(__P.create(BigInt(p))); }
   toString() { return this.s; }
 }
-` + (opts.ffiType ? 'const FFIType = new Proxy({}, { get: (_, k) => k });\n' : '') + '\n';
+` +
+    (opts.ffiType ? "const FFIType = new Proxy({}, { get: (_, k) => k });\n" : "") +
+    "\n"
+  );
 }
 
 /* --target=node: the same bun:ffi shapes over node:ffi (Node 26). A
@@ -178,7 +182,8 @@ class CString {
  * binds, and throws if none matches. Pointers are Numbers (null for NULL),
  * a "cstring" argument is a string or null. */
 export function nodeHelpers(opts, symbols) {
-  return `import * as __f from "node:ffi";
+  return (
+    `import * as __f from "node:ffi";
 
 const __lib = new __f.DynamicLibrary(${JSON.stringify(opts.library)});
 const __names = new Map();
@@ -250,5 +255,8 @@ class CString {
   constructor(p) { this.s = __f.toString(BigInt(p)); }
   toString() { return this.s; }
 }
-` + (opts.ffiType ? 'const FFIType = new Proxy({}, { get: (_, k) => k });\n' : '') + '\n';
+` +
+    (opts.ffiType ? "const FFIType = new Proxy({}, { get: (_, k) => k });\n" : "") +
+    "\n"
+  );
 }

@@ -75,7 +75,7 @@ export function describeFunction(fn, key) {
 
   return {
     name: key,
-    kind: /^class\s/.test(src) ? "class" : /^async\s*(function\s*)?\*/.test(src) ? "async-generator" : /^(function\s*)?\*/.test(src) ? "generator" : /^async\s/.test(src) ? "async" : "function",
+    kind: isClass(fn) ? "class" : /^async\s*(function\s*)?\*/.test(src) ? "async-generator" : /^(function\s*)?\*/.test(src) ? "generator" : /^async\s/.test(src) ? "async" : "function",
     params: paramNames(fn),
     arity: fn.length,
     ...(signatures && { signatures }),
@@ -190,10 +190,10 @@ const runtime =
     ? "browser"
     : typeof Deno !== "undefined"
       ? "deno"
-      : typeof Bun !== "undefined"
-        ? "bun"
-        : typeof scriptArgs !== "undefined"
-          ? "quickjs"
+      : typeof scriptArgs !== "undefined"
+        ? "quickjs"
+        : typeof Bun !== "undefined"
+          ? "bun"
           : typeof process !== "undefined" && process.versions && process.versions.node
             ? "node"
             : "unknown";
@@ -287,6 +287,7 @@ export async function load(target) {
  * Foo.prototype are classes too. */
 function isClass(v) {
   if(typeof v !== "function") return false;
+  if(globalThis.Bun?.inspect && /\[class\b/.test(Bun.inspect(v))) return true;
   if(/^class[\s{]/.test(Function.prototype.toString.call(v))) return true;
 
   const p = v.prototype;
@@ -816,6 +817,7 @@ function usage() {
       "  <module>   a file, or a specifier the runtime imports (node:fs, bun:ffi, ffi)\n" +
       "  export     a name or dotted path to describe; all exports by default\n" +
       "  --global   describe globalThis properties (Bun, process.versions, Buffer) instead\n" +
+      "  --eval     describe a value obtained by eval()\n" +
       "  --class    describe a function as a class unless its prototype is plain\n" +
       "  --json     print the raw describeClass()/describeObject() results\n" +
       "  --js       print a skeleton of the module as JavaScript, bodies empty\n" +
@@ -833,6 +835,7 @@ async function main() {
   for(const a of argv()) {
     if(/^--(json|js|dts|flat|sort|class|global|probe)$/.test(a)) flags.add(a.slice(2));
     else if(/^--no-arg(ument)?s?$/.test(a)) flags.add("noargs");
+    else if(/^--eval(|uate)$/.test(a)) flags.add("eval");
     else if(a === "-h" || a === "--help") flags.add("help");
     else if(a.startsWith("--")) return fail("unknown option: " + a);
     else positional.push(a);
@@ -841,7 +844,8 @@ async function main() {
   /* in a browser a bare name (`window`, `navigator.language`) is a global, not a module */
   if(runtime === "browser" && !flags.has("global") && /^[A-Za-z_$][\w$.]*$/.test(positional[0] || "")) flags.add("global");
 
-  const global = flags.has("global");
+  const evaluate = flags.has("eval"),
+    global = evaluate || flags.has("global");
   const [target, ...names] = global ? [undefined, ...positional] : positional;
 
   if(flags.has("help") || (!global && !target)) {
@@ -870,13 +874,27 @@ async function main() {
 
   let described = {};
 
-  for(const name of all) {
+  for(let name of all) {
     let v;
 
     try {
-      v = lookup(root, name);
+      v = evaluate ? eval(name) : lookup(root, name);
     } catch(e) {
       return fail(e.message);
+    }
+
+    if(evaluate) {
+      let proto = Object.getPrototypeOf(v);
+      let ctor = v.constructor;
+
+      if("prototype" in v) proto = v.prototype;
+
+      if("constructor" in v && v.constructor.name) ctor = v.constructor;
+      /*else  if('constructor' in proto) v= proto.constructor;*/
+
+      console.log(describeAny(ctor, true), { name, v, insp: Bun.inspect(ctor) });
+
+      name = proto?.[Symbol.toStringTag] ?? proto?.constructor?.name;
     }
 
     described[name] = describeAny(v, flags.has("class"));
