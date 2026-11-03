@@ -42,17 +42,17 @@ behind everything else in <code>ffi</code>: <a href="c-function.html"><code>CFun
 <p>Opens the library with <code>RTLD_NOW</code>, looks up every key of <code>symbolSpecs</code> and
 wraps it as a <a href="c-function.html"><code>CFunction</code></a>. The result is</p>
 <div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code id="dlopenpath-symbols-types-symbols">symbols</code><a class="member-anchor" href="#dlopenpath-symbols-types-symbols" aria-hidden="true">#</a></td><td>An object with one function per key of <code>symbolSpecs</code>, each named after its symbol. Not enumerable, so <code>Object.keys(lib)</code> is <code>["close"]</code>, as in bun.</td></tr><tr><td><code id="dlopenpath-symbols-types-close">close()</code><a class="member-anchor" href="#dlopenpath-symbols-types-close" aria-hidden="true">#</a></td><td><code>dlclose()</code>s the library and returns <code>undefined</code>, as in bun. Calling it again does nothing.</td></tr><tr><td><code id="dlopenpath-symbols-types-symbol-dispose">[Symbol.dispose]()</code><a class="member-anchor" href="#dlopenpath-symbols-types-symbol-dispose" aria-hidden="true">#</a></td><td>The same as <code>close()</code>, so <code>using lib = dlopen(...)</code> closes it (the registered <code>Symbol.for("Symbol.dispose")</code> where the engine has none).</td></tr></tbody></table></div>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
-<span class="t-kw">const</span> <span class="t-id">lib</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libm.so.6"</span>, {
-  <span class="t-id">pow</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
+<span class="t-kw">const</span> <span class="t-id">lib</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">'libm.so.6'</span>, {
+  <span class="t-id">pow</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'f64'</span>, <span class="t-str">'f64'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'f64'</span> },
 });
 
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">lib</span>.<span class="t-prop">symbols</span>.<span class="t-fn">pow</span>(<span class="t-num">2</span>, <span class="t-num">10</span>)); <span class="t-cm">// 1024</span>
 <span class="t-id">lib</span>.<span class="t-fn">close</span>();</code></pre></div>
 <p><code>path</code> is a library name or file name, as <code>dlopen(3)</code> takes it, or <code>null</code> for
 the symbols that are already loaded into the process:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">abs</span> } } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, { <span class="t-id">abs</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i32"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> } });</code></pre></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">abs</span> } } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-atom">null</span>, { <span class="t-id">abs</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'i32'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> } });</code></pre></div>
 <p>Each spec is <code>{ args, returns, abi }</code>, exactly as for
 <a href="c-function.html"><code>CFunction</code></a> without <code>ptr</code>; the names are in
 <a href="types.html">Types and ABI</a>. A library that cannot be opened throws an <code>Error</code>
@@ -65,15 +65,15 @@ then.</p>
 resolved from its own <code>ptr</code> if it has one (a non-NULL <code>number</code> or <code>bigint</code>; NULL,
 a string or anything else is a <code>TypeError</code>), and otherwise with <code>dlsym(RTLD_DEFAULT, name)</code>. It makes
 functions from pointers you got elsewhere in one call:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">linkSymbols</span>, <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">linkSymbols</span>, <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">linkSymbols</span>({
-  <span class="t-id">myabs</span><span class="t-op">:</span> { <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"abs"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i32"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> },
-  <span class="t-id">strlen</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"cstring"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"u64"</span> }, <span class="t-cm">// found with dlsym(RTLD_DEFAULT, "strlen")</span>
+  <span class="t-id">myabs</span><span class="t-op">:</span> { <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'abs'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'i32'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> },
+  <span class="t-id">strlen</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'cstring'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'u64'</span> }, <span class="t-cm">// found with dlsym(RTLD_DEFAULT, "strlen")</span>
 });
 
 <span class="t-id">symbols</span>.<span class="t-fn">myabs</span>(<span class="t-op">-</span><span class="t-num">7</span>); <span class="t-cm">// 7</span>
-<span class="t-id">symbols</span>.<span class="t-fn">strlen</span>(<span class="t-str">"hello"</span>); <span class="t-cm">// 5n</span></code></pre></div>
+<span class="t-id">symbols</span>.<span class="t-fn">strlen</span>(<span class="t-str">'hello'</span>); <span class="t-cm">// 5n</span></code></pre></div>
 <p>A symbol that is not found throws a <code>TypeError</code>. Only available where the
 platform defines <code>RTLD_DEFAULT</code>.</p>
 <p>A third argument is an object of <a href="struct.html#naming-a-class-types">classes</a>,
@@ -85,12 +85,12 @@ the same way.</p>
 <code>returns</code> is a variable (a spec with both throws a <code>TypeError</code>). It works the
 same in <code>dlopen()</code>, <code>linkSymbols()</code> and <a href="c-compiler.html"><code>cc()</code></a>:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">cc</span>({
-  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-str">"counter.c"</span>, <span class="t-cm">// int counter = 5; const double pi = 3.14; struct { float x, y; } origin;</span>
+  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-str">'counter.c'</span>, <span class="t-cm">// int counter = 5; const double pi = 3.14; struct { float x, y; } origin;</span>
   <span class="t-id">symbols</span><span class="t-op">:</span> {
-    <span class="t-id">counter</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"i32"</span> },
-    <span class="t-id">pi</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"f64"</span>, <span class="t-id">readonly</span><span class="t-op">:</span> <span class="t-atom">true</span> },
-    <span class="t-id">origin</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> [<span class="t-str">"f32"</span>, <span class="t-str">"f32"</span>] },
-    <span class="t-id">hello</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> }, <span class="t-cm">// functions as before</span>
+    <span class="t-id">counter</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">'i32'</span> },
+    <span class="t-id">pi</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">'f64'</span>, <span class="t-id">readonly</span><span class="t-op">:</span> <span class="t-atom">true</span> },
+    <span class="t-id">origin</span><span class="t-op">:</span> { <span class="t-id">type</span><span class="t-op">:</span> [<span class="t-str">'f32'</span>, <span class="t-str">'f32'</span>] },
+    <span class="t-id">hello</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> }, <span class="t-cm">// functions as before</span>
   },
 });
 
@@ -121,11 +121,11 @@ functions do.</p>
 <code>dlsym()</code>ed. It works the same in <code>dlopen()</code>, <code>linkSymbols()</code> and
 <a href="c-compiler.html"><code>cc()</code></a>, and <code>dlopen(null, { ... })</code> with only constants is
 valid:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libfoo.so"</span>, {
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> { <span class="t-id">symbols</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">'libfoo.so'</span>, {
   <span class="t-type">FOO_MAX</span><span class="t-op">:</span> { <span class="t-id">value</span><span class="t-op">:</span> <span class="t-num">4096</span> },
-  <span class="t-type">FOO_MASK</span><span class="t-op">:</span> { <span class="t-id">value</span><span class="t-op">:</span> <span class="t-num">0xffffffffffffffffn</span>, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"u64"</span> },
-  <span class="t-type">Color</span><span class="t-op">:</span> { <span class="t-id">enum</span><span class="t-op">:</span> { <span class="t-type">RED</span><span class="t-op">:</span> <span class="t-num">0</span>, <span class="t-type">GREEN</span><span class="t-op">:</span> <span class="t-num">1</span>, <span class="t-type">BLUE</span><span class="t-op">:</span> <span class="t-num">4</span> }, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"u32"</span> },
-  <span class="t-type">Flags</span><span class="t-op">:</span> { <span class="t-id">enum</span><span class="t-op">:</span> { <span class="t-type">A</span><span class="t-op">:</span> <span class="t-num">1</span>, <span class="t-type">B</span><span class="t-op">:</span> <span class="t-num">2</span>, <span class="t-type">C</span><span class="t-op">:</span> <span class="t-num">4</span> }, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">"u8"</span>, <span class="t-id">flags</span><span class="t-op">:</span> <span class="t-atom">true</span> },
+  <span class="t-type">FOO_MASK</span><span class="t-op">:</span> { <span class="t-id">value</span><span class="t-op">:</span> <span class="t-num">0xffffffffffffffffn</span>, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">'u64'</span> },
+  <span class="t-type">Color</span><span class="t-op">:</span> { <span class="t-id">enum</span><span class="t-op">:</span> { <span class="t-type">RED</span><span class="t-op">:</span> <span class="t-num">0</span>, <span class="t-type">GREEN</span><span class="t-op">:</span> <span class="t-num">1</span>, <span class="t-type">BLUE</span><span class="t-op">:</span> <span class="t-num">4</span> }, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">'u32'</span> },
+  <span class="t-type">Flags</span><span class="t-op">:</span> { <span class="t-id">enum</span><span class="t-op">:</span> { <span class="t-type">A</span><span class="t-op">:</span> <span class="t-num">1</span>, <span class="t-type">B</span><span class="t-op">:</span> <span class="t-num">2</span>, <span class="t-type">C</span><span class="t-op">:</span> <span class="t-num">4</span> }, <span class="t-id">type</span><span class="t-op">:</span> <span class="t-str">'u8'</span>, <span class="t-id">flags</span><span class="t-op">:</span> <span class="t-atom">true</span> },
 });
 
 <span class="t-id">symbols</span>.<span class="t-type">FOO_MAX</span>;    <span class="t-cm">// 4096</span>
@@ -142,12 +142,12 @@ object is the symbol table above, a number is the <code>flags</code> of the raw 
 <code>dlsym()</code>, <code>dlclose()</code> and <code>dlerror()</code> are thin wrappers over libdl, described
 in the <strong>dlopen(3)</strong> manual page.</p>
 <h3 id="dlopenpath-flags"><a class="anchor" href="#dlopenpath-flags" aria-hidden="true">#</a><code>dlopen(path, flags)</code></h3>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">handle</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libz.so.1"</span>, <span class="t-type">RTLD_NOW</span> <span class="t-op">|</span> <span class="t-type">RTLD_GLOBAL</span>);</code></pre></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">handle</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">'libz.so.1'</span>, <span class="t-type">RTLD_NOW</span> <span class="t-op">|</span> <span class="t-type">RTLD_GLOBAL</span>);</code></pre></div>
 <p>Returns the library handle as a pointer (a <code>number</code> or a <code>bigint</code>), or <code>null</code>
 if it cannot be opened; <code>dlerror()</code> then tells why. <code>path</code> may be <code>null</code> for
 the main program.</p>
 <h3 id="dlsymhandle-name"><a class="anchor" href="#dlsymhandle-name" aria-hidden="true">#</a><code>dlsym(handle, name)</code></h3>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">fp</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-id">handle</span>, <span class="t-str">"compress"</span>);</code></pre></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">fp</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-id">handle</span>, <span class="t-str">'compress'</span>);</code></pre></div>
 <p>Returns the address of the symbol, or <code>null</code> if it is not found. <code>handle</code> is a
 library handle, or <code>RTLD_DEFAULT</code> or <code>RTLD_NEXT</code>: a <code>number</code>, a <code>bigint</code> (taken
 modulo 2^64, so <code>2n ** 64n - 1n</code> is <code>RTLD_NEXT</code>) or <code>null</code>/<code>undefined</code> for
@@ -160,7 +160,7 @@ result to <a href="c-function.html"><code>CFunction</code></a> or as a <code>ptr
 <h3 id="dlerror"><a class="anchor" href="#dlerror" aria-hidden="true">#</a><code>dlerror()</code></h3>
 <p>Returns the text of the last libdl error as a string and clears it, or <code>null</code>
 if there is none.</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">h</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libnope.so"</span>, <span class="t-type">RTLD_NOW</span>); <span class="t-cm">// null</span>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">h</span> <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">'libnope.so'</span>, <span class="t-type">RTLD_NOW</span>); <span class="t-cm">// null</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">dlerror</span>()); <span class="t-cm">// "libnope.so: cannot open shared object file: ..."</span>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">dlerror</span>()); <span class="t-cm">// null</span></code></pre></div>
 <h2 id="errno"><a class="anchor" href="#errno" aria-hidden="true">#</a><code>errno()</code></h2>

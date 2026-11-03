@@ -32,9 +32,9 @@
 script can call functions of the QuickJS C API, which take the context as their
 first argument, through <code>dlsym()</code> and <a href="c-function.html"><code>CFunction</code></a>: a limited
 form of introspection of the interpreter itself.</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSContext</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSContext</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
-<span class="t-kw">const</span> <span class="t-type">JS_GetRuntime</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"JS_GetRuntime"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"pointer"</span> });
+<span class="t-kw">const</span> <span class="t-type">JS_GetRuntime</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'JS_GetRuntime'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'pointer'</span> });
 
 <span class="t-kw">const</span> <span class="t-id">rt</span> <span class="t-op">=</span> <span class="t-fn">JS_GetRuntime</span>(<span class="t-fn">JSContext</span>());</code></pre></div>
 <p>The function must be exported by the program or library that holds QuickJS.

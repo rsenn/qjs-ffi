@@ -31,14 +31,14 @@ them by name, with <code>call()</code>. It is not part of the <code>ffi</code> m
 lives in the JavaScript module <code>legacy.js</code>, which builds each function on a
 <a href="c-function.html"><code>CFunction</code></a>. Prefer <a href="dlopen.html"><code>dlopen()</code></a> or <code>CFunction</code>
 directly; this page is for code that still uses <code>define()</code> and <code>call()</code>.</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
-<span class="t-kw">import</span> { <span class="t-id">define</span>, <span class="t-id">call</span> } <span class="t-kw">from</span> <span class="t-str">"legacy.js"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlsym</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
+<span class="t-kw">import</span> { <span class="t-id">define</span>, <span class="t-id">call</span> } <span class="t-kw">from</span> <span class="t-str">'ffi/legacy'</span>;
 
-<span class="t-fn">define</span>(<span class="t-str">"strlen"</span>, <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"strlen"</span>), <span class="t-atom">null</span>, <span class="t-str">"int"</span>, <span class="t-str">"char *"</span>);
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">call</span>(<span class="t-str">"strlen"</span>, <span class="t-str">"hello"</span>)); <span class="t-cm">// 5</span></code></pre></div>
-<p><code>legacy.js</code> is installed next to <code>ffi.so</code> (the QuickJS C module directory) and
-copied to the build directory, so one <code>QUICKJS_MODULE_PATH</code> finds both. In the
-source tree, import it by path (<code>../legacy.js</code>).</p>
+<span class="t-fn">define</span>(<span class="t-str">'strlen'</span>, <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'strlen'</span>), <span class="t-atom">null</span>, <span class="t-str">'int'</span>, <span class="t-str">'char *'</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">call</span>(<span class="t-str">'strlen'</span>, <span class="t-str">'hello'</span>)); <span class="t-cm">// 5</span></code></pre></div>
+<p><code>ffi/legacy.js</code> is installed in the QuickJS JS module directory and copied to
+the build directory, so one <code>QUICKJS_MODULE_PATH</code> finds both it and <code>ffi.so</code>. In the
+source tree, import it by path (<code>../lib/ffi/legacy.js</code>).</p>
 <h2 id="define"><a class="anchor" href="#define" aria-hidden="true">#</a><code>define()</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">define</span>(<span class="t-id">name</span>, <span class="t-id">functionPointer</span>, <span class="t-id">abi</span>, <span class="t-id">returnType</span>, ...<span class="t-prop">parameterTypes</span>);</code></pre></div>
 <p>Registers the function at <code>functionPointer</code> under <code>name</code> and returns <code>true</code>.

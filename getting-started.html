@@ -43,7 +43,7 @@ module, for bun:ffi (<code>--target=bun</code>), Deno (<code>--target=deno</code
 <p>The API follows <a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi</a>: <code>dlopen()</code> with a
 symbol table returns directly callable functions, and there is no name lookup at
 call time. The older <code>define()</code>/<code>call()</code> interface is available as the module
-<code>legacy.js</code>, see <a href="docs/legacy.html">Legacy API</a>.</p>
+<code>ffi/legacy</code>, see <a href="docs/legacy.html">Legacy API</a>.</p>
 <p>Linux x86_64 is the main target. mingw64 cross builds compile but have not been
 tested. libffi and libdl are required.</p>
 <h2 id="how-to-use-it"><a class="anchor" href="#how-to-use-it" aria-hidden="true">#</a>How to use it</h2>
@@ -95,9 +95,10 @@ the same options as <a href="docs/c-function.html">CFunction</a>.</p>
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">hello</span>()); <span class="t-cm">// 42</span></code></pre></div>
 <p>The other functions are in <a href="docs/ffi.html">doc/ffi.md</a>.</p>
 <h2 id="installation"><a class="anchor" href="#installation" aria-hidden="true">#</a>Installation</h2>
-<p>Needs CMake, a C compiler, the libffi development files, and QuickJS with its
+<p>Needs CMake, a C compiler, QuickJS with its
 <code>qjsm</code> launcher. <code>clang</code> is only needed to run the binding generator, and <code>git</code>
-with network access only for the <code>BUILD_LIBFFI</code> and <code>ENABLE_TCC</code> options below.</p>
+with network access for <code>ENABLE_TCC</code>, and for <code>BUILD_LIBFFI</code> when the libffi
+development files are missing (it builds libffi then); see the options below.</p>
 <div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">cmake</span> <span class="t-op">-S</span> . <span class="t-op">-B</span> <span class="t-id">build</span>
 <span class="t-id">cmake</span> <span class="t-op">--build</span> <span class="t-id">build</span> <span class="t-op">--target</span> <span class="t-id">quickjs-ffi</span></code></pre></div>
 <p>This produces the module <code>build/ffi.so</code> (<code>ffi.dll</code> on Windows). To use it from
@@ -110,9 +111,11 @@ module directory that the configure step prints (<code>C module directory</code>
 generator is installed too, see <a href="docs/gen-bindings.html">doc/gen-bindings.md</a>.</p>
 <p>CMake options:</p>
 <ul>
-<li><code>BUILD_STATIC_MODULES</code> also builds a static <code>quickjs-ffi.a</code></li>
-<li><code>BUILD_LIBFFI</code> checks out libffi into third_party/libffi and builds it
-instead of using the system library</li>
+<li><code>BUILD_STATIC</code> also builds a static <code>quickjs-ffi.a</code></li>
+<li><code>BUILD_LIBFFI</code> is <code>AUTO</code> (default), <code>ON</code> or <code>OFF</code>: <code>ON</code> checks out libffi
+into third_party/libffi and builds it instead of using the system
+library, <code>AUTO</code> does that only when no system libffi is found, <code>OFF</code>
+never does</li>
 <li><code>ENABLE_TCC</code> checks out TinyCC into third_party/tinycc, builds libtcc and
 exports <code>cc()</code>, see <a href="docs/c-compiler.html">doc/c-compiler.md</a></li>
 </ul>

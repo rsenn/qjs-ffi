@@ -30,9 +30,9 @@
 (<code>.ptr</code>) that, when invoked by C code, calls back into JS with the real
 arguments the native caller passed. It mirrors <a href="https://bun.com/docs/runtime/ffi#jscallback" target="_blank" rel="noopener">bun:ffi's
 <code>JSCallback</code></a>.</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSCallback</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSCallback</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
-<span class="t-kw">const</span> <span class="t-id">cb</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>((<span class="t-id">a</span>, <span class="t-id">b</span>) <span class="t-op">=&gt;</span> <span class="t-id">a</span> <span class="t-op">+</span> <span class="t-id">b</span>, { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i32"</span>, <span class="t-str">"i32"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> });
+<span class="t-kw">const</span> <span class="t-id">cb</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>((<span class="t-id">a</span>, <span class="t-id">b</span>) <span class="t-op">=&gt;</span> <span class="t-id">a</span> <span class="t-op">+</span> <span class="t-id">b</span>, { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'i32'</span>, <span class="t-str">'i32'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> });
 
 <span class="t-fn">someNativeApiExpectingAFunctionPointer</span>(<span class="t-id">cb</span>.<span class="t-prop">ptr</span>);
 
@@ -63,7 +63,7 @@ currently-live <code>JSCallback</code> instance (useful for debugging/introspect
 <h2 id="lifetime"><a class="anchor" href="#lifetime" aria-hidden="true">#</a>Lifetime</h2>
 <p>A callback lives until <code>close()</code>, as in bun, <strong>not</strong> until its object is
 collected: the pointer of one that nothing references any more stays callable.</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>(() <span class="t-op">=&gt;</span> <span class="t-num">7</span>, { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> }).<span class="t-prop">ptr</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>(() <span class="t-op">=&gt;</span> <span class="t-num">7</span>, { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> }).<span class="t-prop">ptr</span>;
 
 <span class="t-cm">// ... the object is gone, p still calls the function</span></code></pre></div>
 <p>So a callback that is never closed is never freed, together with the function it
@@ -102,7 +102,7 @@ caller cannot be told, so the callback returns what the declared <code>returns</
 converts <code>undefined</code> to (<code>0</code> for integer types, <code>NULL</code> for <code>"pointer"</code>), the
 native function carries on, and when it returns the <a href="c-function.html"><code>CFunction</code></a>
 call that started it <strong>throws that exception</strong>, as in bun:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">cmp</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>(() <span class="t-op">=&gt;</span> { <span class="t-kw">throw</span> <span class="t-kw">new</span> <span class="t-fn">RangeError</span>(<span class="t-str">"boom"</span>); }, { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> });
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">cmp</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>(() <span class="t-op">=&gt;</span> { <span class="t-kw">throw</span> <span class="t-kw">new</span> <span class="t-fn">RangeError</span>(<span class="t-str">'boom'</span>); }, { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> });
 
 <span class="t-kw">try</span> {
   <span class="t-fn">qsort</span>(<span class="t-id">data</span>, <span class="t-num">3</span>, <span class="t-num">4</span>, <span class="t-id">cmp</span>);
@@ -120,7 +120,7 @@ the same way.</li>
 is the only record of one that happens outside a call.</li>
 </ul>
 <h2 id="example-using-a-jscallback-with-qsort"><a class="anchor" href="#example-using-a-jscallback-with-qsort" aria-hidden="true">#</a>Example: using a JSCallback with qsort()</h2>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">JSCallback</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">JSCallback</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> <span class="t-id">cmp</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>(
   (<span class="t-id">a</span>, <span class="t-id">b</span>) <span class="t-op">=&gt;</span> {
@@ -128,13 +128,13 @@ is the only record of one that happens outside a call.</li>
     <span class="t-cm">// in a real comparator you'd deref them via toArrayBuffer()/toString().</span>
     <span class="t-kw">return</span> <span class="t-num">0</span>;
   },
-  { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span> },
+  { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span> },
 );
 
 <span class="t-kw">const</span> <span class="t-id">qsort</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
-  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"qsort"</span>),
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"pointer"</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"void"</span>,
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'qsort'</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'pointer'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'void'</span>,
 });
 
 <span class="t-cm">// qsort(base, nmemb, size, cmp.ptr);</span>
@@ -145,7 +145,6 @@ lets JS call into native code, <code>JSCallback</code> lets native code call int
 <h2 id="see-also"><a class="anchor" href="#see-also" aria-hidden="true">#</a>See also</h2>
 <ul>
 <li><a href="c-function.html"><code>doc/c-function.md</code></a></li>
-<li><a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md" target="_blank" rel="noopener"><code>TODO.md</code></a> -- Phase 0 of the <code>bun:ffi</code>-compatible API migration this class is part of. Replaces the previous <code>CallClosure</code>/<code>opaque-call.[ch]</code>, whose trampoline was hardcoded to a fixed <code>int64_t(*)(void*)</code> signature and always invoked the JS function with zero arguments.</li>
 <li><a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi docs</a></li>
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/js-callback.md">Edit this page on GitHub →</a></p>

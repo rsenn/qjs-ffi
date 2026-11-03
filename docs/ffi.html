@@ -31,11 +31,11 @@ functions, hands JavaScript functions back to C as function pointers, and reads
 native memory. Its API follows <a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi</a>: a
 symbol table passed to <code>dlopen()</code> gives directly callable functions, with no
 name lookup at call time, and 64-bit integers are <code>BigInt</code>.</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
-<span class="t-kw">const</span> { <span class="t-id">symbols</span>, <span class="t-id">close</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">"libm.so.6"</span>, {
-  <span class="t-id">pow</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
-  <span class="t-id">sqrt</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span> },
+<span class="t-kw">const</span> { <span class="t-id">symbols</span>, <span class="t-id">close</span> } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-str">'libm.so.6'</span>, {
+  <span class="t-id">pow</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'f64'</span>, <span class="t-str">'f64'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'f64'</span> },
+  <span class="t-id">sqrt</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'f64'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'f64'</span> },
 });
 
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">symbols</span>.<span class="t-fn">pow</span>(<span class="t-num">2</span>, <span class="t-num">10</span>)); <span class="t-cm">// 1024</span>
@@ -48,20 +48,20 @@ name lookup at call time, and 64-bit integers are <code>BigInt</code>.</p>
          <span class="t-type">FFIType</span>, <span class="t-id">suffix</span>, <span class="t-id">pointerSize</span>, <span class="t-type">JSContext</span>, <span class="t-id">debug</span>,
          <span class="t-type">RTLD_LAZY</span>, <span class="t-type">RTLD_NOW</span>, <span class="t-type">RTLD_GLOBAL</span>, <span class="t-type">RTLD_LOCAL</span>,
          <span class="t-type">RTLD_NODELETE</span>, <span class="t-type">RTLD_NOLOAD</span>, <span class="t-type">RTLD_DEEPBIND</span>,
-         <span class="t-type">RTLD_DEFAULT</span>, <span class="t-type">RTLD_NEXT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;</code></pre></div>
+         <span class="t-type">RTLD_DEFAULT</span>, <span class="t-type">RTLD_NEXT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;</code></pre></div>
 <p>The module also has a default export, an object holding all of these (the same
 values), as bun:ffi does: <code>import ffi from "ffi"; ffi.dlopen(...)</code>.</p>
 <p><code>cc</code> exists only in a build with <code>ENABLE_TCC</code>, and the <code>RTLD_*</code> constants only
 where the platform defines them. Run scripts with <code>qjsm</code>, see
 <a href="../getting-started.html#installation">Installation</a>.</p>
 <h2 id="contents"><a class="anchor" href="#contents" aria-hidden="true">#</a>Contents</h2>
-<div class="tablewrap"><table><thead><tr><th>Page</th><th>What it covers</th></tr></thead><tbody><tr><td><a href="dlopen.html">Libraries and symbols</a></td><td><code>dlopen()</code>, <code>linkSymbols()</code>, <code>dlsym()</code>, <code>dlclose()</code>, <code>dlerror()</code>, <code>errno()</code>, <code>suffix</code>, <code>RTLD_*</code></td></tr><tr><td><a href="types.html">Types and ABI</a></td><td><code>FFIType</code> and its numbers, the type names, structs by value, ABI names</td></tr><tr><td><a href="c-function.html">CFunction</a></td><td>a function pointer as a callable function</td></tr><tr><td><a href="js-callback.html">JSCallback</a></td><td>a JavaScript function as a function pointer</td></tr><tr><td><a href="struct.html">Classes as types</a></td><td>a buffer class (usually extending <code>ArrayBuffer</code>) as a type in a spec</td></tr><tr><td><a href="pointers.html">Pointers and memory</a></td><td><code>ptr()</code>, <code>toArrayBuffer()</code>, <code>read</code>, <code>write</code>, <code>CString</code>, <code>toString()</code>, <code>toPointer()</code>, <code>pointerSize</code></td></tr><tr><td><a href="c-compiler.html">C compiler</a></td><td><code>cc()</code>: compile and run C from JavaScript</td></tr><tr><td><a href="misc.html">Miscellaneous</a></td><td><code>JSContext()</code>, <code>debug()</code></td></tr><tr><td><a href="gen-bindings.html">Generating bindings</a></td><td><code>tools/gen-bindings.js</code>, a binding generator for C and C++ headers</td></tr><tr><td><a href="legacy.html">Legacy API</a></td><td><code>define()</code> and <code>call()</code>, in the module <code>legacy.js</code></td></tr><tr><td><a href="node-ffi.html">node:ffi</a></td><td>the API of Node's <code>node:ffi</code> on top of <code>ffi</code>, in the module <code>node-ffi.js</code>, and the hook file that maps <code>node:ffi</code> and <code>bun:ffi</code> to the right module</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Page</th><th>What it covers</th></tr></thead><tbody><tr><td><a href="dlopen.html">Libraries and symbols</a></td><td><code>dlopen()</code>, <code>linkSymbols()</code>, <code>dlsym()</code>, <code>dlclose()</code>, <code>dlerror()</code>, <code>errno()</code>, <code>suffix</code>, <code>RTLD_*</code></td></tr><tr><td><a href="types.html">Types and ABI</a></td><td><code>FFIType</code> and its numbers, the type names, structs by value, ABI names</td></tr><tr><td><a href="c-function.html">CFunction</a></td><td>a function pointer as a callable function</td></tr><tr><td><a href="js-callback.html">JSCallback</a></td><td>a JavaScript function as a function pointer</td></tr><tr><td><a href="struct.html">Classes as types</a></td><td>a buffer class (usually extending <code>ArrayBuffer</code>) as a type in a spec</td></tr><tr><td><a href="pointers.html">Pointers and memory</a></td><td><code>ptr()</code>, <code>toArrayBuffer()</code>, <code>read</code>, <code>write</code>, <code>CString</code>, <code>toString()</code>, <code>toPointer()</code>, <code>pointerSize</code></td></tr><tr><td><a href="c-compiler.html">C compiler</a></td><td><code>cc()</code>: compile and run C from JavaScript</td></tr><tr><td><a href="misc.html">Miscellaneous</a></td><td><code>JSContext()</code>, <code>debug()</code></td></tr><tr><td><a href="gen-bindings.html">Generating bindings</a></td><td><code>tools/gen-bindings.js</code>, a binding generator for C and C++ headers</td></tr><tr><td><a href="legacy.html">Legacy API</a></td><td><code>define()</code> and <code>call()</code>, in the module <code>ffi/legacy.js</code></td></tr><tr><td><a href="node-ffi.html">node:ffi</a></td><td>the API of Node's <code>node:ffi</code> on top of <code>ffi</code>, in the module <code>node/ffi.js</code></td></tr></tbody></table></div>
 <h2 id="usage"><a class="anchor" href="#usage" aria-hidden="true">#</a>Usage</h2>
 <p><code>dlopen(path, symbols[, types])</code> opens a library and returns <code>{ symbols, close }</code>.
 Each entry of the symbol table becomes a function (the optional third argument
 is an object of <a href="struct.html#naming-a-class-types">classes</a> that a <code>"Point *"</code>
 names):</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-type">FFIType</span>, <span class="t-id">suffix</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-type">FFIType</span>, <span class="t-id">suffix</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> <span class="t-id">path</span> <span class="t-op">=</span> <span class="t-str">`libsqlite3.${suffix}`</span>;
 <span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">sqlite3_libversion</span> } } <span class="t-op">=</span> <span class="t-fn">dlopen</span>(<span class="t-id">path</span>, {
@@ -84,21 +84,21 @@ passed or returned by value is an array of member types.</p>
 <div class="tablewrap"><table><thead><tr><th>Type</th><th>C type</th><th>JavaScript</th></tr></thead><tbody><tr><td><code>i8</code>..<code>i32</code>, <code>u8</code>..<code>u32</code></td><td><code>int8_t</code>..<code>uint32_t</code></td><td><code>number</code></td></tr><tr><td><code>i64</code>, <code>u64</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>bigint</code></td></tr><tr><td><code>i64_fast</code>, <code>u64_fast</code></td><td><code>int64_t</code>, <code>uint64_t</code></td><td><code>number</code>, or an exact <code>bigint</code> past 2^53</td></tr><tr><td><code>f32</code>, <code>f64</code></td><td><code>float</code>, <code>double</code></td><td><code>number</code></td></tr><tr><td><code>bool</code></td><td><code>bool</code></td><td><code>boolean</code></td></tr><tr><td><code>pointer</code>, <code>ptr</code>, <code>function</code></td><td><code>void *</code></td><td><code>null</code>, <code>number</code> or <code>bigint</code></td></tr><tr><td><code>cstring</code></td><td><code>char *</code></td><td><code>string</code></td></tr></tbody></table></div>
 <h2 id="function-pointers"><a class="anchor" href="#function-pointers" aria-hidden="true">#</a>Function pointers</h2>
 <p><code>CFunction()</code> wraps a pointer you already have, for example from <code>dlsym()</code>:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> <span class="t-id">strdup</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
-  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"strdup"</span>),
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"cstring"</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"cstring"</span>,
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'strdup'</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'cstring'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'cstring'</span>,
 });
 
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">"hello"</span>));</code></pre></div>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">'hello'</span>));</code></pre></div>
 <p><code>linkSymbols()</code> is <code>dlopen()</code> without opening a library: every entry is
 resolved from its own <code>ptr</code>, or else with <code>dlsym(RTLD_DEFAULT, name)</code>:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">linkSymbols</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">linkSymbols</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">gnu_get_libc_version</span> } } <span class="t-op">=</span> <span class="t-fn">linkSymbols</span>({
-  <span class="t-id">gnu_get_libc_version</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"cstring"</span> },
+  <span class="t-id">gnu_get_libc_version</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'cstring'</span> },
 });
 
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">gnu_get_libc_version</span>());</code></pre></div>
@@ -106,14 +106,14 @@ resolved from its own <code>ptr</code>, or else with <code>dlsym(RTLD_DEFAULT, n
 <h2 id="callbacks"><a class="anchor" href="#callbacks" aria-hidden="true">#</a>Callbacks</h2>
 <p><code>JSCallback</code> turns a JavaScript function into a native function pointer, which
 <code>.ptr</code> gives, to pass to C:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSCallback</span>, <span class="t-type">CFunction</span>, <span class="t-id">dlsym</span>, <span class="t-id">read</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">JSCallback</span>, <span class="t-type">CFunction</span>, <span class="t-id">dlsym</span>, <span class="t-id">read</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> <span class="t-id">compare</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">JSCallback</span>((<span class="t-id">a</span>, <span class="t-id">b</span>) <span class="t-op">=&gt;</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">a</span>) <span class="t-op">-</span> <span class="t-id">read</span>.<span class="t-fn">i32</span>(<span class="t-id">b</span>), {
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"pointer"</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span>,
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'pointer'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span>,
 });
 
-<span class="t-kw">const</span> <span class="t-id">qsort</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"qsort"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"void"</span> });
+<span class="t-kw">const</span> <span class="t-id">qsort</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'qsort'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'void'</span> });
 
 <span class="t-kw">const</span> <span class="t-id">numbers</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Int32Array</span>([<span class="t-num">5</span>, <span class="t-num">3</span>, <span class="t-num">9</span>, <span class="t-num">1</span>]);
 <span class="t-fn">qsort</span>(<span class="t-id">numbers</span>, <span class="t-id">numbers</span>.<span class="t-prop">length</span>, <span class="t-num">4n</span>, <span class="t-id">compare</span>);
@@ -135,7 +135,7 @@ See <a href="pointers.html#cstring">Pointers and memory</a>.</p>
 address is), and a <code>bigint</code> above that. <code>ptr()</code> takes the address of an <code>ArrayBuffer</code> or typed
 array, <code>toArrayBuffer()</code> makes an <code>ArrayBuffer</code> over memory at an address, and
 <code>read</code> reads a value straight from an address:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">ptr</span>, <span class="t-id">read</span>, <span class="t-id">toArrayBuffer</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">ptr</span>, <span class="t-id">read</span>, <span class="t-id">toArrayBuffer</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> <span class="t-id">bytes</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>([<span class="t-num">1</span>, <span class="t-num">2</span>, <span class="t-num">3</span>, <span class="t-num">4</span>]);
 <span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">ptr</span>(<span class="t-id">bytes</span>);
@@ -148,11 +148,11 @@ array, <code>toArrayBuffer()</code> makes an <code>ArrayBuffer</code> over memor
 <h2 id="compiling-c"><a class="anchor" href="#compiling-c" aria-hidden="true">#</a>Compiling C</h2>
 <p><code>cc()</code> compiles C source in memory with TinyCC and returns its functions, with
 the same signatures:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">cc</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">cc</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> { <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hello</span> } } <span class="t-op">=</span> <span class="t-fn">cc</span>({
-  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-str">"hello.c"</span>,
-  <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hello</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"int"</span> } },
+  <span class="t-id">source</span><span class="t-op">:</span> <span class="t-str">'hello.c'</span>,
+  <span class="t-id">symbols</span><span class="t-op">:</span> { <span class="t-id">hello</span><span class="t-op">:</span> { <span class="t-id">args</span><span class="t-op">:</span> [], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'int'</span> } },
 });
 
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">hello</span>()); <span class="t-cm">// 42</span></code></pre></div>
@@ -182,7 +182,7 @@ builds compile but are untested.</li>
 </ul>
 <h2 id="differences-from-bunffi"><a class="anchor" href="#differences-from-bunffi" aria-hidden="true">#</a>Differences from bun:ffi</h2>
 <p>This module follows bun:ffi but is not a drop-in replacement yet. The open
-items are tracked in <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md#5-meeting-the-bunffi-spec-remaining-discrepancies" target="_blank" rel="noopener">TODO.md</a>:</p>
+items are tracked in <a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md#1-bunffi-differences-still-open" target="_blank" rel="noopener">TODO.md</a>:</p>
 <p>Not implemented:</p>
 <ul>
 <li><code>JSCallback</code>'s <code>threadsafe</code> option works as a property only: it reads back as
@@ -200,11 +200,8 @@ script does):</p>
 argument, a return or a variable, and the <code>types</code> object that names such
 classes in a spec (<code>dlopen(path, symbols, types)</code>, `linkSymbols(symbols,
 types)<code>, </code>cc({ ..., types })`);</li>
-<li>the <a href="node-ffi.html">node:ffi</a> API and the hook file that maps <code>node:ffi</code> and
-<code>bun:ffi</code>.</li>
+<li>the <a href="node-ffi.html">node:ffi</a> API.</li>
 </ul>
-<p><code>tests/test-bun-diff.js</code> runs 77 probe cases under bun and under this module;
-they give the same output (checked against bun 1.4.2).</p>
 <p>Different on purpose or for now:</p>
 <ul>
 <li><code>toBuffer()</code> returns an <code>ArrayBuffer</code> (QuickJS has no <code>Buffer</code>).</li>
@@ -213,10 +210,7 @@ bun's <code>read.ptr</code> rounds to a <code>number</code>.</li>
 <li>A closed <code>JSCallback</code> passed as a pointer is a <code>TypeError</code>; bun passes a stale
 pointer. An out-of-range <code>bigint</code>
 pointer wraps modulo 2^64, as in bun.</li>
-</ul>
-<p><code>tests/test-bun-diff.js</code> runs one script under <code>bun</code> and under <code>qjsm</code>; all 77
-cases of it give what bun 1.4.2 gives (<code>tests/bun-diff/known-differences.txt</code> is
-empty).</p></article>
+</ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/ffi.md">Edit this page on GitHub →</a></p>
 </main>
 <nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#contents">Contents</a></li><li class="lvl2"><a href="#usage">Usage</a></li><li class="lvl2"><a href="#types">Types</a></li><li class="lvl2"><a href="#function-pointers">Function pointers</a></li><li class="lvl2"><a href="#callbacks">Callbacks</a></li><li class="lvl2"><a href="#strings">Strings</a></li><li class="lvl2"><a href="#pointers">Pointers</a></li><li class="lvl2"><a href="#compiling-c">Compiling C</a></li><li class="lvl2"><a href="#memory-management">Memory management</a></li><li class="lvl2"><a href="#notes">Notes</a></li><li class="lvl2"><a href="#differences-from-bunffi">Differences from bun:ffi</a></li></ul></nav>

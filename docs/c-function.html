@@ -35,17 +35,17 @@ interface) is built once, at construction time, and stored directly on the
 returned function's closure data. Calling the function invokes libffi
 against that stored <code>cif</code>/function pointer with no string lookup involved.</p>
 <h2 id="usage"><a class="anchor" href="#usage" aria-hidden="true">#</a>Usage</h2>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
-<span class="t-kw">const</span> <span class="t-id">fp</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"strdup"</span>);
+<span class="t-kw">const</span> <span class="t-id">fp</span> <span class="t-op">=</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'strdup'</span>);
 
 <span class="t-kw">const</span> <span class="t-id">strdup</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
   <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-id">fp</span>,
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"cstring"</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"cstring"</span>,
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'cstring'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'cstring'</span>,
 });
 
-<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">"hello"</span>)); <span class="t-cm">// "hello"</span></code></pre></div>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">strdup</span>(<span class="t-str">'hello'</span>)); <span class="t-cm">// "hello"</span></code></pre></div>
 <p><code>CFunction()</code> may be called with or without <code>new</code>, as in bun:ffi: either way it
 returns the callable function.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">fn</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span>, <span class="t-id">args</span>, <span class="t-id">returns</span>, <span class="t-id">abi</span> })</code></pre></div>
@@ -69,15 +69,15 @@ numeric types).</p>
 the fixed ones are <code>(type, value)</code> pairs, because the types of the <code>...</code>
 arguments are not known until the call:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">snprintf</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
-  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"snprintf"</span>),
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>, <span class="t-str">"u64"</span>, <span class="t-str">"cstring"</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i32"</span>,
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'snprintf'</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>, <span class="t-str">'u64'</span>, <span class="t-str">'cstring'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i32'</span>,
   <span class="t-id">variadic</span><span class="t-op">:</span> <span class="t-atom">true</span>,
 });
 
 <span class="t-kw">const</span> <span class="t-id">buf</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-num">64</span>);
 
-<span class="t-fn">snprintf</span>(<span class="t-id">buf</span>, <span class="t-num">64n</span>, <span class="t-str">"%d %s %.2f"</span>, <span class="t-str">"i32"</span>, <span class="t-num">42</span>, <span class="t-str">"cstring"</span>, <span class="t-str">"hi"</span>, <span class="t-str">"f64"</span>, <span class="t-num">2.5</span>);</code></pre></div>
+<span class="t-fn">snprintf</span>(<span class="t-id">buf</span>, <span class="t-num">64n</span>, <span class="t-str">'%d %s %.2f'</span>, <span class="t-str">'i32'</span>, <span class="t-num">42</span>, <span class="t-str">'cstring'</span>, <span class="t-str">'hi'</span>, <span class="t-str">'f64'</span>, <span class="t-num">2.5</span>);</code></pre></div>
 <p>A pair's type is a scalar type name or <code>FFIType</code> number (not a struct, <code>void</code> or
 <code>buffer_length</code>); an unpaired value, an unknown type or more than 32 arguments
 in all throws. The C default argument promotions are applied for you: <code>f32</code>
@@ -102,26 +102,26 @@ of member types for a struct passed by value. A class inheriting from
 by that class: see <a href="struct.html">Classes as types</a>.</p>
 <h2 id="examples"><a class="anchor" href="#examples" aria-hidden="true">#</a>Examples</h2>
 <p>Calling a libm function with <code>f64</code> arguments and return:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">"ffi"</span>;
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">dlopen</span>, <span class="t-id">dlsym</span>, <span class="t-type">CFunction</span>, <span class="t-type">RTLD_DEFAULT</span> } <span class="t-kw">from</span> <span class="t-str">'ffi'</span>;
 
 <span class="t-kw">const</span> <span class="t-id">pow</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
-  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"pow"</span>),
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"f64"</span>, <span class="t-str">"f64"</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"f64"</span>,
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'pow'</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'f64'</span>, <span class="t-str">'f64'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'f64'</span>,
 });
 
 <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">pow</span>(<span class="t-num">2</span>, <span class="t-num">10</span>)); <span class="t-cm">// 1024</span></code></pre></div>
 <p>64-bit integers round-trip exactly as <code>BigInt</code>:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">llabs</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({
-  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"llabs"</span>),
-  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"i64"</span>],
-  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"i64"</span>,
+  <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'llabs'</span>),
+  <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'i64'</span>],
+  <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'i64'</span>,
 });
 
 <span class="t-fn">llabs</span>(<span class="t-op">-</span><span class="t-num">9007199254740993n</span>); <span class="t-cm">// 9007199254740993n</span></code></pre></div>
 <p><code>malloc</code>/<code>free</code> via <code>pointer</code>:</p>
-<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">malloc</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"malloc"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"u64"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"pointer"</span> });
-<span class="t-kw">const</span> <span class="t-id">free</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">"free"</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">"pointer"</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">"void"</span> });
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">malloc</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'malloc'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'u64'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'pointer'</span> });
+<span class="t-kw">const</span> <span class="t-id">free</span> <span class="t-op">=</span> <span class="t-fn">CFunction</span>({ <span class="t-id">ptr</span><span class="t-op">:</span> <span class="t-fn">dlsym</span>(<span class="t-type">RTLD_DEFAULT</span>, <span class="t-str">'free'</span>), <span class="t-id">args</span><span class="t-op">:</span> [<span class="t-str">'pointer'</span>], <span class="t-id">returns</span><span class="t-op">:</span> <span class="t-str">'void'</span> });
 
 <span class="t-kw">const</span> <span class="t-id">p</span> <span class="t-op">=</span> <span class="t-fn">malloc</span>(<span class="t-num">16n</span>);
 <span class="t-fn">free</span>(<span class="t-id">p</span>);</code></pre></div>
@@ -137,7 +137,6 @@ function that takes a pointer, such as <code>ptr()</code> or <code>read</code>, 
 <h2 id="see-also"><a class="anchor" href="#see-also" aria-hidden="true">#</a>See also</h2>
 <ul>
 <li><a href="js-callback.html"><code>doc/js-callback.md</code></a></li>
-<li><a href="https://github.com/rsenn/qjs-ffi/blob/main/TODO.md" target="_blank" rel="noopener"><code>TODO.md</code></a> -- Phase 1 of the <code>bun:ffi</code>-compatible API migration this class is part of.</li>
 <li><a href="https://bun.com/docs/runtime/ffi" target="_blank" rel="noopener">bun:ffi docs</a></li>
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-ffi/blob/main/doc/c-function.md">Edit this page on GitHub →</a></p>
