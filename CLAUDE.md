@@ -213,12 +213,6 @@ as the main program. A plain script run without `-m` already supports
 path, and using it to run a script is a category error, not just a
 stylistic difference.
 
-## Git commits
-
-End commit messages with the `Co-Authored-By: ...` trailer from Claude Code's
-attribution guidance. This project's own rule, not a default to be dropped.
-
-
 ## Source layout
 
 The `diet-coding` skill's one-function-per-source-file rule does not apply
@@ -226,3 +220,9 @@ here. A source file groups what belongs together (a class, a JS-facing
 module, a helper family), as `c-function.c`, `ffi-type.c` and
 `js-helpers.c` already do. The rest of the skill (explicit lengths, no
 stdio/printf in hot paths, measuring with `size`/`nm`) still holds.
+
+## Git commits
+
+Do not add the `Co-Authored-By:` or `Claude-Session:` trailers (or any other
+attribution lines) to commit messages in this project, even when Claude Code's
+attribution guidance asks for them. This project's own rule overrides it.

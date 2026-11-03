@@ -150,6 +150,25 @@ export function describeClass(Ctor, opts = {}) {
     depth++;
   }
 
+  // Fallback for native classes (like in Bun) where Ctor.prototype has no enumerable members
+  if(opts.instance && result.prototypeChain.every(p => p.methods.length === 0 && p.getters.length === 0 && p.setters.length === 0 && p.fields.length === 0)) {
+    let iproto = Object.getPrototypeOf(opts.instance);
+    let idepth = 0;
+    const newProtoChain = [];
+    while(iproto && iproto !== Object.prototype && iproto !== Function.prototype && idepth < 20) {
+      newProtoChain.push({
+        level: idepth,
+        constructorName: iproto.constructor?.name || Ctor.name || "(anonymous)",
+        ...describeMembers(iproto),
+      });
+      iproto = Object.getPrototypeOf(iproto);
+      idepth++;
+    }
+    if(newProtoChain.length > 0) {
+      result.prototypeChain = newProtoChain;
+    }
+  }
+
   if(opts.instance) result.instanceFields = describeMembers(opts.instance).fields;
 
   return result;
@@ -309,6 +328,9 @@ function isPlain(v) {
 
 export function describeAny(v, asClass) {
   if(typeof v === "function" && (isClass(v) || (asClass && !isPlain(v)))) return { kind: "class", ...describeClass(v) };
+  if(typeof v !== "function" && v !== null && typeof v === "object" && asClass && v.constructor && typeof v.constructor === "function") {
+    return { kind: "class", ...describeClass(v.constructor, { instance: v }) };
+  }
   if(typeof v === "function")
     return { kind: "function", ...describeObject(v), ...variantOf(v), arity: v.length, native: /\[native code\]/.test(Function.prototype.toString.call(v)), signatures: v[SIG] };
   if(v !== null && typeof v === "object") return { kind: "object", ...describeObject(v) };
@@ -888,11 +910,7 @@ async function main() {
       let ctor = v.constructor;
 
       if("prototype" in v) proto = v.prototype;
-
       if("constructor" in v && v.constructor.name) ctor = v.constructor;
-      /*else  if('constructor' in proto) v= proto.constructor;*/
-
-      console.log(describeAny(ctor, true), { name, v, insp: Bun.inspect(ctor) });
 
       name = proto?.[Symbol.toStringTag] ?? proto?.constructor?.name;
     }
