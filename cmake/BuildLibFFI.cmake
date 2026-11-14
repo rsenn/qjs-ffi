@@ -54,6 +54,15 @@ macro(build_libffi TARGET)
     set(${TARGET}_CONFIGURE_EXTRA --disable-exec-static-tramp)
   endif(CMAKE_C_COMPILER MATCHES "musl")
 
+  # a cross compiler cannot run its test programs: configure needs --host
+  if(CMAKE_CROSSCOMPILING)
+    execute_process(COMMAND "${CMAKE_C_COMPILER}" -dumpmachine
+                    OUTPUT_VARIABLE ${TARGET}_HOST_TRIPLET OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(${TARGET}_HOST_TRIPLET)
+      list(APPEND ${TARGET}_CONFIGURE_EXTRA "--host=${${TARGET}_HOST_TRIPLET}")
+    endif(${TARGET}_HOST_TRIPLET)
+  endif(CMAKE_CROSSCOMPILING)
+
   ExternalProject_Add(
     "${TARGET}"
     SOURCE_DIR "${LIBFFI_SOURCE_DIR}"

@@ -43,14 +43,15 @@ else("${_libffi_mode}" STREQUAL "ON")
     set(LIBFFI_LIBRARY ${pkgcfg_lib_LIBFFI_ffi})
   endif(pkgcfg_lib_LIBFFI_ffi)
 
-  if(NOT LIBFFI_FOUND)
+  # a libffi.pc of the host counts only when the toolchain resolves the library too
+  if(NOT LIBFFI_LIBRARY)
     find_library(LIBFFI_LIBRARY ffi)
-  endif(NOT LIBFFI_FOUND)
+  endif(NOT LIBFFI_LIBRARY)
 
-  if("${_libffi_mode}" STREQUAL "AUTO" AND NOT LIBFFI_FOUND AND NOT LIBFFI_LIBRARY)
+  if("${_libffi_mode}" STREQUAL "AUTO" AND NOT LIBFFI_LIBRARY)
     message(STATUS "No system libffi found, building it from source (BUILD_LIBFFI=AUTO)")
     set(LIBFFI_BUILD TRUE)
-  endif("${_libffi_mode}" STREQUAL "AUTO" AND NOT LIBFFI_FOUND AND NOT LIBFFI_LIBRARY)
+  endif("${_libffi_mode}" STREQUAL "AUTO" AND NOT LIBFFI_LIBRARY)
 endif("${_libffi_mode}" STREQUAL "ON")
 
 if(LIBFFI_BUILD)
@@ -117,18 +118,36 @@ endif(NOT FFI_FOUND)
 
 if(FFI_FOUND)
   set(HAVE_LIBFFI TRUE)
+
+  # an installed libffi outside the compiler's own paths (musl: /opt/musl/include)
+  if(FFI_INCLUDE_DIRS OR LIBFFI_INCLUDE_DIRS)
+    include_directories(${FFI_INCLUDE_DIRS} ${LIBFFI_INCLUDE_DIRS})
+  endif(FFI_INCLUDE_DIRS OR LIBFFI_INCLUDE_DIRS)
+
+  # a fully static link wants the archive beside the .so pkg-config found
+  if(LINK_STATIC AND LIBFFI_LIBRARY MATCHES "\\.so$")
+    string(REGEX REPLACE "\\.so$" ".a" _ffi_static "${LIBFFI_LIBRARY}")
+    if(EXISTS "${_ffi_static}")
+      set(LIBFFI_LIBRARY "${_ffi_static}")
+    endif(EXISTS "${_ffi_static}")
+  endif(LINK_STATIC AND LIBFFI_LIBRARY MATCHES "\\.so$")
 endif(FFI_FOUND)
 # check_library_exists(ffi ffi_call "" HAVE_LIBFFI)
 
 # Main: qjs-ffi (ffi.so, BUILD_SHARED) and qjs-ffi-static (quickjs-ffi.a plus
 # quickjs-ffi.module.cmake, BUILD_STATIC) from make_module(); the shared module is linked to
 # a -fPIC libffi (libtcc), the static one to its own non-PIC build.
-set(ffi_LIBRARIES_shared ${FFI_LIBRARIES} ${LIBFFI_LIBRARY})
-set(ffi_LIBRARIES_static ${FFI_LIBRARIES} ${LIBFFI_LIBRARY})
+# a libffi built here is linked by path only: FFI_LIBRARIES names the host's
+set(_ffi_pkg_libs ${FFI_LIBRARIES})
+if(LIBFFI_BUILD)
+  set(_ffi_pkg_libs "")
+endif(LIBFFI_BUILD)
+set(ffi_LIBRARIES_shared ${_ffi_pkg_libs} ${LIBFFI_LIBRARY})
+set(ffi_LIBRARIES_static ${_ffi_pkg_libs} ${LIBFFI_LIBRARY})
 
 if(LIBFFI_BUILD AND BUILD_STATIC)
   build_libffi(libffi-static)
-  set(ffi_LIBRARIES_static ${FFI_LIBRARIES} ${libffi-static_LIBRARY})
+  set(ffi_LIBRARIES_static ${_ffi_pkg_libs} ${libffi-static_LIBRARY})
 endif(LIBFFI_BUILD AND BUILD_STATIC)
 
 if(ENABLE_TCC)
