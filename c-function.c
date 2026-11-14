@@ -499,9 +499,11 @@ js_is_data_spec(JSContext* ctx, JSValueConst spec, const char* who, const char* 
 }
 
 /* the value of a constant, as an exact integer or a double.
- * bigints and numbers both land in `i` (or `d` for a fraction). */
+ * bigints and numbers both land in `i` (or `d` for a fraction);
+ * `is_u64` means the value is (uint64_t)i, above INT64_MAX. */
 typedef struct {
-  __int128 i;
+  int64_t i;
+  int is_u64;
   double d;
   int is_float;
 } ConstNum;
@@ -513,6 +515,7 @@ const_num(JSContext* ctx, JSValueConst v, ConstNum* out, const char* what) {
   int64_t s;
 
   out->is_float = 0;
+  out->is_u64 = 0;
 
   if(JS_IsBigInt(ctx, v)) {
     JSValue back;
@@ -535,7 +538,8 @@ const_num(JSContext* ctx, JSValueConst v, ConstNum* out, const char* what) {
       back = JS_NewBigUint64(ctx, (uint64_t)s);
       b = JS_ToCString(ctx, back);
       same = a && b && !strcmp(a, b);
-      out->i = (__int128)(uint64_t)s;
+      out->i = s;
+      out->is_u64 = s < 0;
     }
 
     JS_FreeValue(ctx, back);
@@ -560,7 +564,8 @@ const_num(JSContext* ctx, JSValueConst v, ConstNum* out, const char* what) {
     if(d == (double)(int64_t)d && d > -9.3e18 && d < 9.3e18) {
       out->i = (int64_t)d;
     } else if(d >= 0 && d < 18446744073709551616.0 && d == (double)(uint64_t)d) {
-      out->i = (__int128)(uint64_t)d;
+      out->i = (int64_t)(uint64_t)d;
+      out->is_u64 = 1;
     } else
       out->is_float = 1;
     return 0;
@@ -573,7 +578,7 @@ const_num(JSContext* ctx, JSValueConst v, ConstNum* out, const char* what) {
 /* checks `n` against the range of scalar `kind`; -1 with a RangeError. */
 static int
 const_check(JSContext* ctx, int kind, const ConstNum* n, const char* what) {
-  __int128 lo, hi;
+  int64_t lo, hi;
 
   switch(kind) {
     case K_BOOL: lo = 0, hi = 1; break;
@@ -586,11 +591,15 @@ const_check(JSContext* ctx, int kind, const ConstNum* n, const char* what) {
     case K_I64:
     case K_I64_FAST: lo = INT64_MIN, hi = INT64_MAX; break;
     case K_U64:
-    case K_U64_FAST: lo = 0, hi = (__int128)UINT64_MAX; break;
+    case K_U64_FAST:
+      if(n->is_float || (!n->is_u64 && n->i < 0))
+        goto range;
+      return 0;
     default: return 0;
   }
 
-  if(n->is_float || n->i < lo || n->i > hi) {
+  if(n->is_float || n->is_u64 || n->i < lo || n->i > hi) {
+  range:
     JS_ThrowRangeError(ctx, "%s: does not fit the type", what);
     return -1;
   }
@@ -656,7 +665,7 @@ enum_create(JSContext* ctx, JSValueConst spec, int kind, const char* who, const 
   JSPropertyEnum* tab = NULL;
   uint32_t len = 0, i;
   JSValue out = JS_UNDEFINED;
-  __int128 seen = 0;
+  uint64_t seen = 0;
   char what[256];
 
   JS_FreeValue(ctx, flags_v);
@@ -693,11 +702,11 @@ enum_create(JSContext* ctx, JSValueConst spec, int kind, const char* who, const 
       goto member_done;
 
     if(flags && n.i) {
-      if(seen & n.i) {
+      if(seen & (uint64_t)n.i) {
         JS_ThrowRangeError(ctx, "%s: bits overlap an earlier flag", what);
         goto member_done;
       }
-      seen |= n.i;
+      seen |= (uint64_t)n.i;
     }
 
     nv = const_value(ctx, v, kind, what);
