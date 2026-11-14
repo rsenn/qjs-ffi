@@ -92,9 +92,12 @@ configure_quickjs()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..
                     ${CMAKE_CURRENT_SOURCE_DIR}/../..)
-if(CMAKE_SYSTEM_INCLUDE_PATH)
-  include_directories(${CMAKE_SYSTEM_INCLUDE_PATH})
-endif(CMAKE_SYSTEM_INCLUDE_PATH)
+# a bare -I/usr/include would put the host's glibc headers ahead of musl's
+set(_sys_inc ${CMAKE_SYSTEM_INCLUDE_PATH})
+list(REMOVE_ITEM _sys_inc /usr/include)
+if(_sys_inc)
+  include_directories(${_sys_inc})
+endif(_sys_inc)
 
 set(DISABLE_WERROR TRUE)
 
@@ -120,9 +123,11 @@ if(FFI_FOUND)
   set(HAVE_LIBFFI TRUE)
 
   # an installed libffi outside the compiler's own paths (musl: /opt/musl/include)
-  if(FFI_INCLUDE_DIRS OR LIBFFI_INCLUDE_DIRS)
-    include_directories(${FFI_INCLUDE_DIRS} ${LIBFFI_INCLUDE_DIRS})
-  endif(FFI_INCLUDE_DIRS OR LIBFFI_INCLUDE_DIRS)
+  set(_ffi_inc ${FFI_INCLUDE_DIRS} ${LIBFFI_INCLUDE_DIRS})
+  list(REMOVE_ITEM _ffi_inc /usr/include)
+  if(_ffi_inc)
+    include_directories(${_ffi_inc})
+  endif(_ffi_inc)
 
   # a fully static link wants the archive beside the .so pkg-config found
   if(LINK_STATIC AND LIBFFI_LIBRARY MATCHES "\\.so$")
