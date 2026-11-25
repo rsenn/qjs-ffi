@@ -41,10 +41,10 @@ macro(build_libffi TARGET)
   set(${TARGET}_INSTALL_DIR "${${TARGET}_BINARY_DIR}/install")
 
   if(BUILD_LIBFFI_PIC)
-    set(${TARGET}_C_FLAGS "-fPIC")
+    set(${TARGET}_C_FLAGS "-fPIC -Wno-deprecated-declarations")
     message("-- Building LIBFFI from source (${TARGET}, -fPIC)")
   else(BUILD_LIBFFI_PIC)
-    set(${TARGET}_C_FLAGS "")
+    set(${TARGET}_C_FLAGS "-Wno-deprecated-declarations")
     message("-- Building LIBFFI from source (${TARGET}, no -fPIC)")
   endif(BUILD_LIBFFI_PIC)
 

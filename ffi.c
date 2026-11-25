@@ -107,7 +107,7 @@ js_dlopen(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) 
 /* dlerror(): the text of the last libdl error, or null. */
 static JSValue
 js_dlerror(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
-  char* res = dlerror();
+  const char* res = dlerror();
 
   return res ? JS_NewString(ctx, res) : JS_NULL;
 }
