@@ -54,6 +54,14 @@ macro(build_libffi TARGET)
     set(${TARGET}_CONFIGURE_EXTRA --disable-exec-static-tramp)
   endif(CMAKE_C_COMPILER MATCHES "musl")
 
+  # config.guess reports e.g. x86_64-pc-linux-dietlibc under dietlibc, which the
+  # bundled config.sub rejects; name the build system explicitly instead
+  if(DIET OR HAVE_DIETLIBC OR CMAKE_C_COMPILER MATCHES "diet")
+    list(APPEND ${TARGET}_CONFIGURE_EXTRA "--build=${CMAKE_HOST_SYSTEM_PROCESSOR}-pc-linux-gnu")
+    # dietlibc declares getmntent_r() (closures.c) under __USE_MISC, which nothing sets
+    string(APPEND ${TARGET}_C_FLAGS " -D__USE_MISC=1")
+  endif()
+
   # a cross compiler cannot run its test programs: configure needs --host
   if(CMAKE_CROSSCOMPILING)
     execute_process(COMMAND "${CMAKE_C_COMPILER}" -dumpmachine
