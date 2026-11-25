@@ -66,6 +66,8 @@ macro(build_libffi TARGET)
   if(CMAKE_CROSSCOMPILING)
     execute_process(COMMAND "${CMAKE_C_COMPILER}" -dumpmachine
                     OUTPUT_VARIABLE ${TARGET}_HOST_TRIPLET OUTPUT_STRIP_TRAILING_WHITESPACE)
+    # config.sub rejects x86_64-linux-cosmo; libffi treats it as linux-gnu
+    string(REGEX REPLACE "-cosmo$" "-gnu" ${TARGET}_HOST_TRIPLET "${${TARGET}_HOST_TRIPLET}")
     if(${TARGET}_HOST_TRIPLET)
       list(APPEND ${TARGET}_CONFIGURE_EXTRA "--host=${${TARGET}_HOST_TRIPLET}")
     endif(${TARGET}_HOST_TRIPLET)
