@@ -2,7 +2,9 @@
 #include "ffi-type.h"
 #include "js-callback.h"
 #include "js-helpers.h"
+#include <quickjs.h>
 #include <cutils.h>
+#include <string.h>
 #include <ffi.h>
 
 /* one argument or return slot; only the member of the declared kind
