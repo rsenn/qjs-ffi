@@ -50,6 +50,17 @@ macro(build_libtcc TARGET)
   endif()
   message("-- Building TinyCC from source (${TARGET}, ${${TARGET}_C_FLAGS})")
 
+  # tcc compiles libtcc1.a against bionic's headers, which #error unless __ANDROID_MIN_SDK_VERSION__ is defined (clang
+  # predefines it, tcc does not); --enable-static: tcc's configure defaults to a shared libtcc on Android, the install
+  # below wants libtcc.a
+  set(_LIBTCC1_FLAGS)
+  if(ANDROID)
+    if(NOT LIBTCC_ANDROID_API)
+      set(LIBTCC_ANDROID_API 24)
+    endif(NOT LIBTCC_ANDROID_API)
+    set(_LIBTCC1_FLAGS "XFLAGS-unx=-B${LIBTCC_SOURCE_DIR} -D__ANDROID_MIN_SDK_VERSION__=${LIBTCC_ANDROID_API}")
+  endif(ANDROID)
+
   ExternalProject_Add(
     "${TARGET}"
     SOURCE_DIR "${LIBTCC_SOURCE_DIR}"
@@ -58,8 +69,8 @@ macro(build_libtcc TARGET)
     CONFIGURE_COMMAND
       "${LIBTCC_SOURCE_DIR}/configure" "--prefix=${${TARGET}_INSTALL_DIR}"
       "--cc=${CMAKE_C_COMPILER}" "--extra-cflags=${${TARGET}_C_FLAGS}"
-      --config-bcheck=no --config-backtrace=no
-    BUILD_COMMAND make -C "${${TARGET}_BINARY_DIR}" libtcc.a libtcc1.a
+      --config-bcheck=no --config-backtrace=no --enable-static
+    BUILD_COMMAND make -C "${${TARGET}_BINARY_DIR}" libtcc.a libtcc1.a ${_LIBTCC1_FLAGS}
     INSTALL_COMMAND make -C "${${TARGET}_BINARY_DIR}" install
     BUILD_BYPRODUCTS "${${TARGET}_INSTALL_DIR}/lib/libtcc.a"
     USES_TERMINAL_CONFIGURE ON
