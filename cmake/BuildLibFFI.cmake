@@ -50,9 +50,10 @@ macro(build_libffi TARGET)
 
   # musl-gcc has no kernel headers; static trampolines (tramp.c) need linux/limits.h
   set(${TARGET}_CONFIGURE_EXTRA "")
-  if(CMAKE_C_COMPILER MATCHES "musl")
+  # cosmocc: tramp.c needs off_t/sysconf/mmap internals its headers lack
+  if(CMAKE_C_COMPILER MATCHES "musl|cosmo")
     set(${TARGET}_CONFIGURE_EXTRA --disable-exec-static-tramp)
-  endif(CMAKE_C_COMPILER MATCHES "musl")
+  endif(CMAKE_C_COMPILER MATCHES "musl|cosmo")
 
   # config.guess reports e.g. x86_64-pc-linux-dietlibc under dietlibc, which the
   # bundled config.sub rejects; name the build system explicitly instead
